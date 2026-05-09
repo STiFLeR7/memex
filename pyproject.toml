@@ -1,0 +1,25 @@
+[project]
+name = "memex"
+version = "0.1.0"
+description = "Developer context continuity system building a temporal knowledge graph."
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "graphiti-core[google-genai]",
+    "tree-sitter-language-pack",
+    "watchdog",
+    "mcp",
+    "fastapi",
+    "uvicorn",
+    "apscheduler",
+    "python-dotenv",
+    "pytest",
+    "pytest-asyncio",
+]
+
+[tool.uv]
+managed = true
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
