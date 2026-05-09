@@ -5,6 +5,7 @@ from memex.synthesizer.commit import extract_decisions
 from memex.graph.writer import write_symbol_delta, write_decision
 
 @pytest.mark.asyncio
+@pytest.mark.integration
 async def test_pipeline_e2e_integration():
     """
     Integration test for the full Phase 1 pipeline:

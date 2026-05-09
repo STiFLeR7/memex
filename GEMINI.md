@@ -58,6 +58,6 @@ memex/
 
 Update this section as phases complete:
 - [x] Phase 1 — Graph Writes
-- [ ] Phase 2 — Watcher Daemon + CLI
+- [x] Phase 2 — Watcher Daemon + CLI
 - [ ] Phase 3 — MCP Read Tools
 - [ ] Phase 4 — MCP Write Tools + Polish

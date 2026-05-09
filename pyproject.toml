@@ -15,10 +15,20 @@ dependencies = [
     "python-dotenv",
     "pytest",
     "pytest-asyncio",
+    "gitpython",
 ]
 
 [tool.uv]
 managed = true
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+markers = [
+    "integration: marks tests as integration tests (requires Neo4j/Gemini)",
+]
+
+[project.scripts]
+memex = "memex.cli:main"
 
 [build-system]
 requires = ["hatchling"]

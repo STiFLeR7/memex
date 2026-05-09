@@ -1,5 +1,6 @@
 import json
 import logging
+import asyncio
 from typing import List
 from pydantic import BaseModel
 from google import genai
@@ -23,15 +24,22 @@ async def extract_decisions(
 ) -> List[Decision]:
     """
     Uses Gemini Flash to extract zero or more architectural decisions from a commit.
+    Includes rate limit retries and trivial commit filtering.
     """
+    # Guard against empty/whitespace messages
+    if not commit_message or not commit_message.strip():
+        return []
+
+    # Trivial commit filter (regex-like logic)
+    trivial_prefixes = ("wip", "fix", "typo", "merge", "bump", "fmt", "format", "lint", "style")
+    msg_lower = commit_message.lower().strip()
+    if any(msg_lower.startswith(pref) for pref in trivial_prefixes) or len(msg_lower.split()) < 2:
+        logger.debug("Skipping trivial commit: %s", commit_message)
+        return []
+
     config = get_config()
     client = genai.Client(api_key=config.gemini_api_key)
     
-    # Filter trivial messages early to save on LLM calls
-    trivial_keywords = ["fix typo", "wip", "merge", "ignore", "formatting"]
-    if any(kw in commit_message.lower() for kw in trivial_keywords):
-        return []
-
     prompt = f"""
     Analyze the following git commit message and diff summary. 
     Extract zero or more architectural or technical decisions made in this commit.
@@ -45,31 +53,42 @@ async def extract_decisions(
     Return the decisions in a strict JSON format matching the schema.
     """
 
-    try:
-        response = client.models.generate_content(
-            model="gemini-2.0-flash",
-            contents=prompt,
-            config={
-                'response_mime_type': 'application/json',
-                'response_schema': DecisionsResponse,
-            }
-        )
-        
-        # The SDK returns the parsed response in .parsed if using response_schema
-        # but let's handle the raw text to be safe across SDK versions
-        data = json.loads(response.text)
-        extracted_decisions = []
-        
-        for d in data.get("decisions", []):
-            extracted_decisions.append(Decision(
-                text=d["text"],
-                rationale=d["rationale"],
-                scope=d["scope"],
-                source_commit=commit_sha
-            ))
+    # Retry logic with exponential backoff
+    for attempt in range(3):
+        try:
+            response = client.models.generate_content(
+                model=config.gemini_model,
+                contents=prompt,
+                config={
+                    'response_mime_type': 'application/json',
+                    'response_schema': DecisionsResponse,
+                }
+            )
             
-        return extracted_decisions
+            data = json.loads(response.text)
+            extracted_decisions = []
+            
+            for d in data.get("decisions", []):
+                extracted_decisions.append(Decision(
+                    text=d["text"],
+                    rationale=d["rationale"],
+                    scope=d["scope"],
+                    source_commit=commit_sha
+                ))
+                
+            return extracted_decisions
 
-    except Exception as e:
-        logger.error(f"Failed to extract decisions via Gemini: {e}")
-        return []
+        except Exception as e:
+            # Check for rate limit or other retryable errors
+            err_str = str(e).lower()
+            if "429" in err_str or "rate limit" in err_str:
+                wait_time = (2 ** attempt) + 1
+                logger.warning("Gemini rate limit hit. Retrying in %ds...", wait_time)
+                await asyncio.sleep(wait_time)
+                continue
+            
+            logger.error("Failed to extract decisions via Gemini", exc_info=True)
+            return []
+
+    logger.error("Failed to extract decisions after 3 attempts due to rate limits.")
+    return []

@@ -1,5 +1,5 @@
 import logging
-from typing import Optional, List, Iterable
+from typing import Optional, List
 from graphiti_core import Graphiti
 from graphiti_core.cross_encoder.client import CrossEncoderClient
 from graphiti_core.embedder.gemini import GeminiEmbedder, GeminiEmbedderConfig
@@ -17,20 +17,17 @@ class NoOpCrossEncoder(CrossEncoderClient):
 
 class FixedGeminiEmbedder(GeminiEmbedder):
     """
-    Bypasses a bug in Graphiti's GeminiEmbedder where batch embedding fails 
-    because it passes a list of strings directly to the Gemini API, 
-    which results in a single embedding for the whole list instead of a list of embeddings.
+    Bypasses a bug in Graphiti's GeminiEmbedder where batch embedding fails.
     """
     async def create_batch(self, input_data_list: list[str]) -> list[list[float]]:
         if not input_data_list:
             return []
             
         all_embeddings = []
-        # Process inputs one by one to ensure we get a vector for each
         for item in input_data_list:
             result = await self.client.aio.models.embed_content(
                 model=self.config.embedding_model,
-                contents=item, # Direct string works for single item in SDK
+                contents=item,
                 config=types.EmbedContentConfig(output_dimensionality=self.config.embedding_dim),
             )
             if result.embeddings and len(result.embeddings) > 0:
@@ -58,11 +55,11 @@ class GraphClient:
             genai_client = genai.Client(api_key=config.gemini_api_key)
             
             # Configure LLM Client
-            llm_config = LLMConfig(model="gemini-2.0-flash")
+            llm_config = LLMConfig(model=config.gemini_model)
             llm_client = GeminiClient(config=llm_config, client=genai_client)
             
-            # Configure Embedder with Fix
-            embedder_config = GeminiEmbedderConfig(embedding_model="models/gemini-embedding-2")
+            # Configure Embedder
+            embedder_config = GeminiEmbedderConfig(embedding_model=config.embedding_model)
             embedder = FixedGeminiEmbedder(config=embedder_config, client=genai_client)
             
             # Initialize Graphiti
@@ -74,9 +71,23 @@ class GraphClient:
                 embedder=embedder,
                 cross_encoder=NoOpCrossEncoder()
             )
-            logger.info("Graphiti client initialized with FixedGeminiEmbedder")
+            logger.info("Graphiti client initialized with model %s", config.gemini_model)
             
         return cls._instance
 
+    @classmethod
+    async def reset(cls):
+        """Clears the singleton instance and closes the driver."""
+        if cls._instance:
+            try:
+                await cls._instance.driver.close()
+            except Exception:
+                pass
+            cls._instance = None
+            logger.info("Graphiti client reset")
+
 async def get_graph_client() -> Graphiti:
     return await GraphClient.get_instance()
+
+async def reset_graph_client():
+    await GraphClient.reset()
