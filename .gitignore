@@ -53,3 +53,6 @@ uv.lock
 .pytest_cache/
 GEMINI.md
 docs/
+
+.gemini
+.memex

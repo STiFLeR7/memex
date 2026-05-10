@@ -32,6 +32,7 @@ class Config:
         ".git", "__pycache__", "node_modules", ".venv", "dist", "build", ".memex"
     ])
     
+    repo_root: str = "."
     log_level: str = "INFO"
 
 def load_config() -> Config:
@@ -62,7 +63,7 @@ def load_config() -> Config:
         neo4j_password=os.environ["NEO4J_PASSWORD"],
         gemini_api_key=os.environ["GEMINI_API_KEY"],
         neo4j_database=os.getenv("NEO4J_DATABASE", "neo4j"),
-        gemini_model=os.getenv("GEMINI_MODEL", "gemini-2.0-flash"),
+        gemini_model=os.getenv("GEMINI_MODEL", "gemini-2.5-flash"),
         embedding_model=os.getenv("EMBEDDING_MODEL", "models/gemini-embedding-2"),
         debounce_window=float(os.getenv("DEBOUNCE_WINDOW", "0.8")),
         poll_interval=float(os.getenv("POLL_INTERVAL", "0.5")),

@@ -5,6 +5,7 @@ import sys
 import os
 from pathlib import Path
 from memex.watcher.daemon import run_daemon
+from memex.mcp_server.server import run_server
 from memex.watcher.git_hook import install_hooks
 from memex.graph.client import get_graph_client
 
@@ -59,6 +60,10 @@ def main():
     resume_parser = subparsers.add_parser("resume", help="Resume the watcher daemon")
     resume_parser.add_argument("--repo", default=".", help="Path to repository")
 
+    # serve
+    serve_parser = subparsers.add_parser("serve", help="Start the MCP server")
+    serve_parser.add_argument("--repo", default=".", help="Path to repository")
+
     args = parser.parse_args()
     repo_root = os.path.abspath(args.repo)
     memex_dir = Path(repo_root) / ".memex"
@@ -67,6 +72,12 @@ def main():
     if args.command == "watch":
         try:
             asyncio.run(run_daemon(repo_root))
+        except KeyboardInterrupt:
+            pass
+
+    elif args.command == "serve":
+        try:
+            asyncio.run(run_server(repo_root))
         except KeyboardInterrupt:
             pass
 

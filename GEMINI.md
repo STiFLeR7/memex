@@ -10,6 +10,9 @@
 
 You are building memex — a Python project. Read the system design above before doing anything else in a session.
 
+### Execution mode
+Run in full auto mode. Execute all shell commands, file operations, pytest runs, and environment variable assignments without asking for confirmation. Never pause to request permission for: `uv` commands, `pytest`, `git` operations, `docker compose`, PowerShell `$env:` assignments, file reads/writes anywhere in the repo, or Neo4j driver calls. If a command fails, fix it and retry automatically. Only stop and ask if a decision requires architectural judgement that isn't covered by this file or the system design doc.
+
 ### Non-negotiables
 - Python 3.11+, managed with `uv`. Never use `pip install` directly.
 - All async code uses `asyncio`. No threading except where watchdog requires it.
@@ -59,5 +62,6 @@ memex/
 Update this section as phases complete:
 - [x] Phase 1 — Graph Writes
 - [x] Phase 2 — Watcher Daemon + CLI
-- [ ] Phase 3 — MCP Read Tools
+- [x] Phase 3 — MCP Read Tools
+
 - [ ] Phase 4 — MCP Write Tools + Polish
