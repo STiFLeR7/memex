@@ -82,9 +82,10 @@ async def get_recent_decisions_raw(since_days: int, module: Optional[str], limit
 async def get_open_problems_raw(module: Optional[str]) -> List[Dict[str, Any]]:
     """Returns unresolved problem nodes."""
     client = await get_graph_client()
+    # We match anything that looks like a Problem and is NOT resolved
     query = """
     MATCH (p:Entity)
-    WHERE (p.type = 'Problem' OR p.name CONTAINS 'Problem') 
+    WHERE (coalesce(p.type, '') = 'Problem' OR p.name CONTAINS 'Problem') 
       AND coalesce(p.status, 'open') = 'open'
       AND NOT (p)-[:RESOLVED_BY|RESOLVES]->()
     
@@ -103,8 +104,9 @@ async def get_open_problems_raw(module: Optional[str]) -> List[Dict[str, Any]]:
     WHERE ($module IS NULL OR m.name STARTS WITH $module)
     
     RETURN p.name as text, coalesce(p.severity, 'medium') as severity, 
-           m.name as module, coalesce(p.created_at, datetime()) as date,
-           coalesce(p.surfaced_by, 'watcher') as agent
+           coalesce(m.name, 'unknown') as module, coalesce(p.created_at, datetime()) as date,
+           coalesce(p.surfaced_by, 'watcher') as agent,
+           coalesce(p.uuid, elementId(p)) as id
     ORDER BY sev_score DESC, date DESC
     LIMIT 20
     """
@@ -122,7 +124,8 @@ async def get_stale_edges(threshold: float, limit: int) -> List[Dict[str, Any]]:
     WHERE coalesce(r.confidence, 1.0) < $threshold
     RETURN s.name as source, t.name as target, type(r) as edge_type, 
            coalesce(r.confidence, 1.0) as confidence, coalesce(r.valid_from, r.created_at, datetime()) as date, 
-           coalesce(r.source_commit, 'unknown') as sha
+           coalesce(r.source_commit, 'unknown') as sha,
+           elementId(r) as id
     ORDER BY confidence ASC
     LIMIT $limit
     """

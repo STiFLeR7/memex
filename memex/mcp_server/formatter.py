@@ -166,6 +166,7 @@ def format_problems(problems: List[Dict], module: Optional[str]) -> str:
         lines.append(f"  module: {r['module'] or 'unknown'}")
         lines.append(f"  discovered: {date_str}")
         lines.append(f"  surfaced by: {r['agent']}")
+        lines.append(f"  id: {r['id']}")
         
     return _truncate_if_needed(lines, TOKEN_LIMIT_STANDARD)
 
@@ -209,6 +210,7 @@ def format_stale_edges(edges: List[Dict], threshold: float, total_found: int) ->
         lines.append(f"\n[conf: {r['confidence']:.2f}] {r['source']} —[{r['edge_type']}]→ {r['target']}")
         lines.append(f"  last valid: {date_str}")
         lines.append(f"  source commit: {r['sha'][:8]}")
+        lines.append(f"  id: {r['id']}")
 
     if total_found > 50:
         lines.append(f"\n*noting: total {total_found} stale edges found, showing first 50*")

@@ -5,17 +5,18 @@ description = "Developer context continuity system building a temporal knowledge
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
-    "graphiti-core[google-genai]",
-    "tree-sitter-language-pack",
-    "watchdog",
-    "mcp",
-    "fastapi",
-    "uvicorn",
-    "apscheduler",
-    "python-dotenv",
-    "pytest",
-    "pytest-asyncio",
-    "gitpython",
+    "graphiti-core[google-genai]>=0.28.0",
+    "tree-sitter-language-pack>=1.8.0",
+    "watchdog>=6.0.0",
+    "mcp>=1.3.0",
+    "fastapi>=0.115.0",
+    "uvicorn>=0.34.0",
+    "apscheduler>=3.11.0",
+    "python-dotenv>=1.0.0",
+    "pytest>=8.0.0",
+    "pytest-asyncio>=0.25.0",
+    "pytest-cov>=6.0.0",
+    "gitpython>=3.1.40",
 ]
 
 [tool.uv]

@@ -8,7 +8,7 @@
 
 ## Agent Instructions
 
-You are building memex — a Python project. Read the system design above before doing anything else in a session.
+You are building memex - a Python project. Read the system design above before doing anything else in a session.
 
 ### Execution mode
 Run in full auto mode. Execute all shell commands, file operations, pytest runs, and environment variable assignments without asking for confirmation. Never pause to request permission for: `uv` commands, `pytest`, `git` operations, `docker compose`, PowerShell `$env:` assignments, file reads/writes anywhere in the repo, or Neo4j driver calls. If a command fails, fix it and retry automatically. Only stop and ask if a decision requires architectural judgement that isn't covered by this file or the system design doc.
@@ -32,7 +32,7 @@ Run in full auto mode. Execute all shell commands, file operations, pytest runs,
 - Any LLM other than Gemini (Flash for synthesis, text-embedding-004 for embeddings).
 
 ### LLM calls
-- Gemini Flash (`gemini-2.0-flash`) for commit → Decision extraction only.
+- Gemini Flash (`gemini-2.5-flash`) for commit → Decision extraction only.
 - Gemini embeddings (`models/text-embedding-004`) via Graphiti's google-genai provider.
 - tree-sitter handles all code parsing — no LLM involved in extraction.
 
@@ -64,4 +64,4 @@ Update this section as phases complete:
 - [x] Phase 2 — Watcher Daemon + CLI
 - [x] Phase 3 — MCP Read Tools
 
-- [ ] Phase 4 — MCP Write Tools + Polish
+- [x] Phase 4 — MCP Write Tools + Polish

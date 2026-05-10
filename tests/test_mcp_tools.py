@@ -97,8 +97,8 @@ async def test_get_recent_decisions_no_results_returns_message():
 @pytest.mark.asyncio
 async def test_get_open_problems_sorted_by_severity():
     mock_problems = [
-        {"severity": "low", "text": "P1", "module": "M1", "date": MagicMock(), "agent": "W"},
-        {"severity": "critical", "text": "P2", "module": "M2", "date": MagicMock(), "agent": "W"}
+        {"severity": "low", "text": "P1", "module": "M1", "date": MagicMock(), "agent": "W", "id": "p1"},
+        {"severity": "critical", "text": "P2", "module": "M2", "date": MagicMock(), "agent": "W", "id": "p2"}
     ]
     with patch("memex.mcp_server.tools_read.get_open_problems_raw", return_value=mock_problems):
         result = await get_open_problems()

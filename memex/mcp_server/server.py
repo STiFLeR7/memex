@@ -19,6 +19,7 @@ from memex.mcp_server.tools_read import (
     search_context,
     get_stale_context
 )
+from memex.mcp_server.tools_write import record_decision, record_problem, resolve_problem, invalidate_edge
 
 logger = logging.getLogger(__name__)
 
@@ -29,7 +30,7 @@ except PackageNotFoundError:
     __version__ = "0.1.0"
 
 # Initialize MCP server with name and version
-app = Server("memex")
+app = Server("memex", version=__version__)
 
 @app.list_tools()
 async def list_tools() -> list[Tool]:
@@ -39,7 +40,7 @@ async def list_tools() -> list[Tool]:
     return [
         Tool(
             name="get_project_context",
-            description="Returns a compressed briefing of the project: active modules, recent decisions, and open problems.",
+            description="Returns a compressed briefing of the project as a Markdown string: active modules, recent decisions, and open problems.",
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -52,7 +53,7 @@ async def list_tools() -> list[Tool]:
         ),
         Tool(
             name="get_symbol_context",
-            description="Returns detailed information about a specific function or class including callers/callees.",
+            description="Returns detailed information about a specific function or class as a Markdown string including callers/callees.",
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -70,7 +71,7 @@ async def list_tools() -> list[Tool]:
         ),
         Tool(
             name="get_recent_decisions",
-            description="Returns architectural and technical decisions from the past N days.",
+            description="Returns architectural and technical decisions from the past N days as a Markdown string.",
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -88,7 +89,7 @@ async def list_tools() -> list[Tool]:
         ),
         Tool(
             name="get_open_problems",
-            description="Returns currently open technical problems and TODOs sorted by severity.",
+            description="Returns currently open technical problems and TODOs sorted by severity as a Markdown string.",
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -101,7 +102,7 @@ async def list_tools() -> list[Tool]:
         ),
         Tool(
             name="search_context",
-            description="Semantic + keyword + graph traversal search across all node types. Use for broad discovery.",
+            description="Semantic + keyword + graph traversal search across all node types. Use for broad discovery. Returns a Markdown string.",
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -120,7 +121,7 @@ async def list_tools() -> list[Tool]:
         ),
         Tool(
             name="get_stale_context",
-            description="Returns relationships that have decayed in confidence and may be outdated.",
+            description="Returns relationships that have decayed in confidence and may be outdated as a Markdown string.",
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -130,6 +131,91 @@ async def list_tools() -> list[Tool]:
                         "default": 0.5
                     }
                 }
+            }
+        ),
+        Tool(
+            name="record_decision",
+            description="Creates a Decision node in the graph. Call this when making or discovering architectural choices. Returns a status string.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "text": {
+                        "type": "string",
+                        "description": "The decision text (min 10 chars)."
+                    },
+                    "module": {
+                        "type": "string",
+                        "description": "Optional relative path to the affected module."
+                    },
+                    "symbol": {
+                        "type": "string",
+                        "description": "Optional name of the affected symbol."
+                    },
+                    "rationale": {
+                        "type": "string",
+                        "description": "Optional reasoning behind the decision."
+                    }
+                },
+                "required": ["text"]
+            }
+        ),
+        Tool(
+            name="record_problem",
+            description="Creates a Problem node in the graph. Call this when discovering bugs or technical debt. Returns a status string.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "text": {
+                        "type": "string",
+                        "description": "The problem description (min 10 chars)."
+                    },
+                    "module": {
+                        "type": "string",
+                        "description": "Optional relative path to the affected module."
+                    },
+                    "severity": {
+                        "type": "string",
+                        "description": "Problem severity: critical, high, medium, low (default: medium).",
+                        "enum": ["critical", "high", "medium", "low"]
+                    }
+                },
+                "required": ["text"]
+            }
+        ),
+        Tool(
+            name="resolve_problem",
+            description="Marks a Problem as closed and records the resolution. Returns a status string.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "problem_id": {
+                        "type": "string",
+                        "description": "The unique ID or name of the problem node."
+                    },
+                    "resolution_text": {
+                        "type": "string",
+                        "description": "Explanation of how the problem was resolved (min 10 chars)."
+                    }
+                },
+                "required": ["problem_id", "resolution_text"]
+            }
+        ),
+        Tool(
+            name="invalidate_edge",
+            description="Explicitly invalidates a graph edge when it is discovered to be stale or incorrect. Returns a status string.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "edge_id": {
+                        "type": "string",
+                        "description": "The unique ID of the edge to invalidate."
+                    },
+                    "reason": {
+                        "type": "string",
+                        "description": "The reason for invalidating this relationship."
+                    }
+                },
+                "required": ["edge_id", "reason"]
             }
         )
     ]
@@ -182,6 +268,33 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent | ImageConte
             except (ValueError, TypeError):
                 threshold = 0.5
             result = await get_stale_context(threshold)
+            return [TextContent(type="text", text=result)]
+            
+        elif name == "record_decision":
+            text = str(arguments.get("text", ""))
+            module = str(arguments.get("module")) if arguments.get("module") else None
+            symbol = str(arguments.get("symbol")) if arguments.get("symbol") else None
+            rationale = str(arguments.get("rationale")) if arguments.get("rationale") else None
+            result = await record_decision(text, module, symbol, rationale)
+            return [TextContent(type="text", text=result)]
+            
+        elif name == "record_problem":
+            text = str(arguments.get("text", ""))
+            module = str(arguments.get("module")) if arguments.get("module") else None
+            severity = str(arguments.get("severity", "medium"))
+            result = await record_problem(text, module, severity)
+            return [TextContent(type="text", text=result)]
+            
+        elif name == "resolve_problem":
+            problem_id = str(arguments.get("problem_id", ""))
+            resolution_text = str(arguments.get("resolution_text", ""))
+            result = await resolve_problem(problem_id, resolution_text)
+            return [TextContent(type="text", text=result)]
+            
+        elif name == "invalidate_edge":
+            edge_id = str(arguments.get("edge_id", ""))
+            reason = str(arguments.get("reason", ""))
+            result = await invalidate_edge(edge_id, reason)
             return [TextContent(type="text", text=result)]
             
         return [TextContent(type="text", text=f"Tool {name} not found")]
