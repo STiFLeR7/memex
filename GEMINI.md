@@ -63,5 +63,6 @@ Update this section as phases complete:
 - [x] Phase 1 — Graph Writes
 - [x] Phase 2 — Watcher Daemon + CLI
 - [x] Phase 3 — MCP Read Tools
-
 - [x] Phase 4 — MCP Write Tools + Polish
+
+Current status: v0.1.0 — shipped

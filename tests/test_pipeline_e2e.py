@@ -3,6 +3,14 @@ import os
 from memex.extractor.treesitter import extract_symbol_delta
 from memex.synthesizer.commit import extract_decisions
 from memex.graph.writer import write_symbol_delta, write_decision
+from memex.graph.client import reset_graph_client
+
+@pytest.fixture(autouse=True)
+async def cleanup_client():
+    """Ensure a fresh graph client for every test."""
+    await reset_graph_client()
+    yield
+    await reset_graph_client()
 
 @pytest.mark.asyncio
 @pytest.mark.integration

@@ -1,9 +1,11 @@
 [project]
 name = "memex"
 version = "0.1.0"
-description = "Developer context continuity system building a temporal knowledge graph."
+description = "Developer context continuity system — temporal knowledge graph for AI coding agents, served via MCP"
 readme = "README.md"
 requires-python = ">=3.11"
+license = {text = "MIT"}
+keywords = ["mcp", "ai-agents", "knowledge-graph", "developer-tools", "context"]
 dependencies = [
     "graphiti-core[google-genai]>=0.28.0",
     "tree-sitter-language-pack>=1.8.0",
@@ -18,6 +20,9 @@ dependencies = [
     "pytest-cov>=6.0.0",
     "gitpython>=3.1.40",
 ]
+
+[project.urls]
+"Homepage" = "https://github.com/STiFLeR7/memex"
 
 [tool.uv]
 managed = true
