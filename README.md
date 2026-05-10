@@ -1,53 +1,110 @@
+<div align="center">
+
 # memex
 
-> "A memex is a device in which an individual stores all his books, records, and communications, and which is mechanized so that it may be consulted with exceeding speed and flexibility." — Vannevar Bush, 1945
+**Developer context continuity system building a temporal knowledge graph of your codebase.**
 
-**memex** is a developer context continuity system. It builds and serves a temporal knowledge graph of your codebase to AI coding agents, ensuring they understand not just *what* the code is now, but *why* it changed over time.
+[![Phase 3 Complete](https://img.shields.io/badge/Phase-3_Complete-green?style=for-the-badge)](https://github.com/STiFLeR7/memex)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg?style=for-the-badge)](https://opensource.org/licenses/MIT)
+[![Python 3.11+](https://img.shields.io/badge/Python-3.11+-blue?style=for-the-badge&logo=python)](https://www.python.org/)
+[![MCP Server](https://img.shields.io/badge/MCP-Server-orange?style=for-the-badge)](https://modelcontextprotocol.io/)
 
-## 🚀 Current Status: Phase 1 Complete
-Phase 1 (Graph Writes) is fully implemented. The system can now:
-- **Extract Symbols**: Automatically detect and parse functions, classes, and structs using `tree-sitter`.
-- **Synthesize Decisions**: Use Gemini 2.0 Flash to identify architectural decisions from commit messages.
-- **Temporal Persistence**: Store everything as a time-aware knowledge graph using `Graphiti` and `Neo4j`.
+</div>
 
-## 🛠 Tech Stack
-- **Language**: Python 3.11+ (managed by `uv`)
-- **Graph Database**: Neo4j 5.26 (Dockerized)
-- **Knowledge Graph**: [Graphiti](https://github.com/getzep/graphiti)
-- **AI Models**: Gemini 2.0 Flash (Synthesis), Text-Embedding-004 (Semantics)
-- **Parsing**: Tree-sitter
+---
 
-## 📦 Getting Started
+## 🧠 What is memex?
 
-### Prerequisites
-- [uv](https://github.com/astral-sh/uv)
-- Docker & Docker Compose
-- Gemini API Key
+Every time you open a new agent session, the agent starts blind. You re-explain architecture. You watch it rediscover refactors. **memex** fixes this. 
 
-### Installation
-1. Clone the repo.
-2. Setup environment:
-   ```bash
-   cp config.yaml.example .env
-   # Edit .env with your GEMINI_API_KEY
-   ```
-3. Install dependencies:
-   ```bash
-   uv sync
-   ```
-4. Start Neo4j:
-   ```bash
-   docker-compose -f docker/docker-compose.yml up -d
-   ```
+It runs a background watcher that continuously observes your git commits and file changes, extracts structured knowledge, and builds a temporal knowledge graph. This graph is then served to any AI agent (Gemini CLI, Claude Code, Codex) via the **Model Context Protocol (MCP)**.
 
-### Running Tests
-```bash
-uv run pytest tests/test_extractor.py
-uv run pytest tests/test_pipeline_e2e.py
+The result: every session starts with a live, confident, temporally-aware briefing of your codebase.
+
+---
+
+## 🚀 Key Features
+
+| Capability | Description |
+|------------|-------------|
+| 🔍 **Deep Discovery** | 6 Read tools to query project briefings, symbol deep-dives, and technical debt. |
+| 🛡️ **Resilient Watcher** | Background daemon that reacts to file saves and git commits in real-time. |
+| 🕰️ **Temporal Memory** | Bitemporal knowledge graph (Graphiti + Neo4j) that tracks *how* and *why* code changed. |
+| 🤖 **AI-Native** | Powered by Gemini 2.0 Flash for architectural synthesis and Text-Embedding-004 for semantics. |
+| 🔌 **Agent Agnostic** | Standard MCP interface works with Gemini CLI, Claude Code, and more. |
+
+---
+
+## 🛠️ Architecture
+
+```
+User --> Agent (Gemini/Claude) --> MCP (memex serve) --> Neo4j (Graphiti)
+                                                             ^
+                                                             |
+Watcher Daemon (memex watch) <-- Filesystem + Git <----------+
 ```
 
-## 🗺 Roadmap
-- [x] **Phase 1**: Graph Writes (Skeleton & Pipeline)
-- [ ] **Phase 2**: Watcher Daemon & CLI (Automation)
-- [ ] **Phase 3**: MCP Read Tools (Context serving)
-- [ ] **Phase 4**: MCP Write Tools & Polish (Graph-aware editing)
+---
+
+## 📦 Quick Start
+
+### 1. Prerequisites
+- **uv** (Python package manager)
+- **Docker** (for Neo4j)
+- **Gemini API Key**
+
+### 2. Infrastructure
+```bash
+# Start Neo4j in Docker
+docker-compose -f docker/docker-compose.yml up -d
+```
+
+### 3. Setup
+```bash
+# Clone and Install
+git clone https://github.com/STiFLeR7/memex.git
+cd memex
+uv sync
+
+# Configure environment
+cp config.yaml.example .env
+# Edit .env with your credentials
+```
+
+### 4. Usage
+```bash
+# Initialize a repository
+memex init --repo .
+
+# Start the background watcher
+memex watch --repo .
+
+# Serve context to agents via MCP
+memex serve --repo .
+```
+
+---
+
+## 🛠️ MCP Tool Surface
+
+Agents connected to memex gain these superpowers:
+
+- `get_project_context(scope?)`: Get up to speed on active modules, recent decisions, and open problems.
+- `get_symbol_context(symbol_name, file?)`: Deep dive into specific functions/classes and their relationships.
+- `get_recent_decisions(days?, module?)`: Prevent undoing architectural choices from last week.
+- `get_open_problems(module?)`: See outstanding tech debt and parser-extracted TODOs.
+- `search_context(query)`: Hybrid (semantic + keyword) search across the entire graph.
+- `get_stale_context()`: Identify areas of the graph that need re-validation.
+
+---
+
+## 🗺️ Roadmap
+- [x] **Phase 1**: Graph Writes (Core Pipeline)
+- [x] **Phase 2**: Watcher Daemon + CLI (Automation)
+- [x] **Phase 3**: MCP Read Tools (Servability)
+- [ ] **Phase 4**: MCP Write Tools + Polish (Interactive Editing)
+
+---
+
+## 📄 License
+MIT - [STiFLeR7](https://github.com/STiFLeR7)
