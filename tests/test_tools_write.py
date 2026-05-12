@@ -1,4 +1,5 @@
 import pytest
+import asyncio
 from datetime import datetime
 from unittest.mock import AsyncMock, patch, MagicMock
 from memex.mcp_server.tools_write import record_decision, record_problem, resolve_problem, invalidate_edge
@@ -170,3 +171,50 @@ async def test_invalidate_edge_already_invalidated_returns_message():
         
         result = await invalidate_edge(edge_id="e1", reason="new reason")
         assert "already invalidated" in result
+
+@pytest.mark.asyncio
+async def test_record_problem_concurrent_calls_no_duplicate():
+    """
+    Use asyncio.gather to fire two identical record_problem calls simultaneously, 
+    assert only one Problem node was created.
+    """
+    mock_result = MagicMock()
+    mock_result.episode.uuid = "prob-unique"
+    
+    with patch("memex.mcp_server.tools_write.get_graph_client") as mock_get_client:
+        mock_client = AsyncMock()
+        # Mock search to return nothing initially, but we want to simulate the lock
+        # So we use a side effect that changes after the first call
+        call_count = 0
+        async def mock_search(*args, **kwargs):
+            nonlocal call_count
+            if call_count == 0:
+                call_count += 1
+                return []
+            else:
+                # Simulate the duplicate found in the second call
+                dup = MagicMock()
+                dup.type = "Problem"
+                dup.score = 0.99
+                dup.name = "Duplicate issue"
+                dup.uuid = "prob-unique"
+                return [dup]
+        
+        mock_client.search.side_effect = mock_search
+        mock_client.add_episode.return_value = mock_result
+        mock_get_client.return_value = mock_client
+        
+        # Run two calls concurrently
+        results = await asyncio.gather(
+            record_problem(text="Concurrent issue detection."),
+            record_problem(text="Concurrent issue detection.")
+        )
+        
+        # One should be successful, one should be a duplicate
+        success = [r for r in results if "problem recorded" in r]
+        duplicates = [r for r in results if "similar problem already recorded" in r]
+        
+        assert len(success) == 1
+        assert len(duplicates) == 1
+        # 1 call for the successful problem recording
+        assert mock_client.add_episode.call_count == 1

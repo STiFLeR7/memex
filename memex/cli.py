@@ -1,108 +1,194 @@
 import argparse
+import sys
 import asyncio
 import logging
-import sys
 import os
+import subprocess
+import time
 from pathlib import Path
 from memex.watcher.daemon import run_daemon
-from memex.mcp_server.server import run_server
 from memex.watcher.git_hook import install_hooks
+from memex.mcp_server.server import run_server
 from memex.graph.client import get_graph_client
+from memex.mcp_server.queries import get_node_counts, get_stale_edges
 
-def setup_logging():
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-        datefmt="%H:%M:%S"
-    )
+# Setup basic logging
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    stream=sys.stderr
+)
+logger = logging.getLogger("memex.cli")
+
+async def get_node_counts_safe():
+    try:
+        return await get_node_counts()
+    except Exception:
+        return None
 
 async def print_status(repo_root: str):
-    """Prints node counts from Neo4j."""
+    print(f"\nmemex status for {Path(repo_root).resolve()}")
+    
+    # 1. Check if paused
+    if (Path(repo_root) / ".memex" / "paused").exists():
+        print("Status: PAUSED")
+    else:
+        print("Status: ACTIVE")
+        
+    # 2. Get Graph Counts
+    counts = await get_node_counts_safe()
+    if counts:
+        print(f"Graph: {counts.get('modules', 0)} modules, {counts.get('symbols', 0)} symbols, "
+              f"{counts.get('decisions', 0)} decisions, {counts.get('problems', 0)} open problems")
+    else:
+        print("Graph: Could not connect to Neo4j to retrieve node counts.")
+
+async def run_doctor(repo_root: str):
+    print("\nmemex doctor — checking prerequisites\n")
+    repo_path = Path(repo_root).resolve()
+    all_pass = True
+
+    # 1. Python version
+    py_ver = f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}"
+    if sys.version_info >= (3, 11):
+        print(f"[PASS] Python 3.11+            found Python {py_ver}")
+    else:
+        print(f"[FAIL] Python 3.11+            found Python {py_ver}. Please upgrade.")
+        all_pass = False
+
+    # 2. uv check
+    try:
+        # On Windows, we might need to check uv.exe
+        uv_cmd = "uv.exe" if os.name == "nt" else "uv"
+        uv_ver = subprocess.check_output([uv_cmd, "--version"]).decode().strip()
+        print(f"[PASS] uv                      found {uv_ver}")
+    except Exception:
+        print("[FAIL] uv                      not found. Install via 'curl -LsSf https://astral.sh/uv/install.sh | sh'")
+        all_pass = False
+
+    # 3. Docker check
+    try:
+        docker_cmd = "docker.exe" if os.name == "nt" else "docker"
+        docker_ver = subprocess.check_output([docker_cmd, "--version"]).decode().strip()
+        print(f"[PASS] Docker                  found {docker_ver}")
+    except Exception:
+        print("[FAIL] Docker                  not found or not running. Please install/start Docker.")
+        all_pass = False
+
+    # 4. Neo4j connectivity
+    start_time = time.time()
     try:
         client = await get_graph_client()
-        result = await client.driver.execute_query(
-            "MATCH (n) RETURN labels(n) as labels, count(n) as count"
-        )
-        print(f"Memex Status for {os.path.abspath(repo_root)}:")
-        if not result.records:
-            print("  Graph is empty.")
-            return
-            
-        for record in result.records:
-            labels = record.get("labels", [])
-            count = record.get("count", 0)
-            print(f"  {labels}: {count}")
-    except Exception as e:
-        print(f"Error fetching status: {e}")
+        await client.driver.execute_query("RETURN 1")
+        elapsed = int((time.time() - start_time) * 1000)
+        print(f"[PASS] Neo4j reachable         bolt://localhost:7687 responded in {elapsed}ms")
+    except Exception:
+        print(f"[FAIL] Neo4j reachable         Could not connect. Ensure 'docker-compose up -d' is running.")
+        all_pass = False
 
-def main():
-    setup_logging()
-    parser = argparse.ArgumentParser(prog="memex", description="Memex: Developer Context Continuity System")
+    # 5. Gemini API key
+    gemini_key = os.getenv("GEMINI_API_KEY")
+    if gemini_key:
+        try:
+            from google import genai
+            print(f"[PASS] Gemini API key          GEMINI_API_KEY set")
+        except Exception:
+            print("[FAIL] Gemini API key          GEMINI_API_KEY set but SDK missing")
+            all_pass = False
+    else:
+        print("[FAIL] Gemini API key          GEMINI_API_KEY environment variable not set")
+        all_pass = False
+
+    # 6. Git hooks
+    hook_path = repo_path / ".git" / "hooks" / "post-commit"
+    if hook_path.exists() and "memex" in hook_path.read_text():
+        print(f"[PASS] git hooks installed     post-commit hook found in .git/hooks/")
+    else:
+        print(f"[FAIL] git hooks installed     not found. Run 'memex init' to install.")
+        all_pass = False
+
+    # 7. Watchdog running (daemon pid)
+    pid_file = repo_path / ".memex" / "daemon.pid"
+    if pid_file.exists():
+        print(f"[PASS] watchdog running        .memex/daemon.pid exists")
+    else:
+        print(f"[FAIL] watchdog running        no pid file. Run 'memex watch' to start.")
+        all_pass = False
+
+    # 8. Stale edges check
+    try:
+        stale = await get_stale_edges(threshold=0.5, limit=1)
+        if stale:
+            print(f"[WARN] Stale edges found       run `get_stale_context()` in your agent for details")
+    except Exception:
+        pass
+
+    if all_pass:
+        print("\nAll checks passed. memex is ready.")
+        sys.exit(0)
+    else:
+        print("\nSome checks failed. Please resolve the issues above.")
+        sys.exit(1)
+
+def main(args=None):
+    # Common parser for shared arguments
+    parent_parser = argparse.ArgumentParser(add_help=False)
+    parent_parser.add_argument("--repo", default=".", help="Path to the repository")
+
+    parser = argparse.ArgumentParser(description="memex CLI - Knowledge Graph Watcher")
     subparsers = parser.add_subparsers(dest="command", required=True)
-
-    # watch
-    watch_parser = subparsers.add_parser("watch", help="Start the watcher daemon")
-    watch_parser.add_argument("--repo", default=".", help="Path to repository")
-
+    
     # init
-    init_parser = subparsers.add_parser("init", help="Initialize memex in a repository")
-    init_parser.add_argument("--repo", default=".", help="Path to repository")
-
+    subparsers.add_parser("init", help="Initialize memex hooks", parents=[parent_parser])
+    
+    # watch
+    subparsers.add_parser("watch", help="Start watcher daemon", parents=[parent_parser])
+    
     # status
-    status_parser = subparsers.add_parser("status", help="Show graph status")
-    status_parser.add_argument("--repo", default=".", help="Path to repository")
+    subparsers.add_parser("status", help="Show current status", parents=[parent_parser])
 
     # pause
-    pause_parser = subparsers.add_parser("pause", help="Pause the watcher daemon")
-    pause_parser.add_argument("--repo", default=".", help="Path to repository")
+    subparsers.add_parser("pause", help="Suspend watcher", parents=[parent_parser])
 
     # resume
-    resume_parser = subparsers.add_parser("resume", help="Resume the watcher daemon")
-    resume_parser.add_argument("--repo", default=".", help="Path to repository")
+    subparsers.add_parser("resume", help="Resume watcher", parents=[parent_parser])
 
     # serve
-    serve_parser = subparsers.add_parser("serve", help="Start the MCP server")
-    serve_parser.add_argument("--repo", default=".", help="Path to repository")
+    subparsers.add_parser("serve", help="Start MCP server", parents=[parent_parser])
 
-    args = parser.parse_args()
-    repo_root = os.path.abspath(args.repo)
-    memex_dir = Path(repo_root) / ".memex"
-    pause_file = memex_dir / "paused"
+    # doctor
+    subparsers.add_parser("doctor", help="Check system health", parents=[parent_parser])
+    
+    parsed_args = parser.parse_args(args)
+    repo_root = parsed_args.repo
 
-    if args.command == "watch":
-        try:
-            asyncio.run(run_daemon(repo_root))
-        except KeyboardInterrupt:
-            pass
+    if parsed_args.command == "init":
+        install_hooks(repo_root)
+        (Path(repo_root) / ".memex").mkdir(exist_ok=True)
+        print(f"memex initialized in {Path(repo_root).resolve()}")
 
-    elif args.command == "serve":
-        try:
-            asyncio.run(run_server(repo_root))
-        except KeyboardInterrupt:
-            pass
+    elif parsed_args.command == "watch":
+        asyncio.run(run_daemon(repo_root))
 
-    elif args.command == "init":
-        memex_dir.mkdir(exist_ok=True)
-        try:
-            install_hooks(repo_root)
-            print(f"Initialized memex in {repo_root}")
-        except Exception as e:
-            print(f"Failed to initialize: {e}")
-
-    elif args.command == "status":
+    elif parsed_args.command == "status":
         asyncio.run(print_status(repo_root))
 
-    elif args.command == "pause":
-        memex_dir.mkdir(exist_ok=True)
-        pause_file.touch()
-        print(f"Paused watcher for {repo_root}")
+    elif parsed_args.command == "pause":
+        (Path(repo_root) / ".memex").mkdir(exist_ok=True)
+        (Path(repo_root) / ".memex" / "paused").touch()
+        print("memex watcher PAUSED.")
 
-    elif args.command == "resume":
+    elif parsed_args.command == "resume":
+        pause_file = (Path(repo_root) / ".memex" / "paused")
         if pause_file.exists():
             pause_file.unlink()
-            print(f"Resumed watcher for {repo_root}")
-        else:
-            print("Watcher was not paused.")
+        print("memex watcher RESUMED.")
+
+    elif parsed_args.command == "serve":
+        asyncio.run(run_server(repo_root))
+
+    elif parsed_args.command == "doctor":
+        asyncio.run(run_doctor(repo_root))
 
 if __name__ == "__main__":
     main()

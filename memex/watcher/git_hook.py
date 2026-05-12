@@ -2,9 +2,11 @@ import json
 import os
 import subprocess
 import sys
+import logging
 from datetime import datetime, UTC
 from pathlib import Path
-from memex.watcher.events import CommitEvent
+
+logger = logging.getLogger(__name__)
 
 def install_hooks(repo_root: str) -> None:
     """
@@ -33,37 +35,42 @@ def emit_commit_event(repo_root: str) -> None:
     """
     repo_root = os.path.abspath(repo_root)
     
-    # Get latest commit details
+    # 1. Get current commit metadata
     try:
         sha = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=repo_root).decode().strip()
         message = subprocess.check_output(["git", "log", "-1", "--pretty=%B"], cwd=repo_root).decode().strip()
-        diff = subprocess.check_output(["git", "diff", "HEAD~1", "HEAD"], cwd=repo_root).decode().strip()
-        files_changed = subprocess.check_output(["git", "diff-tree", "--no-commit-id", "--name-only", "-r", "HEAD"], cwd=repo_root).decode().splitlines()
-    except subprocess.CalledProcessError:
-        # Handle cases like initial commits
-        sha = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=repo_root).decode().strip()
-        message = subprocess.check_output(["git", "log", "-1", "--pretty=%B"], cwd=repo_root).decode().strip()
-        diff = subprocess.check_output(["git", "show", "HEAD"], cwd=repo_root).decode().strip()
-        files_changed = subprocess.check_output(["git", "show", "--pretty=", "--name-only", "HEAD"], cwd=repo_root).decode().splitlines()
+        
+        # Try to get diff between current and previous
+        try:
+            diff = subprocess.check_output(["git", "diff", "HEAD~1", "HEAD"], cwd=repo_root).decode().strip()
+            files_changed = subprocess.check_output(["git", "diff-tree", "--no-commit-id", "--name-only", "-r", "HEAD"], cwd=repo_root).decode().strip().split("\n")
+        except subprocess.CalledProcessError:
+            # Fallback for initial commit (no HEAD~1)
+            diff = subprocess.check_output(["git", "show", "HEAD"], cwd=repo_root).decode().strip()
+            files_changed = subprocess.check_output(["git", "show", "--pretty=", "--name-only", "HEAD"], cwd=repo_root).decode().strip().split("\n")
+            
+        event_data = {
+            "sha": sha,
+            "message": message,
+            "diff": diff,
+            "files_changed": files_changed,
+            "timestamp": datetime.now(UTC).isoformat()
+        }
 
-    event_data = {
-        "sha": sha,
-        "message": message,
-        "diff": diff,
-        "files_changed": files_changed,
-        "timestamp": datetime.now(UTC).isoformat()
-    }
-
-    memex_dir = Path(repo_root) / ".memex"
-    memex_dir.mkdir(exist_ok=True)
-    
-    pending_file = memex_dir / "pending_commit.json"
-    # Atomic-ish write on same filesystem
-    tmp_file = pending_file.with_suffix(".tmp")
-    tmp_file.write_text(json.dumps(event_data))
-    if pending_file.exists():
-        pending_file.unlink()
-    tmp_file.rename(pending_file)
+        memex_dir = Path(repo_root) / ".memex"
+        memex_dir.mkdir(exist_ok=True)
+        
+        pending_file = memex_dir / "pending_commit.json"
+        # Atomic-ish write on same filesystem
+        tmp_file = pending_file.with_suffix(".tmp")
+        tmp_file.write_text(json.dumps(event_data))
+        if pending_file.exists():
+            pending_file.unlink()
+        tmp_file.rename(pending_file)
+        
+    except Exception as e:
+        logger.warning("Failed to extract git commit metadata: %s", e)
+        return
 
 if __name__ == "__main__":
     import argparse
@@ -75,4 +82,6 @@ if __name__ == "__main__":
     
     args = parser.parse_args()
     if args.command == "emit":
+        # Setup simple logging for the hook execution
+        logging.basicConfig(level=logging.WARNING)
         emit_commit_event(args.repo)

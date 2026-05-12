@@ -1,24 +1,28 @@
 [project]
 name = "memex"
-version = "0.1.0"
+version = "0.1.1"
 description = "Developer context continuity system — temporal knowledge graph for AI coding agents, served via MCP"
 readme = "README.md"
 requires-python = ">=3.11"
 license = {text = "MIT"}
 keywords = ["mcp", "ai-agents", "knowledge-graph", "developer-tools", "context"]
 dependencies = [
-    "graphiti-core[google-genai]>=0.28.0",
-    "tree-sitter-language-pack>=1.8.0",
-    "watchdog>=6.0.0",
-    "mcp>=1.3.0",
-    "fastapi>=0.115.0",
-    "uvicorn>=0.34.0",
-    "apscheduler>=3.11.0",
-    "python-dotenv>=1.0.0",
-    "pytest>=8.0.0",
-    "pytest-asyncio>=0.25.0",
-    "pytest-cov>=6.0.0",
-    "gitpython>=3.1.40",
+    "graphiti-core[google-genai]>=0.29.0,<1.0.0",
+    "google-genai>=2.0.1,<3.0.0",
+    "tree-sitter-language-pack>=1.8.0,<2.0.0",
+    "watchdog>=6.0.0,<7.0.0",
+    "mcp>=1.27.1,<2.0.0",
+    "fastapi>=0.136.1,<1.0.0",
+    "uvicorn>=0.46.0,<1.0.0",
+    "apscheduler>=3.11.2,<4.0.0",
+    "python-dotenv>=1.2.2,<2.0.0",
+    "pytest>=9.0.3,<10.0.0",
+    "pytest-asyncio>=1.3.0,<2.0.0",
+    "pytest-cov>=7.1.0,<8.0.0",
+    "gitpython>=3.1.50,<4.0.0",
+    "neo4j>=6.2.0,<7.0.0",
+    "pydantic>=2.13.4,<3.0.0",
+    "psutil>=6.1.1,<7.0.0",
 ]
 
 [project.urls]
@@ -29,6 +33,8 @@ managed = true
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "module"
+addopts = "-p no:capture"
 markers = [
     "integration: marks tests as integration tests (requires Neo4j/Gemini)",
 ]

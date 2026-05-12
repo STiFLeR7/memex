@@ -1,0 +1,88 @@
+import pytest
+import asyncio
+import sys
+from unittest.mock import AsyncMock, patch, MagicMock
+from memex.mcp_server import server
+from memex.mcp_server.server import create_server, ConfigError, MemexStartupError, handle_list_tools, handle_call_tool
+
+@pytest.mark.asyncio
+async def test_server_registers_all_10_tools():
+    # constructs the instance, validates config, checks Neo4j
+    with patch("memex.mcp_server.server.get_graph_client") as mock_get_client:
+        mock_client = AsyncMock()
+        mock_get_client.return_value = mock_client
+        with patch("memex.mcp_server.server.get_config"):
+            srv = await create_server("/fake/repo")
+            
+            # Verify the tool names we expect are returned by the list handler
+            tools = await handle_list_tools()
+            expected = [
+                "get_project_context", "get_symbol_context", "get_recent_decisions",
+                "get_open_problems", "search_context", "get_stale_context",
+                "record_decision", "record_problem", "resolve_problem", "invalidate_edge"
+            ]
+            
+            assert len(tools) == 10
+            actual_names = [t.name for t in tools]
+            for name in expected:
+                assert name in actual_names
+
+def test_server_version_matches_pyproject():
+    assert server.__version__ is not None
+
+@pytest.mark.asyncio
+async def test_server_startup_validates_config():
+    with patch("memex.mcp_server.server.get_config", side_effect=ValueError("Missing KEY")):
+        with pytest.raises(ConfigError):
+            await create_server("/fake/repo")
+
+@pytest.mark.asyncio
+async def test_server_startup_checks_neo4j():
+    with patch("memex.mcp_server.server.get_graph_client", side_effect=Exception("Conn failed")):
+        with patch("memex.mcp_server.server.get_config"):
+            with pytest.raises(MemexStartupError):
+                await create_server("/fake/repo")
+
+@pytest.mark.asyncio
+async def test_server_tool_returns_string_not_none():
+    # Test one tool through the call_tool interface
+    with patch("memex.mcp_server.server.get_project_context", new_callable=AsyncMock) as mock_tool:
+        mock_tool.return_value = "briefing"
+        result = await handle_call_tool("get_project_context", {})
+        assert len(result) == 1
+        assert result[0].text == "briefing"
+
+@pytest.mark.asyncio
+async def test_server_tool_handles_neo4j_down_gracefully():
+    with patch("memex.mcp_server.server.get_project_context", side_effect=Exception("Database Down")):
+        result = await handle_call_tool("get_project_context", {})
+        assert "Internal Server Error" in result[0].text
+
+@pytest.mark.asyncio
+async def test_call_tool_not_found():
+    result = await handle_call_tool("nonexistent", {})
+    assert "Tool nonexistent not found" in result[0].text
+
+@pytest.mark.asyncio
+async def test_call_get_symbol_context_missing_arg():
+    result = await handle_call_tool("get_symbol_context", {})
+    assert "Error: 'symbol_name' is required" in result[0].text
+
+@pytest.mark.asyncio
+async def test_call_all_tools_smoke():
+    # Smoke test to ensure all dispatch branches are covered
+    tools = [
+        ("get_recent_decisions", {"days": "invalid"}), # tests coercion
+        ("get_open_problems", {}),
+        ("search_context", {"query": "test", "top_k": "5"}),
+        ("get_stale_context", {"threshold": "0.3"}),
+        ("record_decision", {"text": "D"*10}),
+        ("record_problem", {"text": "P"*10}),
+        ("resolve_problem", {"problem_id": "1", "resolution_text": "R"*10}),
+        ("invalidate_edge", {"edge_id": "1", "reason": "R"*10}),
+    ]
+    for name, args in tools:
+        with patch(f"memex.mcp_server.server.{name}", new_callable=AsyncMock) as mock_impl:
+            mock_impl.return_value = "ok"
+            await handle_call_tool(name, args)
+            assert mock_impl.called

@@ -3,13 +3,22 @@ import hashlib
 import asyncio
 import time
 from datetime import datetime, UTC
-from typing import Optional
+from typing import Optional, Dict
 from memex.graph.client import get_graph_client
 from memex.config import get_config
 
 logger = logging.getLogger(__name__)
 
 _current_session_name = None
+
+# Locks to prevent duplicate problem creation during concurrent sessions
+_problem_write_locks: Dict[str, asyncio.Lock] = {}
+
+def _get_problem_lock(module: str | None, repo_root: str) -> asyncio.Lock:
+    key = f"{repo_root}:{module or '__global__'}"
+    if key not in _problem_write_locks:
+        _problem_write_locks[key] = asyncio.Lock()
+    return _problem_write_locks[key]
 
 async def _get_or_create_session(client, repo_root: str) -> str:
     """Gets or creates a stable AgentSession for this process."""
@@ -95,7 +104,7 @@ async def record_problem(
     severity: str = "medium",
 ) -> str:
     """
-    Creates a Problem node with duplicate detection.
+    Creates a Problem node with duplicate detection and concurrent write safety.
     """
     valid_severities = ["critical", "high", "medium", "low"]
     coerced = False
@@ -103,55 +112,60 @@ async def record_problem(
         severity = "medium"
         coerced = True
     
+    text = _sanitize_text(text)
     if not text or len(text.strip()) < 10:
         return "problem text too short — be specific about the issue"
 
     client = await get_graph_client()
+    config = get_config()
     now = datetime.now(UTC)
 
-    try:
-        search_results = await client.search(text, num_results=5)
-        for res in search_results:
-            node_type = getattr(res, "type", "unknown")
-            score = getattr(res, "score", 0.0)
-            if node_type == "Problem" and score > 0.85:
-                existing_text = getattr(res, "name", "existing problem")
-                node_id = getattr(res, "uuid", "unknown")
-                return f"similar problem already recorded: {existing_text} [id: {node_id}] — use resolve_problem() if this is fixed, or record_decision() if it was intentional"
-    except Exception as e:
-        logger.warning("Duplicate detection search failed: %s", e)
+    async with _get_problem_lock(module, config.repo_root):
+        try:
+            # 3. Duplicate Detection
+            search_results = await client.search(text, num_results=5)
+            for res in search_results:
+                node_type = getattr(res, "type", "unknown")
+                score = getattr(res, "score", 0.0)
+                if node_type == "Problem" and score > 0.85:
+                    existing_text = getattr(res, "name", "existing problem")
+                    node_id = getattr(res, "uuid", "unknown")
+                    return f"similar problem already recorded: {existing_text} [id: {node_id}] — use resolve_problem() if this is fixed, or record_decision() if it was intentional"
+        except Exception as e:
+            logger.warning("Duplicate detection search failed: %s", e)
 
-    body_parts = [f"Problem: {text}", f"Severity: {severity}", "Status: open"]
-    if module:
-        body_parts.append(f"Related Module: {module}")
-
-    episode_body = "\n".join(body_parts)
-
-    try:
-        result = await client.add_episode(
-            name=f"agent_problem_{now.strftime('%Y%m%d_%H%M%S')}",
-            episode_body=episode_body,
-            source_description="agent",
-            reference_time=now
-        )
-        
+        # 4. Create Problem Episode
+        body_parts = [f"Problem: {text}", f"Severity: {severity}", "Status: open"]
         if module:
-             await client.add_episode(
-                name=f"link_problem_module_{now.strftime('%Y%m%d_%H%M%S')}",
-                episode_body=f"The problem '{text}' was discovered in module '{module}'.",
+            body_parts.append(f"Related Module: {module}")
+
+        episode_body = "\n".join(body_parts)
+
+        try:
+            result = await client.add_episode(
+                name=f"agent_problem_{now.strftime('%Y%m%d_%H%M%S')}",
+                episode_body=episode_body,
                 source_description="agent",
                 reference_time=now
             )
+            
+            if module:
+                 await client.add_episode(
+                    name=f"link_problem_module_{now.strftime('%Y%m%d_%H%M%S')}",
+                    episode_body=f"The problem '{text}' was discovered in module '{module}'.",
+                    source_description="agent",
+                    reference_time=now
+                )
 
-        node_id = result.episode.uuid
-        res_msg = f"problem recorded [{severity}]: {text[:80]}"
-        if coerced:
-            res_msg += " (severity coerced to medium)"
-        return f"{res_msg} [id: {node_id}]"
+            node_id = result.episode.uuid
+            res_msg = f"problem recorded [{severity}]: {text[:80]}"
+            if coerced:
+                res_msg += " (severity coerced to medium)"
+            return f"{res_msg} [id: {node_id}]"
 
-    except Exception as e:
-        logger.error("Failed to record problem", exc_info=True)
-        return f"Error: Failed to record problem in graph. {e}"
+        except Exception as e:
+            logger.error("Failed to record problem", exc_info=True)
+            return f"Error: Failed to record problem in graph. {e}"
 
 async def resolve_problem(
     problem_id: str,
@@ -161,6 +175,7 @@ async def resolve_problem(
     Closes a Problem node and links it to the current AgentSession.
     Includes retries to handle background indexing lag.
     """
+    resolution_text = _sanitize_text(resolution_text)
     if not resolution_text or len(resolution_text.strip()) < 10:
         return "resolution text too short — explain how the problem was fixed"
 

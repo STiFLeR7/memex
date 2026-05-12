@@ -85,6 +85,9 @@ def format_project_context(repo_root: str, counts: Dict[str, int], modules: List
 
 def format_symbol_context(symbol: Dict[str, Any], callers: List[Dict], callees: List[Dict], decisions: List[str], problems: List[str]) -> str:
     """Assembles detailed symbol information."""
+    if not symbol:
+        return "Error: Symbol not found."
+
     lines = [
         f"# symbol: {symbol['name']}",
         f"kind: {symbol['kind']}",

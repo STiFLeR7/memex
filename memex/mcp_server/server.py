@@ -4,6 +4,7 @@ import os
 import sys
 from importlib.metadata import version as get_version, PackageNotFoundError
 from pathlib import Path
+from typing import List, Dict, Any
 
 from mcp.server import Server
 from mcp.server.stdio import stdio_server
@@ -27,15 +28,19 @@ logger = logging.getLogger(__name__)
 try:
     __version__ = get_version("memex")
 except PackageNotFoundError:
-    __version__ = "0.1.0"
+    __version__ = "0.1.1"
 
-# Initialize MCP server with name and version
-app = Server("memex", version=__version__)
+class ConfigError(Exception):
+    """Raised when server configuration is invalid."""
+    pass
 
-@app.list_tools()
-async def list_tools() -> list[Tool]:
+class MemexStartupError(Exception):
+    """Raised when the server fails to connect to backends during startup."""
+    pass
+
+async def handle_list_tools() -> list[Tool]:
     """
-    List available tools with their schemas.
+    Returns the list of 10 tools.
     """
     return [
         Tool(
@@ -220,8 +225,7 @@ async def list_tools() -> list[Tool]:
         )
     ]
 
-@app.call_tool()
-async def call_tool(name: str, arguments: dict) -> list[TextContent | ImageContent | EmbeddedResource]:
+async def handle_call_tool(name: str, arguments: dict) -> list[TextContent | ImageContent | EmbeddedResource]:
     """
     Handle tool calls with argument validation and type coercion.
     """
@@ -230,7 +234,6 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent | ImageConte
             scope = str(arguments.get("scope")) if arguments.get("scope") else None
             result = await get_project_context(scope)
             return [TextContent(type="text", text=result)]
-            
         elif name == "get_symbol_context":
             symbol_name = str(arguments.get("symbol_name", ""))
             file = str(arguments.get("file")) if arguments.get("file") else None
@@ -238,7 +241,6 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent | ImageConte
                 return [TextContent(type="text", text="Error: 'symbol_name' is required.")]
             result = await get_symbol_context(symbol_name, file)
             return [TextContent(type="text", text=result)]
-            
         elif name == "get_recent_decisions":
             try:
                 days = int(arguments.get("days", 30))
@@ -247,12 +249,10 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent | ImageConte
             module = str(arguments.get("module")) if arguments.get("module") else None
             result = await get_recent_decisions(days, module)
             return [TextContent(type="text", text=result)]
-            
         elif name == "get_open_problems":
             module = str(arguments.get("module")) if arguments.get("module") else None
             result = await get_open_problems(module)
             return [TextContent(type="text", text=result)]
-            
         elif name == "search_context":
             query = str(arguments.get("query", ""))
             try:
@@ -261,7 +261,6 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent | ImageConte
                 top_k = 8
             result = await search_context(query, top_k)
             return [TextContent(type="text", text=result)]
-            
         elif name == "get_stale_context":
             try:
                 threshold = float(arguments.get("threshold", 0.5))
@@ -269,7 +268,6 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent | ImageConte
                 threshold = 0.5
             result = await get_stale_context(threshold)
             return [TextContent(type="text", text=result)]
-            
         elif name == "record_decision":
             text = str(arguments.get("text", ""))
             module = str(arguments.get("module")) if arguments.get("module") else None
@@ -277,35 +275,31 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent | ImageConte
             rationale = str(arguments.get("rationale")) if arguments.get("rationale") else None
             result = await record_decision(text, module, symbol, rationale)
             return [TextContent(type="text", text=result)]
-            
         elif name == "record_problem":
             text = str(arguments.get("text", ""))
             module = str(arguments.get("module")) if arguments.get("module") else None
             severity = str(arguments.get("severity", "medium"))
             result = await record_problem(text, module, severity)
             return [TextContent(type="text", text=result)]
-            
         elif name == "resolve_problem":
             problem_id = str(arguments.get("problem_id", ""))
             resolution_text = str(arguments.get("resolution_text", ""))
             result = await resolve_problem(problem_id, resolution_text)
             return [TextContent(type="text", text=result)]
-            
         elif name == "invalidate_edge":
             edge_id = str(arguments.get("edge_id", ""))
             reason = str(arguments.get("reason", ""))
             result = await invalidate_edge(edge_id, reason)
             return [TextContent(type="text", text=result)]
-            
         return [TextContent(type="text", text=f"Tool {name} not found")]
-        
     except Exception as e:
         logger.error("Internal error calling tool %s", name, exc_info=True)
         return [TextContent(type="text", text=f"Internal Server Error: {str(e)}")]
 
-async def run_server(repo_root: str):
+async def create_server(repo_root: str) -> Server:
     """
-    Starts the MCP server using stdio transport.
+    Constructs the MCP Server instance, validates config, checks Neo4j,
+    and registers all 10 tools - but never touches stdio.
     """
     # 1. Validate config
     try:
@@ -313,29 +307,48 @@ async def run_server(repo_root: str):
         config.repo_root = os.path.abspath(repo_root)
     except ValueError as e:
         logger.error("Configuration error: %s", e)
-        sys.exit(1)
+        raise ConfigError(str(e))
 
     # 2. Check Neo4j connectivity
     try:
         client = await get_graph_client()
         await client.driver.execute_query("RETURN 1")
-        logger.info("memex MCP server %s ready — repo: %s, neo4j: %s", __version__, config.repo_root, config.neo4j_uri)
-    except Exception:
-        logger.error("Failed to connect to Neo4j. Backend unavailable.", exc_info=True)
-        sys.exit(1)
+    except Exception as e:
+        logger.error("Failed to connect to Neo4j during startup: %s", e, exc_info=True)
+        raise MemexStartupError(f"Neo4j connectivity check failed: {e}")
+    
+    server = Server("memex", version=__version__)
+    server.list_tools()(handle_list_tools)
+    server.call_tool()(handle_call_tool)
 
-    # 3. Serve
+    return server
+
+async def run_server(repo_root: str):
+    """
+    Starts the MCP server using stdio transport.
+    """
     try:
+        # 1. Create server (validates config and checks Neo4j)
+        server = await create_server(repo_root)
+        
+        config = get_config()
+        logger.info("memex MCP server %s ready — repo: %s, neo4j: %s", __version__, config.repo_root, config.neo4j_uri)
+
+        # 2. Serve
         async with stdio_server() as (read_stream, write_stream):
-            await app.run(
+            await server.run(
                 read_stream,
                 write_stream,
-                app.create_initialization_options()
+                server.create_initialization_options()
             )
     except (asyncio.CancelledError, KeyboardInterrupt):
         logger.info("memex MCP server stopping")
+    except (ConfigError, MemexStartupError) as e:
+        logger.error("Startup error: %s", e)
+        sys.exit(1)
     except Exception as e:
         logger.error("MCP server runtime error: %s", e, exc_info=True)
+        sys.exit(1)
     finally:
         logger.info("memex MCP server stopped")
 
