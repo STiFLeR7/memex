@@ -1,11 +1,20 @@
 [project]
-name = "memex"
+name = "memex-mcp"
 version = "0.1.1"
-description = "Developer context continuity system — temporal knowledge graph for AI coding agents, served via MCP"
+description = "Developer context continuity system — temporal knowledge graph for AI coding agents, served via MCP. Inspired by Vannevar Bush's 1945 concept of a machine that remembers everything."
 readme = "README.md"
-requires-python = ">=3.11"
 license = {text = "MIT"}
-keywords = ["mcp", "ai-agents", "knowledge-graph", "developer-tools", "context"]
+requires-python = ">=3.11"
+keywords = ["mcp", "ai-agents", "knowledge-graph", "developer-tools", "context", "gemini", "claude"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
 dependencies = [
     "graphiti-core[google-genai]>=0.29.0,<1.0.0",
     "google-genai>=2.0.1,<3.0.0",
@@ -26,10 +35,15 @@ dependencies = [
 ]
 
 [project.urls]
-"Homepage" = "https://github.com/STiFLeR7/memex"
+Homepage = "https://github.com/STiFLeR7/memex"
+Repository = "https://github.com/STiFLeR7/memex"
+"Bug Tracker" = "https://github.com/STiFLeR7/memex/issues"
 
 [tool.uv]
 managed = true
+
+[tool.hatch.build.targets.wheel]
+packages = ["memex"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
@@ -45,3 +59,9 @@ memex = "memex.cli:main"
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
+
+[dependency-groups]
+dev = [
+    "build>=1.5.0",
+    "twine>=6.2.0",
+]

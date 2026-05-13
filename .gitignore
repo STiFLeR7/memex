@@ -54,5 +54,8 @@ uv.lock
 GEMINI.md
 docs/
 
+# npm
+npm/node_modules/
+
 .gemini
 .memex

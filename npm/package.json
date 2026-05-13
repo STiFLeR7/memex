@@ -1,0 +1,24 @@
+{
+  "name": "stifler-memex-mcp",
+  "version": "0.1.2",
+  "description": "Developer context continuity system for AI coding agents via MCP. Inspired by Vannevar Bush's 1945 concept of a machine that remembers everything.",
+  "bin": {
+    "stifler-memex-mcp": "./bin/memex-mcp.js",
+    "memex-mcp": "./bin/memex-mcp.js",
+    "memex": "./bin/memex-mcp.js"
+  },
+  "scripts": {
+    "test": "node bin/memex-mcp.js --help"
+  },
+  "keywords": ["mcp", "ai-agents", "context", "knowledge-graph", "gemini", "claude-code"],
+  "author": "Hill Patel <hillaniljppatel@gmail.com>",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/STiFLeR7/memex.git"
+  },
+  "homepage": "https://github.com/STiFLeR7/memex",
+  "engines": {
+    "node": ">=18"
+  }
+}
