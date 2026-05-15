@@ -25,21 +25,21 @@ from memex.mcp_server.formatter import (
 
 logger = logging.getLogger(__name__)
 
-async def get_project_context(scope: Optional[str] = None) -> str:
+async def get_project_context(scope: Optional[str] = None, repo: Optional[str] = None) -> str:
     """
     Returns a structured markdown briefing of the project.
     """
     try:
         config = get_config()
         
-        counts = await get_node_counts()
-        modules = await get_active_modules(since_days=30, scope=scope)
-        decisions = await get_recent_decisions_raw(since_days=7, module=scope, limit=10)
-        problems = await get_open_problems_raw(module=scope)
-        stale_list = await get_stale_edges(threshold=0.3, limit=1)
+        counts = await get_node_counts(repo=repo)
+        modules = await get_active_modules(since_days=30, scope=scope, repo=repo)
+        decisions = await get_recent_decisions_raw(since_days=7, module=scope, limit=10, repo=repo)
+        problems = await get_open_problems_raw(module=scope, repo=repo)
+        stale_list = await get_stale_edges(threshold=0.3, limit=1, repo=repo)
         
         return format_project_context(
-            repo_root=config.repo_root,
+            repo_root=repo or config.repo_root,
             counts=counts,
             modules=modules,
             decisions=decisions,
@@ -51,26 +51,30 @@ async def get_project_context(scope: Optional[str] = None) -> str:
         logger.error("Failed to generate project context", exc_info=True)
         return f"Error: Failed to retrieve project context from Neo4j. {e}"
 
-async def get_symbol_context(symbol_name: str, file: Optional[str] = None) -> str:
+async def get_symbol_context(symbol_name: str, file: Optional[str] = None, repo: Optional[str] = None) -> str:
     """
     Returns everything the graph knows about a specific symbol.
     """
     try:
-        symbol = await get_symbol_by_name(symbol_name, file)
+        symbol = await get_symbol_by_name(symbol_name, file, repo=repo)
         
         if not symbol:
             client = await get_graph_client()
             search_results = await client.search(symbol_name, num_results=1)
+            # Filter search results if repo is provided
+            if repo:
+                search_results = [r for r in search_results if getattr(r, 'repo_path', None) == repo]
+            
             suggestion = ""
             if search_results:
                 best = search_results[0]
                 suggestion = f"\n\nDid you mean '{getattr(best, 'name', 'unknown')}'?"
             return f"Symbol '{symbol_name}' not found.{suggestion}"
 
-        callers = await get_symbol_callers(symbol_name)
-        callees = await get_symbol_callees(symbol_name)
-        decisions = await get_symbol_decisions(symbol_name)
-        problems = await get_symbol_problems(symbol_name)
+        callers = await get_symbol_callers(symbol_name, repo=repo)
+        callees = await get_symbol_callees(symbol_name, repo=repo)
+        decisions = await get_symbol_decisions(symbol_name, repo=repo)
+        problems = await get_symbol_problems(symbol_name, repo=repo)
 
         return format_symbol_context(
             symbol=symbol,
@@ -84,12 +88,12 @@ async def get_symbol_context(symbol_name: str, file: Optional[str] = None) -> st
         logger.error("Failed to fetch symbol context", exc_info=True)
         return f"Error: Failed to retrieve symbol context for '{symbol_name}'. {e}"
 
-async def get_recent_decisions(days: int = 30, module: Optional[str] = None) -> str:
+async def get_recent_decisions(days: int = 30, module: Optional[str] = None, repo: Optional[str] = None) -> str:
     """
     Returns Decision nodes created within the last days days, newest first.
     """
     try:
-        decisions = await get_recent_decisions_raw(since_days=days, module=module, limit=21)
+        decisions = await get_recent_decisions_raw(since_days=days, module=module, limit=21, repo=repo)
         return format_decisions(
             decisions=decisions,
             days=days,
@@ -101,12 +105,12 @@ async def get_recent_decisions(days: int = 30, module: Optional[str] = None) -> 
         logger.error("Failed to fetch recent decisions", exc_info=True)
         return f"Error: Failed to retrieve decisions from Neo4j. {e}"
 
-async def get_open_problems(module: Optional[str] = None) -> str:
+async def get_open_problems(module: Optional[str] = None, repo: Optional[str] = None) -> str:
     """
     Returns Problem nodes with no resolved_by edge.
     """
     try:
-        problems = await get_open_problems_raw(module=module)
+        problems = await get_open_problems_raw(module=module, repo=repo)
         if not problems:
             return "no open problems recorded"
             
@@ -122,7 +126,7 @@ async def get_open_problems(module: Optional[str] = None) -> str:
         logger.error("Failed to fetch open problems", exc_info=True)
         return f"Error: Failed to retrieve problems from Neo4j. {e}"
 
-async def search_context(query: str, top_k: int = 8) -> str:
+async def search_context(query: str, top_k: int = 8, repo: Optional[str] = None) -> str:
     """
     Semantic + keyword + graph traversal search across all node types.
     """
@@ -133,8 +137,14 @@ async def search_context(query: str, top_k: int = 8) -> str:
     client = await get_graph_client()
     
     try:
-        results = await client.search(query, num_results=top_k)
+        # Increase num_results if we are going to filter in memory
+        search_top_k = top_k * 2 if repo else top_k
+        results = await client.search(query, num_results=search_top_k)
         
+        if repo:
+            results = [r for r in results if getattr(r, 'repo_path', None) == repo]
+            results = results[:top_k]
+
         if not results:
             return f"no relevant context found for query: '{query}'"
             
@@ -144,14 +154,14 @@ async def search_context(query: str, top_k: int = 8) -> str:
         logger.error("Graphiti search failed", exc_info=True)
         return "search temporarily unavailable — try get_project_context() instead"
 
-async def get_stale_context(threshold: float = 0.5) -> str:
+async def get_stale_context(threshold: float = 0.5, repo: Optional[str] = None) -> str:
     """
     Returns edges whose confidence field is below threshold.
     """
     threshold = min(max(0.0, threshold), 1.0)
     
     try:
-        edges = await get_stale_edges(threshold=threshold, limit=51)
+        edges = await get_stale_edges(threshold=threshold, limit=51, repo=repo)
         return format_stale_edges(
             edges=edges,
             threshold=threshold,

@@ -26,9 +26,9 @@ logger = logging.getLogger(__name__)
 
 # Attempt to get version from pyproject.toml via importlib
 try:
-    __version__ = get_version("memex")
+    __version__ = get_version("memex-mcp")
 except PackageNotFoundError:
-    __version__ = "0.1.1"
+    __version__ = "0.2.0"
 
 class ConfigError(Exception):
     """Raised when server configuration is invalid."""
@@ -52,6 +52,10 @@ async def handle_list_tools() -> list[Tool]:
                     "scope": {
                         "type": "string",
                         "description": "Optional relative path to filter the briefing (e.g. 'src/auth')."
+                    },
+                    "repo": {
+                        "type": "string",
+                        "description": "Optional absolute path to the repository to scope results."
                     }
                 }
             }
@@ -69,6 +73,10 @@ async def handle_list_tools() -> list[Tool]:
                     "file": {
                         "type": "string",
                         "description": "Optional relative path to disambiguate symbols with the same name."
+                    },
+                    "repo": {
+                        "type": "string",
+                        "description": "Optional absolute path to the repository to scope results."
                     }
                 },
                 "required": ["symbol_name"]
@@ -88,6 +96,10 @@ async def handle_list_tools() -> list[Tool]:
                     "module": {
                         "type": "string",
                         "description": "Optional relative path to filter decisions by affected module."
+                    },
+                    "repo": {
+                        "type": "string",
+                        "description": "Optional absolute path to the repository to scope results."
                     }
                 }
             }
@@ -101,6 +113,10 @@ async def handle_list_tools() -> list[Tool]:
                     "module": {
                         "type": "string",
                         "description": "Optional relative path to filter problems by module."
+                    },
+                    "repo": {
+                        "type": "string",
+                        "description": "Optional absolute path to the repository to scope results."
                     }
                 }
             }
@@ -119,6 +135,10 @@ async def handle_list_tools() -> list[Tool]:
                         "type": "integer",
                         "description": "Maximum number of results (1-20, default: 8).",
                         "default": 8
+                    },
+                    "repo": {
+                        "type": "string",
+                        "description": "Optional absolute path to the repository to scope results."
                     }
                 },
                 "required": ["query"]
@@ -134,6 +154,10 @@ async def handle_list_tools() -> list[Tool]:
                         "type": "number",
                         "description": "Confidence threshold below which edges are considered stale (0.0-1.0, default: 0.5).",
                         "default": 0.5
+                    },
+                    "repo": {
+                        "type": "string",
+                        "description": "Optional absolute path to the repository to scope results."
                     }
                 }
             }
@@ -159,6 +183,10 @@ async def handle_list_tools() -> list[Tool]:
                     "rationale": {
                         "type": "string",
                         "description": "Optional reasoning behind the decision."
+                    },
+                    "repo": {
+                        "type": "string",
+                        "description": "Optional absolute path to the repository."
                     }
                 },
                 "required": ["text"]
@@ -182,6 +210,10 @@ async def handle_list_tools() -> list[Tool]:
                         "type": "string",
                         "description": "Problem severity: critical, high, medium, low (default: medium).",
                         "enum": ["critical", "high", "medium", "low"]
+                    },
+                    "repo": {
+                        "type": "string",
+                        "description": "Optional absolute path to the repository."
                     }
                 },
                 "required": ["text"]
@@ -200,6 +232,10 @@ async def handle_list_tools() -> list[Tool]:
                     "resolution_text": {
                         "type": "string",
                         "description": "Explanation of how the problem was resolved (min 10 chars)."
+                    },
+                    "repo": {
+                        "type": "string",
+                        "description": "Optional absolute path to the repository."
                     }
                 },
                 "required": ["problem_id", "resolution_text"]
@@ -218,6 +254,10 @@ async def handle_list_tools() -> list[Tool]:
                     "reason": {
                         "type": "string",
                         "description": "The reason for invalidating this relationship."
+                    },
+                    "repo": {
+                        "type": "string",
+                        "description": "Optional absolute path to the repository."
                     }
                 },
                 "required": ["edge_id", "reason"]
@@ -230,16 +270,18 @@ async def handle_call_tool(name: str, arguments: dict) -> list[TextContent | Ima
     Handle tool calls with argument validation and type coercion.
     """
     try:
+        repo = str(arguments.get("repo")) if arguments.get("repo") else None
+        
         if name == "get_project_context":
             scope = str(arguments.get("scope")) if arguments.get("scope") else None
-            result = await get_project_context(scope)
+            result = await get_project_context(scope, repo=repo)
             return [TextContent(type="text", text=result)]
         elif name == "get_symbol_context":
             symbol_name = str(arguments.get("symbol_name", ""))
             file = str(arguments.get("file")) if arguments.get("file") else None
             if not symbol_name:
                 return [TextContent(type="text", text="Error: 'symbol_name' is required.")]
-            result = await get_symbol_context(symbol_name, file)
+            result = await get_symbol_context(symbol_name, file, repo=repo)
             return [TextContent(type="text", text=result)]
         elif name == "get_recent_decisions":
             try:
@@ -247,11 +289,11 @@ async def handle_call_tool(name: str, arguments: dict) -> list[TextContent | Ima
             except (ValueError, TypeError):
                 days = 30
             module = str(arguments.get("module")) if arguments.get("module") else None
-            result = await get_recent_decisions(days, module)
+            result = await get_recent_decisions(days, module, repo=repo)
             return [TextContent(type="text", text=result)]
         elif name == "get_open_problems":
             module = str(arguments.get("module")) if arguments.get("module") else None
-            result = await get_open_problems(module)
+            result = await get_open_problems(module, repo=repo)
             return [TextContent(type="text", text=result)]
         elif name == "search_context":
             query = str(arguments.get("query", ""))
@@ -259,37 +301,37 @@ async def handle_call_tool(name: str, arguments: dict) -> list[TextContent | Ima
                 top_k = int(arguments.get("top_k", 8))
             except (ValueError, TypeError):
                 top_k = 8
-            result = await search_context(query, top_k)
+            result = await search_context(query, top_k, repo=repo)
             return [TextContent(type="text", text=result)]
         elif name == "get_stale_context":
             try:
                 threshold = float(arguments.get("threshold", 0.5))
             except (ValueError, TypeError):
                 threshold = 0.5
-            result = await get_stale_context(threshold)
+            result = await get_stale_context(threshold, repo=repo)
             return [TextContent(type="text", text=result)]
         elif name == "record_decision":
             text = str(arguments.get("text", ""))
             module = str(arguments.get("module")) if arguments.get("module") else None
             symbol = str(arguments.get("symbol")) if arguments.get("symbol") else None
             rationale = str(arguments.get("rationale")) if arguments.get("rationale") else None
-            result = await record_decision(text, module, symbol, rationale)
+            result = await record_decision(text, module, symbol, rationale, repo=repo)
             return [TextContent(type="text", text=result)]
         elif name == "record_problem":
             text = str(arguments.get("text", ""))
             module = str(arguments.get("module")) if arguments.get("module") else None
             severity = str(arguments.get("severity", "medium"))
-            result = await record_problem(text, module, severity)
+            result = await record_problem(text, module, severity, repo=repo)
             return [TextContent(type="text", text=result)]
         elif name == "resolve_problem":
             problem_id = str(arguments.get("problem_id", ""))
             resolution_text = str(arguments.get("resolution_text", ""))
-            result = await resolve_problem(problem_id, resolution_text)
+            result = await resolve_problem(problem_id, resolution_text, repo=repo)
             return [TextContent(type="text", text=result)]
         elif name == "invalidate_edge":
             edge_id = str(arguments.get("edge_id", ""))
             reason = str(arguments.get("reason", ""))
-            result = await invalidate_edge(edge_id, reason)
+            result = await invalidate_edge(edge_id, reason, repo=repo)
             return [TextContent(type="text", text=result)]
         return [TextContent(type="text", text=f"Tool {name} not found")]
     except Exception as e:
@@ -323,9 +365,9 @@ async def create_server(repo_root: str) -> Server:
 
     return server
 
-async def run_server(repo_root: str):
+async def run_server(repo_root: str, transport: str = "stdio", host: str = "0.0.0.0", port: int = 8000):
     """
-    Starts the MCP server using stdio transport.
+    Starts the MCP server using the specified transport(s).
     """
     try:
         # 1. Create server (validates config and checks Neo4j)
@@ -334,13 +376,30 @@ async def run_server(repo_root: str):
         config = get_config()
         logger.info("memex MCP server %s ready — repo: %s, neo4j: %s", __version__, config.repo_root, config.neo4j_uri)
 
-        # 2. Serve
-        async with stdio_server() as (read_stream, write_stream):
-            await server.run(
-                read_stream,
-                write_stream,
-                server.create_initialization_options()
-            )
+        tasks = []
+        
+        if transport in ("stdio", "both"):
+            async def run_stdio():
+                logger.info("Starting stdio transport")
+                async with stdio_server() as (read_stream, write_stream):
+                    await server.run(
+                        read_stream,
+                        write_stream,
+                        server.create_initialization_options()
+                    )
+            tasks.append(run_stdio())
+
+        if transport in ("http", "both"):
+            from memex.mcp_server.http import run_http_server
+            logger.info("Starting HTTP transport on %s:%d", host, port)
+            tasks.append(run_http_server(server, repo_root, host, port))
+
+        if not tasks:
+            logger.error("No transport specified")
+            sys.exit(1)
+
+        await asyncio.gather(*tasks)
+
     except (asyncio.CancelledError, KeyboardInterrupt):
         logger.info("memex MCP server stopping")
     except (ConfigError, MemexStartupError) as e:
@@ -353,6 +412,16 @@ async def run_server(repo_root: str):
         logger.info("memex MCP server stopped")
 
 if __name__ == "__main__":
+    import argparse
+    parser = argparse.ArgumentParser(description="memex MCP server")
+    parser.add_argument("--repo", default=".", help="Path to the repository root")
+    parser.add_argument("--transport", choices=["stdio", "http", "both"], default="stdio", help="Transport to use")
+    parser.add_argument("--host", default="0.0.0.0", help="HTTP host")
+    parser.add_argument("--port", type=int, default=8000, help="HTTP port")
+    
+    args = parser.parse_args()
+    
+    # Configure logging to stderr for stdio transport compatibility
     logging.basicConfig(level=logging.INFO, stream=sys.stderr)
-    repo = sys.argv[1] if len(sys.argv) > 1 else "."
-    asyncio.run(run_server(repo))
+    
+    asyncio.run(run_server(args.repo, args.transport, args.host, args.port))

@@ -43,7 +43,8 @@ async def test_agent_session_compounds_graph():
 
     # 2. SEED a problem manually to ensure it's available for resolution immediately
     # We create a node that looks exactly like what our tools expect
-    problem_id = "test-compounding-prob-123"
+    import uuid
+    problem_id = f"test-prob-{uuid.uuid4().hex[:8]}"
     await client.driver.execute_query(
         "CREATE (n:Entity {uuid: $id, name: 'CommitPoller concurrency', type: 'Problem', status: 'open', created_at: datetime($now)})",
         params={"id": problem_id, "now": now.isoformat()}

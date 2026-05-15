@@ -5,22 +5,24 @@ import psutil
 from pathlib import Path
 from memex.config import get_config
 from memex.graph.client import get_graph_client
-from memex.watcher.registry import (
-    FSObserver,
-    CommitPoller,
-    EventRouter,
-    handle_file_change,
-    handle_commit,
-    DecayScheduler,
-)
+from memex.watcher.fs_observer import FSObserver
+from memex.watcher.commit_poller import CommitPoller
+from memex.watcher.event_router import EventRouter
+from memex.watcher.handlers import handle_file_change, handle_commit
+from memex.graph.decay import DecayScheduler
+from memex.watcher.registry import get_active_repositories, DEFAULT_REGISTRY_DIR
 from memex.watcher.git_hook import install_hooks
 
 logger = logging.getLogger(__name__)
 
-def _write_pid(repo_root: Path) -> Path:
-    memex_dir = repo_root / ".memex"
-    memex_dir.mkdir(exist_ok=True)
-    pid_file = memex_dir / "daemon.pid"
+def _write_pid(repo_root: Path | None) -> Path:
+    if repo_root:
+        memex_dir = repo_root / ".memex"
+        memex_dir.mkdir(exist_ok=True)
+        pid_file = memex_dir / "daemon.pid"
+    else:
+        DEFAULT_REGISTRY_DIR.mkdir(exist_ok=True)
+        pid_file = DEFAULT_REGISTRY_DIR / "daemon.pid"
     
     if pid_file.exists():
         try:
@@ -39,11 +41,12 @@ def _write_pid(repo_root: Path) -> Path:
     pid_file.write_text(str(os.getpid()))
     return pid_file
 
-async def run_daemon(repo_root: str) -> None:
+async def run_daemon(repo_root: str | None = None) -> None:
     """
     Starts all components and runs until cancelled.
+    If repo_root is None, watches all active repositories from the registry.
     """
-    repo_root_path = Path(repo_root).resolve()
+    repo_root_path = Path(repo_root).resolve() if repo_root else None
     
     # 1. PID management
     try:
@@ -64,7 +67,10 @@ async def run_daemon(repo_root: str) -> None:
 
     # 3. Startup Log & Connection Check
     logger.info("memex daemon starting...")
-    logger.info("  Repo Root: %s", repo_root_path)
+    if repo_root_path:
+        logger.info("  Mode: Single Repo (%s)", repo_root_path)
+    else:
+        logger.info("  Mode: Multi-Repo (Registry)")
     logger.info("  Neo4j URI: %s", config.neo4j_uri)
     logger.info("  Gemini Model: %s", config.gemini_model)
 
@@ -79,46 +85,67 @@ async def run_daemon(repo_root: str) -> None:
         if pid_file.exists(): pid_file.unlink()
         return
 
-    # Install git hooks
-    try:
-        install_hooks(str(repo_root_path))
-        logger.info("Installed git hooks in %s", repo_root_path)
-    except Exception as e:
-        logger.warning("Failed to install git hooks: %s", e)
-
-    # 4. Check for initial paused state
-    pause_file = repo_root_path / ".memex" / "paused"
-    if pause_file.exists():
-        logger.info("memex is currently PAUSED. Delete %s or run 'memex resume' to start watching.", pause_file)
-
     # Shared event queue
     queue = asyncio.Queue()
-
+    
     # Components
-    observer = FSObserver(str(repo_root_path), queue)
-    poller = CommitPoller(str(repo_root_path), queue)
     router = EventRouter(queue)
     router.on_file_change(handle_file_change)
     router.on_commit(handle_commit)
     decay = DecayScheduler()
 
+    observers = []
+    pollers = []
     tasks = []
-    
-    try:
-        # Start background tasks
-        poller_task = asyncio.create_task(poller.run())
-        router_task = asyncio.create_task(router.run())
-        tasks.extend([poller_task, router_task])
 
-        # Start non-async components
+    # Determine which repos to watch
+    if repo_root_path:
+        repos_to_watch = [repo_root_path]
+    else:
+        repos_to_watch = [Path(r.path) for r in get_active_repositories()]
+        if not repos_to_watch:
+            logger.warning("No active repositories found in registry. Daemon will idle.")
+            print("Warning: No active repositories found in registry.")
+
+    for repo in repos_to_watch:
+        # Install git hooks
+        try:
+            install_hooks(str(repo))
+            logger.info("Installed git hooks in %s", repo)
+        except Exception as e:
+            logger.warning("Failed to install git hooks in %s: %s", repo, e)
+
+        # Check for initial paused state
+        pause_file = repo / ".memex" / "paused"
+        if pause_file.exists():
+            logger.info("memex is currently PAUSED for %s. Delete %s or run 'memex resume' to start watching.", repo, pause_file)
+            continue
+
+        observer = FSObserver(str(repo), queue)
+        poller = CommitPoller(str(repo), queue)
+        observers.append(observer)
+        pollers.append(poller)
+        
+        poller_task = asyncio.create_task(poller.run())
+        tasks.append(poller_task)
         observer.start()
+        logger.info("memex watching %s", repo)
+
+    try:
+        # Start shared router
+        router_task = asyncio.create_task(router.run())
+        tasks.append(router_task)
+        
+        # Start shared decay
         decay.start()
 
-        logger.info("memex watching %s", repo_root_path)
-        print(f"memex is watching {repo_root_path} (PID {os.getpid()})")
+        if repo_root_path:
+            print(f"memex is watching {repo_root_path} (PID {os.getpid()})")
+        else:
+            print(f"memex is watching {len(observers)} repositories (PID {os.getpid()})")
 
         # Main Loop: wait forever (or until tasks fail)
-        await asyncio.gather(poller_task, router_task)
+        await asyncio.gather(*tasks)
 
     except (asyncio.CancelledError, KeyboardInterrupt):
         logger.info("Shutdown signal received...")
@@ -140,10 +167,11 @@ async def run_daemon(repo_root: str) -> None:
             await asyncio.gather(*tasks, return_exceptions=True)
 
         # 2. Stop non-async components
-        try:
-            observer.stop()
-        except Exception:
-            logger.error("Error stopping FSObserver", exc_info=True)
+        for observer in observers:
+            try:
+                observer.stop()
+            except Exception:
+                logger.error("Error stopping FSObserver", exc_info=True)
 
         try:
             decay.stop()

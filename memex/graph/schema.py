@@ -54,6 +54,10 @@ class Decision(BaseModel):
     scope: Optional[str] = None
     created_at: Optional[datetime] = None
     source_commit: Optional[str] = None
+    confidence: float = 0.6
+    source: str = "watcher"
+    corroborated: bool = False
+    corroboration_commit: Optional[str] = None
 
     @field_validator("text")
     @classmethod
@@ -61,6 +65,18 @@ class Decision(BaseModel):
         if not v or not str(v).strip():
             raise ValueError("decision text cannot be empty")
         return str(v).replace('\x00', '')
+
+    @field_validator("confidence")
+    @classmethod
+    def confidence_in_range(cls, v):
+        return max(0.0, min(1.0, float(v)))
+
+    @field_validator("source")
+    @classmethod
+    def source_must_be_valid(cls, v):
+        if v not in ("agent", "watcher"):
+            raise ValueError(f"invalid source: {v}")
+        return v
 
 class Problem(BaseModel):
     model_config = ConfigDict(extra="ignore")
@@ -94,6 +110,23 @@ class Dependency(BaseModel):
     ecosystem: str
     last_updated: datetime
 
+class Repository(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    
+    path: str
+    name: str
+    added_at: datetime
+    active: bool = True
+
+    @field_validator("path")
+    @classmethod
+    def path_must_be_absolute(cls, v):
+        from pathlib import Path
+        p = Path(v)
+        if not p.is_absolute():
+            raise ValueError(f"path must be absolute: {v}")
+        return str(p)
+
 # Aliases for prompt compatibility
 SymbolNode = Symbol
 ModuleNode = Module
@@ -101,3 +134,4 @@ DecisionNode = Decision
 ProblemNode = Problem
 AgentSessionNode = AgentSession
 DependencyNode = Dependency
+RepositoryNode = Repository

@@ -11,6 +11,16 @@ from memex.watcher.git_hook import install_hooks
 from memex.mcp_server.server import run_server
 from memex.graph.client import get_graph_client
 from memex.mcp_server.queries import get_node_counts, get_stale_edges
+from memex.watcher.registry import (
+    add_repository,
+    remove_repository,
+    get_repositories,
+    get_active_repositories,
+    toggle_repository_active,
+    add_key,
+    list_keys,
+    revoke_key,
+)
 
 # Setup basic logging
 logging.basicConfig(
@@ -26,22 +36,47 @@ async def get_node_counts_safe():
     except Exception:
         return None
 
-async def print_status(repo_root: str):
-    print(f"\nmemex status for {Path(repo_root).resolve()}")
-    
-    # 1. Check if paused
-    if (Path(repo_root) / ".memex" / "paused").exists():
-        print("Status: PAUSED")
-    else:
-        print("Status: ACTIVE")
+async def print_status(repo_root: str | None):
+    if repo_root:
+        repo_path = Path(repo_root).resolve()
+        print(f"\nmemex status for {repo_path}")
         
-    # 2. Get Graph Counts
-    counts = await get_node_counts_safe()
-    if counts:
-        print(f"Graph: {counts.get('modules', 0)} modules, {counts.get('symbols', 0)} symbols, "
-              f"{counts.get('decisions', 0)} decisions, {counts.get('problems', 0)} open problems")
+        # 1. Check if paused
+        if (repo_path / ".memex" / "paused").exists():
+            print("Status: PAUSED")
+        else:
+            print("Status: ACTIVE")
+            
+        # 2. Get Graph Counts
+        counts = await get_node_counts_safe()
+        if counts:
+            print(f"Graph: {counts.get('modules', 0)} modules, {counts.get('symbols', 0)} symbols, "
+                  f"{counts.get('decisions', 0)} decisions, {counts.get('problems', 0)} open problems")
+        else:
+            print("Graph: Could not connect to Neo4j to retrieve node counts.")
     else:
-        print("Graph: Could not connect to Neo4j to retrieve node counts.")
+        print("\nmemex status summary (Global)")
+        repos = get_repositories()
+        if not repos:
+            print("No repositories registered.")
+            return
+
+        active_count = 0
+        for repo in repos:
+            status = "ACTIVE" if repo.active else "INACTIVE"
+            if repo.active:
+                if (Path(repo.path) / ".memex" / "paused").exists():
+                    status = "PAUSED"
+                else:
+                    active_count += 1
+            print(f"  {repo.name} ({repo.path}) - [{status}]")
+        
+        print(f"\nTotal Registered: {len(repos)} | Active/Watching: {active_count}")
+        
+        counts = await get_node_counts_safe()
+        if counts:
+            print(f"Global Graph: {counts.get('modules', 0)} modules, {counts.get('symbols', 0)} symbols, "
+                  f"{counts.get('decisions', 0)} decisions, {counts.get('problems', 0)} open problems")
 
 async def run_doctor(repo_root: str):
     print("\nmemex doctor — checking prerequisites\n")
@@ -133,7 +168,7 @@ async def run_doctor(repo_root: str):
 def main(args=None):
     # Common parser for shared arguments
     parent_parser = argparse.ArgumentParser(add_help=False)
-    parent_parser.add_argument("--repo", default=".", help="Path to the repository")
+    parent_parser.add_argument("--repo", help="Path to the repository")
 
     parser = argparse.ArgumentParser(description="memex CLI - Knowledge Graph Watcher")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -147,6 +182,13 @@ def main(args=None):
     # status
     subparsers.add_parser("status", help="Show current status", parents=[parent_parser])
 
+    # list
+    subparsers.add_parser("list", help="List registered repositories", parents=[parent_parser])
+
+    # remove
+    remove_parser = subparsers.add_parser("remove", help="Unregister a repository")
+    remove_parser.add_argument("--repo", required=True, help="Path to the repository")
+
     # pause
     subparsers.add_parser("pause", help="Suspend watcher", parents=[parent_parser])
 
@@ -154,18 +196,38 @@ def main(args=None):
     subparsers.add_parser("resume", help="Resume watcher", parents=[parent_parser])
 
     # serve
-    subparsers.add_parser("serve", help="Start MCP server", parents=[parent_parser])
+    serve_parser = subparsers.add_parser("serve", help="Start MCP server", parents=[parent_parser])
+    serve_parser.add_argument("--transport", choices=["stdio", "http", "both"], default="stdio", help="Transport to use")
+    serve_parser.add_argument("--host", default="0.0.0.0", help="HTTP host")
+    serve_parser.add_argument("--port", type=int, default=8000, help="HTTP port")
 
     # doctor
     subparsers.add_parser("doctor", help="Check system health", parents=[parent_parser])
+
+    # keys
+    keys_parser = subparsers.add_parser("keys", help="Manage authentication keys", parents=[parent_parser])
+    keys_subparsers = keys_parser.add_subparsers(dest="keys_command", required=True)
+    
+    # keys add
+    keys_add_parser = keys_subparsers.add_parser("add", help="Add a new key")
+    keys_add_parser.add_argument("name", help="Name for the key")
+    
+    # keys list
+    keys_subparsers.add_parser("list", help="List all keys")
+    
+    # keys revoke
+    keys_revoke_parser = keys_subparsers.add_parser("revoke", help="Revoke a key")
+    keys_revoke_parser.add_argument("name", help="Name of the key to revoke")
     
     parsed_args = parser.parse_args(args)
     repo_root = parsed_args.repo
 
     if parsed_args.command == "init":
-        install_hooks(repo_root)
-        (Path(repo_root) / ".memex").mkdir(exist_ok=True)
-        print(f"memex initialized in {Path(repo_root).resolve()}")
+        path = repo_root or "."
+        install_hooks(path)
+        (Path(path) / ".memex").mkdir(exist_ok=True)
+        add_repository(path)
+        print(f"memex initialized and registered in {Path(path).resolve()}")
 
     elif parsed_args.command == "watch":
         asyncio.run(run_daemon(repo_root))
@@ -173,22 +235,64 @@ def main(args=None):
     elif parsed_args.command == "status":
         asyncio.run(print_status(repo_root))
 
+    elif parsed_args.command == "list":
+        repos = get_repositories()
+        if not repos:
+            print("No repositories registered.")
+        else:
+            print("\nRegistered Repositories:")
+            for r in repos:
+                status = "ACTIVE" if r.active else "INACTIVE"
+                print(f"  - {r.name}: {r.path} [{status}]")
+
+    elif parsed_args.command == "remove":
+        remove_repository(parsed_args.repo)
+        print(f"Repository {parsed_args.repo} unregistered.")
+
     elif parsed_args.command == "pause":
-        (Path(repo_root) / ".memex").mkdir(exist_ok=True)
-        (Path(repo_root) / ".memex" / "paused").touch()
-        print("memex watcher PAUSED.")
+        path = repo_root or "."
+        (Path(path) / ".memex").mkdir(exist_ok=True)
+        (Path(path) / ".memex" / "paused").touch()
+        print(f"memex watcher PAUSED for {Path(path).resolve()}.")
 
     elif parsed_args.command == "resume":
-        pause_file = (Path(repo_root) / ".memex" / "paused")
+        path = repo_root or "."
+        pause_file = (Path(path) / ".memex" / "paused")
         if pause_file.exists():
             pause_file.unlink()
-        print("memex watcher RESUMED.")
+        print(f"memex watcher RESUMED for {Path(path).resolve()}.")
 
     elif parsed_args.command == "serve":
-        asyncio.run(run_server(repo_root))
+        path = repo_root or "."
+        asyncio.run(run_server(path, parsed_args.transport, parsed_args.host, parsed_args.port))
 
     elif parsed_args.command == "doctor":
-        asyncio.run(run_doctor(repo_root))
+        path = repo_root or "."
+        asyncio.run(run_doctor(path))
+
+    elif parsed_args.command == "keys":
+        if parsed_args.keys_command == "add":
+            key = add_key(parsed_args.name)
+            print(f"Key '{parsed_args.name}' added successfully:")
+            print(f"  {key}")
+            print("\nIMPORTANT: This is the only time the full key will be shown. Store it securely.")
+
+        elif parsed_args.keys_command == "list":
+            keys = list_keys()
+            if not keys:
+                print("No keys found.")
+            else:
+                print("\nAuthentication Keys:")
+                print(f"{'Name':<20} {'Key (Truncated)':<20} {'Created At':<30}")
+                print("-" * 70)
+                for k in keys:
+                    print(f"{k['name']:<20} {k['key']:<20} {k['created_at']:<30}")
+
+        elif parsed_args.keys_command == "revoke":
+            if revoke_key(parsed_args.name):
+                print(f"Key '{parsed_args.name}' revoked.")
+            else:
+                print(f"Key '{parsed_args.name}' not found.")
 
 if __name__ == "__main__":
     main()

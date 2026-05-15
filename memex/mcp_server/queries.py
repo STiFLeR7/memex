@@ -11,11 +11,12 @@ class MemexQueryError(Exception):
         self.query = query
         self.original_error = original_error
 
-async def get_node_counts() -> Dict[str, int]:
+async def get_node_counts(repo: Optional[str] = None) -> Dict[str, int]:
     """Returns counts of core node types."""
     client = await get_graph_client()
     query = """
     MATCH (n:Entity)
+    WHERE ($repo IS NULL OR n.repo_path = $repo)
     RETURN 
       count(CASE WHEN n.name ENDS WITH '.py' OR n.name ENDS WITH '.js' OR n.name ENDS WITH '.ts' OR coalesce(n.type, '') = 'Module' THEN 1 END) as modules,
       count(CASE WHEN n.type = 'Symbol' OR (NOT n.name ENDS WITH '.py' AND n.type IS NULL) THEN 1 END) as symbols,
@@ -23,19 +24,20 @@ async def get_node_counts() -> Dict[str, int]:
       count(CASE WHEN n.type = 'Problem' AND coalesce(n.status, 'open') = 'open' THEN 1 END) as problems
     """
     try:
-        res = await client.driver.execute_query(query)
+        res = await client.driver.execute_query(query, params={"repo": repo})
         if not res.records:
             return {"modules": 0, "symbols": 0, "decisions": 0, "problems": 0}
         return res.records[0].data()
     except Exception as e:
         raise MemexQueryError("Failed to get node counts", query, e)
 
-async def get_active_modules(since_days: int, scope: Optional[str]) -> List[Dict[str, Any]]:
+async def get_active_modules(since_days: int, scope: Optional[str], repo: Optional[str] = None) -> List[Dict[str, Any]]:
     """Returns modules modified recently."""
     client = await get_graph_client()
     query = """
     MATCH (m:Entity)
     WHERE (coalesce(m.type, '') = 'Module' OR m.name ENDS WITH '.py' OR m.name ENDS WITH '.js')
+      AND ($repo IS NULL OR m.repo_path = $repo)
       AND ($scope IS NULL OR m.name STARTS WITH $scope)
       AND coalesce(m.created_at, datetime()) >= datetime() - duration({days: $days})
     OPTIONAL MATCH (s:Entity) WHERE coalesce(s.file, '') = m.name OR (s.type = 'Symbol' AND s.file = m.name)
@@ -44,17 +46,18 @@ async def get_active_modules(since_days: int, scope: Optional[str]) -> List[Dict
     LIMIT 20
     """
     try:
-        res = await client.driver.execute_query(query, params={"scope": scope, "days": since_days})
+        res = await client.driver.execute_query(query, params={"scope": scope, "days": since_days, "repo": repo})
         return [r.data() for r in res.records]
     except Exception as e:
         raise MemexQueryError("Failed to get active modules", query, e)
 
-async def get_recent_decisions_raw(since_days: int, module: Optional[str], limit: int) -> List[Dict[str, Any]]:
+async def get_recent_decisions_raw(since_days: int, module: Optional[str], limit: int, repo: Optional[str] = None) -> List[Dict[str, Any]]:
     """Returns recent decision nodes and their affected modules."""
     client = await get_graph_client()
     query = """
     MATCH (d:Entity)
     WHERE (d.type = 'Decision' OR d.name CONTAINS 'Decision')
+      AND ($repo IS NULL OR d.repo_path = $repo)
       AND coalesce(d.created_at, datetime()) >= datetime() - duration({days: $days})
     
     OPTIONAL MATCH (d)-[:MOTIVATES|RELATES_TO|MENTIONS]-(m:Entity)
@@ -74,18 +77,19 @@ async def get_recent_decisions_raw(since_days: int, module: Optional[str], limit
     LIMIT $limit
     """
     try:
-        res = await client.driver.execute_query(query, params={"days": since_days, "module": module, "limit": limit})
+        res = await client.driver.execute_query(query, params={"days": since_days, "module": module, "limit": limit, "repo": repo})
         return [r.data() for r in res.records]
     except Exception as e:
         raise MemexQueryError("Failed to get recent decisions", query, e)
 
-async def get_open_problems_raw(module: Optional[str]) -> List[Dict[str, Any]]:
+async def get_open_problems_raw(module: Optional[str], repo: Optional[str] = None) -> List[Dict[str, Any]]:
     """Returns unresolved problem nodes."""
     client = await get_graph_client()
     # We match anything that looks like a Problem and is NOT resolved
     query = """
     MATCH (p:Entity)
-    WHERE (coalesce(p.type, '') = 'Problem' OR p.name CONTAINS 'Problem') 
+    WHERE (p.type = 'Problem' OR p.name CONTAINS 'Problem') 
+      AND ($repo IS NULL OR p.repo_path = $repo)
       AND coalesce(p.status, 'open') = 'open'
       AND NOT (p)-[:RESOLVED_BY|RESOLVES]->()
     
@@ -111,17 +115,18 @@ async def get_open_problems_raw(module: Optional[str]) -> List[Dict[str, Any]]:
     LIMIT 20
     """
     try:
-        res = await client.driver.execute_query(query, params={"module": module})
+        res = await client.driver.execute_query(query, params={"module": module, "repo": repo})
         return [r.data() for r in res.records]
     except Exception as e:
         raise MemexQueryError("Failed to get open problems", query, e)
 
-async def get_stale_edges(threshold: float, limit: int) -> List[Dict[str, Any]]:
+async def get_stale_edges(threshold: float, limit: int, repo: Optional[str] = None) -> List[Dict[str, Any]]:
     """Returns relationships with low confidence."""
     client = await get_graph_client()
     query = """
     MATCH (s:Entity)-[r]->(t:Entity)
     WHERE coalesce(r.confidence, 1.0) < $threshold
+      AND ($repo IS NULL OR s.repo_path = $repo)
     RETURN s.name as source, t.name as target, type(r) as edge_type, 
            coalesce(r.confidence, 1.0) as confidence, coalesce(r.valid_from, r.created_at, datetime()) as date, 
            coalesce(r.source_commit, 'unknown') as sha,
@@ -130,18 +135,19 @@ async def get_stale_edges(threshold: float, limit: int) -> List[Dict[str, Any]]:
     LIMIT $limit
     """
     try:
-        res = await client.driver.execute_query(query, params={"threshold": threshold, "limit": limit})
+        res = await client.driver.execute_query(query, params={"threshold": threshold, "limit": limit, "repo": repo})
         return [r.data() for r in res.records]
     except Exception as e:
         raise MemexQueryError("Failed to get stale edges", query, e)
 
-async def get_symbol_by_name(name: str, file: Optional[str]) -> Optional[Dict[str, Any]]:
+async def get_symbol_by_name(name: str, file: Optional[str], repo: Optional[str] = None) -> Optional[Dict[str, Any]]:
     """Finds a single symbol by name and optional file."""
     client = await get_graph_client()
     query = """
     MATCH (s:Entity {name: $name})
-    WHERE coalesce(s.type, '') = 'Symbol' OR (s.type IS NULL AND NOT s.name ENDS WITH '.py')
+    WHERE (coalesce(s.type, '') = 'Symbol' OR (s.type IS NULL AND NOT s.name ENDS WITH '.py'))
     AND ($file IS NULL OR coalesce(s.file, '') = $file)
+    AND ($repo IS NULL OR s.repo_path = $repo)
     RETURN s.name as name, coalesce(s.kind, 'fn') as kind, coalesce(s.file, 'unknown') as file, 
            coalesce(s.line, 0) as line, coalesce(s.signature, 'n/a') as signature, 
            coalesce(s.confidence, 1.0) as confidence, coalesce(s.stale, false) as stale,
@@ -149,63 +155,67 @@ async def get_symbol_by_name(name: str, file: Optional[str]) -> Optional[Dict[st
     LIMIT 1
     """
     try:
-        res = await client.driver.execute_query(query, params={"name": name, "file": file})
+        res = await client.driver.execute_query(query, params={"name": name, "file": file, "repo": repo})
         return res.records[0].data() if res.records else None
     except Exception as e:
         raise MemexQueryError(f"Failed to find symbol '{name}'", query, e)
 
-async def get_symbol_callers(symbol_name: str) -> List[Dict[str, Any]]:
+async def get_symbol_callers(symbol_name: str, repo: Optional[str] = None) -> List[Dict[str, Any]]:
     """Finds symbols that call the target symbol."""
     client = await get_graph_client()
     query = """
     MATCH (caller:Entity)-[:CALLS|RELATES_TO]->(s:Entity {name: $name})
     WHERE (caller.type = 'Symbol' OR caller.type IS NULL) AND (s.type = 'Symbol' OR s.type IS NULL)
+    AND ($repo IS NULL OR s.repo_path = $repo)
     RETURN caller.name as name, coalesce(caller.file, 'unknown') as file
     """
     try:
-        res = await client.driver.execute_query(query, params={"name": symbol_name})
+        res = await client.driver.execute_query(query, params={"name": symbol_name, "repo": repo})
         return [r.data() for r in res.records]
     except Exception as e:
         raise MemexQueryError(f"Failed to get callers for '{symbol_name}'", query, e)
 
-async def get_symbol_callees(symbol_name: str) -> List[Dict[str, Any]]:
+async def get_symbol_callees(symbol_name: str, repo: Optional[str] = None) -> List[Dict[str, Any]]:
     """Finds symbols called by the target symbol."""
     client = await get_graph_client()
     query = """
     MATCH (s:Entity {name: $name})-[:CALLS|RELATES_TO]->(callee:Entity)
     WHERE (callee.type = 'Symbol' OR callee.type IS NULL) AND (s.type = 'Symbol' OR s.type IS NULL)
+    AND ($repo IS NULL OR s.repo_path = $repo)
     RETURN callee.name as name, coalesce(callee.file, 'unknown') as file
     """
     try:
-        res = await client.driver.execute_query(query, params={"name": symbol_name})
+        res = await client.driver.execute_query(query, params={"name": symbol_name, "repo": repo})
         return [r.data() for r in res.records]
     except Exception as e:
         raise MemexQueryError(f"Failed to get callees for '{symbol_name}'", query, e)
 
-async def get_symbol_decisions(symbol_name: str) -> List[str]:
+async def get_symbol_decisions(symbol_name: str, repo: Optional[str] = None) -> List[str]:
     """Finds decisions linked to a symbol."""
     client = await get_graph_client()
     query = """
     MATCH (d:Entity)-[:MOTIVATES|RELATES_TO]-(s:Entity {name: $name})
     WHERE (d.type = 'Decision' OR d.name CONTAINS 'Decision') AND (s.type = 'Symbol' OR s.type IS NULL)
+    AND ($repo IS NULL OR s.repo_path = $repo)
     RETURN d.name as text
     """
     try:
-        res = await client.driver.execute_query(query, params={"name": symbol_name})
+        res = await client.driver.execute_query(query, params={"name": symbol_name, "repo": repo})
         return [r['text'] for r in res.records]
     except Exception as e:
         raise MemexQueryError(f"Failed to get decisions for '{symbol_name}'", query, e)
 
-async def get_symbol_problems(symbol_name: str) -> List[str]:
+async def get_symbol_problems(symbol_name: str, repo: Optional[str] = None) -> List[str]:
     """Finds open problems linked to a symbol."""
     client = await get_graph_client()
     query = """
     MATCH (p:Entity)-[:CAUSED_BY|RELATES_TO]-(s:Entity {name: $name})
     WHERE (p.type = 'Problem' OR p.name CONTAINS 'Problem') AND (s.type = 'Symbol' OR s.type IS NULL) AND coalesce(p.status, 'open') = 'open'
+    AND ($repo IS NULL OR s.repo_path = $repo)
     RETURN p.name as text
     """
     try:
-        res = await client.driver.execute_query(query, params={"name": symbol_name})
+        res = await client.driver.execute_query(query, params={"name": symbol_name, "repo": repo})
         return [r['text'] for r in res.records]
     except Exception as e:
         raise MemexQueryError(f"Failed to get problems for '{symbol_name}'", query, e)

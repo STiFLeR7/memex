@@ -12,6 +12,7 @@ async def test_handler_error_logs_traceback_not_crashes():
     """
     event = FileChangeEvent(
         path="fake_file.py",
+        repo_root=".",
         kind="modified",
         timestamp=datetime.now(UTC)
     )

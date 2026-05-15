@@ -1,6 +1,6 @@
 [project]
 name = "memex-mcp"
-version = "0.1.1"
+version = "0.2.0"
 description = "Developer context continuity system — temporal knowledge graph for AI coding agents, served via MCP. Inspired by Vannevar Bush's 1945 concept of a machine that remembers everything."
 readme = "README.md"
 license = {text = "MIT"}
@@ -32,6 +32,7 @@ dependencies = [
     "neo4j>=6.2.0,<7.0.0",
     "pydantic>=2.13.4,<3.0.0",
     "psutil>=6.1.1,<7.0.0",
+    "PyYAML>=6.0.1,<7.0.0",
 ]
 
 [project.urls]

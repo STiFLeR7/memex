@@ -37,6 +37,7 @@ class CommitPoller:
                         
                         event = CommitEvent(
                             sha=data["sha"],
+                            repo_root=self.repo_root,
                             message=data["message"],
                             diff=data["diff"],
                             files_changed=data["files_changed"],

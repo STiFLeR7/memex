@@ -29,10 +29,9 @@ async def test_get_project_context_scope_filters_correctly():
          patch("memex.mcp_server.tools_read.get_recent_decisions_raw"), \
          patch("memex.mcp_server.tools_read.get_open_problems_raw"), \
          patch("memex.mcp_server.tools_read.get_stale_edges", return_value=[]):
-        
-        await get_project_context(scope="src/auth")
-        mock_modules.assert_called_with(since_days=30, scope="src/auth")
 
+        await get_project_context(scope="src/auth")
+        mock_modules.assert_called_with(since_days=30, scope="src/auth", repo=None)
 @pytest.mark.asyncio
 async def test_get_project_context_empty_graph_returns_gracefully():
     with patch("memex.mcp_server.tools_read.get_node_counts", return_value={"modules": 0, "symbols": 0, "decisions": 0, "problems": 0}), \
@@ -129,7 +128,7 @@ async def test_search_context_graphiti_error_returns_fallback():
 async def test_get_stale_context_threshold_clamped():
     with patch("memex.mcp_server.tools_read.get_stale_edges", return_value=[]) as mock_stale:
         await get_stale_context(threshold=1.5)
-        mock_stale.assert_called_with(threshold=1.0, limit=51)
+        mock_stale.assert_called_with(threshold=1.0, limit=51, repo=None)
 
 @pytest.mark.asyncio
 async def test_get_stale_context_no_stale_returns_message():

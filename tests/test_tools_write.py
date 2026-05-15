@@ -102,7 +102,7 @@ async def test_resolve_problem_closes_node():
         mock_client = AsyncMock()
         # Mock finding the problem
         mock_res = MagicMock()
-        mock_res.records = [{"text": "Broken auth", "resolved_at": None}]
+        mock_res.records = [{"text": "Broken auth", "resolved_at": None, "repo_path": "/tmp/repo"}]
         mock_client.driver.execute_query.side_effect = [mock_res, MagicMock()]
         
         mock_get_client.return_value = mock_client
@@ -128,7 +128,7 @@ async def test_resolve_problem_already_resolved_returns_message():
     with patch("memex.mcp_server.tools_write.get_graph_client") as mock_get_client:
         mock_client = AsyncMock()
         mock_res = MagicMock()
-        mock_res.records = [{"text": "P1", "resolved_at": datetime.now(), "resolution_summary": "Done"}]
+        mock_res.records = [{"text": "P1", "resolved_at": datetime.now(), "resolution_summary": "Done", "repo_path": "/tmp/repo"}]
         mock_client.driver.execute_query.return_value = mock_res
         mock_get_client.return_value = mock_client
         
@@ -140,7 +140,7 @@ async def test_invalidate_edge_sets_valid_until():
     with patch("memex.mcp_server.tools_write.get_graph_client") as mock_get_client:
         mock_client = AsyncMock()
         mock_res = MagicMock()
-        mock_res.records = [{"source": "M1", "target": "S1", "edge_type": "EXPORTS", "valid_until": None}]
+        mock_res.records = [{"source": "M1", "target": "S1", "edge_type": "EXPORTS", "valid_until": None, "repo_path": "/tmp/repo"}]
         mock_client.driver.execute_query.side_effect = [mock_res, MagicMock()]
         mock_get_client.return_value = mock_client
         

@@ -11,7 +11,8 @@ from memex.config import get_config
 logger = logging.getLogger(__name__)
 
 class MemexHandler(FileSystemEventHandler):
-    def __init__(self, queue: asyncio.Queue, loop: asyncio.AbstractEventLoop, ignored_patterns: list[str]):
+    def __init__(self, repo_root: str, queue: asyncio.Queue, loop: asyncio.AbstractEventLoop, ignored_patterns: list[str]):
+        self.repo_root = repo_root
         self.queue = queue
         self.loop = loop
         self.ignored_patterns = ignored_patterns
@@ -47,6 +48,7 @@ class MemexHandler(FileSystemEventHandler):
 
         file_event = FileChangeEvent(
             path=os.path.abspath(event.src_path),
+            repo_root=self.repo_root,
             kind=kind,
             timestamp=datetime.now(UTC)
         )
@@ -68,7 +70,7 @@ class FSObserver:
         self.ignored_patterns = config.ignored_patterns
 
     def start(self) -> None:
-        handler = MemexHandler(self.queue, self.loop, self.ignored_patterns)
+        handler = MemexHandler(self.repo_root, self.queue, self.loop, self.ignored_patterns)
         self.observer.schedule(handler, self.repo_root, recursive=True)
         self.observer.start()
         logger.info("FSObserver started on %s", self.repo_root)

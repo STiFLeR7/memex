@@ -58,7 +58,7 @@ async def write_symbol_delta(delta: SymbolDelta, source_commit: str | None = Non
             "now": now
         })
 
-async def write_decision(decision, modules: list[str], commit_sha: str) -> None:
+async def write_decision(decision, modules: list[str], commit_sha: str, confidence: float = 1.0, source: str = "watcher") -> None:
     """
     Writes a technical decision to Graphiti.
     """
@@ -72,14 +72,16 @@ async def write_decision(decision, modules: list[str], commit_sha: str) -> None:
             rationale=decision.rationale,
             scope=decision.scope,
             created_at=now,
-            source_commit=commit_sha
+            source_commit=commit_sha,
+            confidence=confidence,
+            source=source
         )
     except ValidationError as e:
         raise MemexSchemaError("DecisionNode", e.errors())
 
     await client.add_episode(
         name=f"decision_{commit_sha[:8]}",
-        episode_body=f"Decision: {decision.text}. Rationale: {decision.rationale}. Scope: {decision.scope}. Affected modules: {', '.join(modules)}",
+        episode_body=f"Decision: {decision.text}. Rationale: {decision.rationale}. Scope: {decision.scope}. Affected modules: {', '.join(modules)} (Confidence: {confidence}, Source: {source})",
         source_description=f"git commit {commit_sha}",
         reference_time=now
     )

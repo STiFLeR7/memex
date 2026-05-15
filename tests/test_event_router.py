@@ -24,8 +24,14 @@ async def test_event_router_debounce():
     try:
         # Send 5 rapid events for the same file
         path = "/tmp/test.py"
+        repo_root = "/tmp"
         for _ in range(5):
-            event = FileChangeEvent(path=path, kind="modified", timestamp=datetime.now(UTC))
+            event = FileChangeEvent(
+                path=path, 
+                repo_root=repo_root,
+                kind="modified", 
+                timestamp=datetime.now(UTC)
+            )
             await queue.put(event)
             await asyncio.sleep(0.1) # Total 0.4s, well within 0.8s window
             
@@ -59,8 +65,12 @@ async def test_event_router_commit_immediate():
     
     try:
         event = CommitEvent(
-            sha="123", message="msg", diff="", 
-            files_changed=[], timestamp=datetime.now(UTC)
+            sha="123", 
+            repo_root="/tmp",
+            message="msg", 
+            diff="", 
+            files_changed=[], 
+            timestamp=datetime.now(UTC)
         )
         await queue.put(event)
         
