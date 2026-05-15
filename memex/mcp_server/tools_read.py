@@ -134,9 +134,9 @@ async def search_context(query: str, top_k: int = 8, repo: Optional[str] = None)
         return "query must be non-empty"
 
     top_k = min(max(1, top_k), 20)
-    client = await get_graph_client()
     
     try:
+        client = await get_graph_client()
         # Increase num_results if we are going to filter in memory
         search_top_k = top_k * 2 if repo else top_k
         results = await client.search(query, num_results=search_top_k)

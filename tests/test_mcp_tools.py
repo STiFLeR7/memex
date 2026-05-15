@@ -32,6 +32,7 @@ async def test_get_project_context_scope_filters_correctly():
 
         await get_project_context(scope="src/auth")
         mock_modules.assert_called_with(since_days=30, scope="src/auth", repo=None)
+
 @pytest.mark.asyncio
 async def test_get_project_context_empty_graph_returns_gracefully():
     with patch("memex.mcp_server.tools_read.get_node_counts", return_value={"modules": 0, "symbols": 0, "decisions": 0, "problems": 0}), \
@@ -64,15 +65,14 @@ async def test_get_symbol_context_found():
 @pytest.mark.asyncio
 async def test_get_symbol_context_not_found_returns_fuzzy_match_message():
     with patch("memex.mcp_server.tools_read.get_symbol_by_name", return_value=None), \
-         patch("memex.mcp_server.tools_read.get_graph_client") as mock_client:
+         patch("memex.mcp_server.tools_read.get_graph_client") as mock_get_client:
         
-        # We must use a separate mock for the search result to avoid MagicMock recursing into .name
         mock_result = MagicMock()
         mock_result.name = "login_v2"
         
-        mock_search = AsyncMock()
-        mock_search.return_value = [mock_result]
-        mock_client.return_value.search = mock_search
+        mock_client = AsyncMock()
+        mock_client.search.return_value = [mock_result]
+        mock_get_client.return_value = mock_client
         
         result = await get_symbol_context("loginn")
         assert "Symbol 'loginn' not found" in result
@@ -111,16 +111,17 @@ async def test_search_context_empty_query_guard():
 
 @pytest.mark.asyncio
 async def test_search_context_top_k_clamped_at_20():
-    with patch("memex.mcp_server.tools_read.get_graph_client") as mock_client:
-        mock_search = AsyncMock(return_value=[])
-        mock_client.return_value.search = mock_search
+    with patch("memex.mcp_server.tools_read.get_graph_client") as mock_get_client:
+        mock_client = AsyncMock()
+        mock_client.search.return_value = []
+        mock_get_client.return_value = mock_client
+        
         await search_context("test", top_k=50)
-        mock_search.assert_called_with("test", num_results=20)
+        mock_client.search.assert_called_with("test", num_results=20)
 
 @pytest.mark.asyncio
 async def test_search_context_graphiti_error_returns_fallback():
-    with patch("memex.mcp_server.tools_read.get_graph_client") as mock_client:
-        mock_client.return_value.search.side_effect = Exception("API Down")
+    with patch("memex.mcp_server.tools_read.get_graph_client", side_effect=Exception("API Down")):
         result = await search_context("test")
         assert "search temporarily unavailable" in result
 
@@ -147,3 +148,9 @@ def test_formatter_truncates_at_token_budget():
     result = format_project_context("repo", counts, long_modules, [], [], 0)
     assert "[truncated — use scope= or module= parameter to narrow]" in result
     assert len(result) <= 2000 * CHARS_PER_TOKEN
+
+@pytest.mark.asyncio
+async def test_get_open_problems_exception():
+    with patch("memex.mcp_server.tools_read.get_open_problems_raw", side_effect=Exception("Query fail")):
+        result = await get_open_problems()
+        assert "Error: Failed to retrieve problems" in result

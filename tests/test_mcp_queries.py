@@ -6,8 +6,9 @@ from memex.mcp_server.queries import MemexQueryError
 @pytest.mark.asyncio
 async def test_get_node_counts_returns_dict():
     mock_res = MagicMock()
-    mock_res.records = [MagicMock()]
-    mock_res.records[0].data.return_value = {"modules": 10, "symbols": 50, "decisions": 5, "problems": 2}
+    mock_record = MagicMock()
+    mock_record.data.return_value = {"modules": 10, "symbols": 50, "decisions": 5, "problems": 2}
+    mock_res.records = [mock_record]
     
     with patch("memex.mcp_server.queries.get_graph_client", new_callable=AsyncMock) as mock_get_client:
         mock_client = AsyncMock()
@@ -19,10 +20,24 @@ async def test_get_node_counts_returns_dict():
         assert result["symbols"] == 50
 
 @pytest.mark.asyncio
+async def test_get_node_counts_repo_filter():
+    mock_res = MagicMock(records=[])
+    with patch("memex.mcp_server.queries.get_graph_client", new_callable=AsyncMock) as mock_get_client:
+        mock_client = AsyncMock()
+        mock_client.driver.execute_query.return_value = mock_res
+        mock_get_client.return_value = mock_client
+        
+        await queries.get_node_counts(repo="/fake/repo")
+        call_args = mock_client.driver.execute_query.call_args
+        assert "n.repo_path = $repo" in call_args[0][0]
+        assert call_args[1]["params"]["repo"] == "/fake/repo"
+
+@pytest.mark.asyncio
 async def test_get_active_modules_filters_by_scope():
     mock_res = MagicMock()
-    mock_res.records = [MagicMock()]
-    mock_res.records[0].data.return_value = {"path": "test.py", "description": "desc", "symbols": 5}
+    mock_record = MagicMock()
+    mock_record.data.return_value = {"path": "test.py", "description": "desc", "symbols": 5}
+    mock_res.records = [mock_record]
     
     with patch("memex.mcp_server.queries.get_graph_client", new_callable=AsyncMock) as mock_get_client:
         mock_client = AsyncMock()
@@ -73,14 +88,20 @@ async def test_get_open_problems_raw_sorted_by_severity():
 
 @pytest.mark.asyncio
 async def test_get_stale_edges_threshold_applied():
+    mock_res = MagicMock()
+    mock_record = MagicMock()
+    mock_record.data.return_value = {"id": "e1", "source": "A", "target": "B", "edge_type": "C", "confidence": 0.1, "sha": "S"}
+    mock_res.records = [mock_record]
+    
     with patch("memex.mcp_server.queries.get_graph_client", new_callable=AsyncMock) as mock_get_client:
         mock_client = AsyncMock()
-        mock_client.driver.execute_query.return_value = MagicMock(records=[])
+        mock_client.driver.execute_query.return_value = mock_res
         mock_get_client.return_value = mock_client
         
-        await queries.get_stale_edges(threshold=0.4, limit=50)
+        result = await queries.get_stale_edges(threshold=0.4, limit=50)
         call_args = mock_client.driver.execute_query.call_args
         assert call_args.kwargs["params"]["threshold"] == 0.4
+        assert len(result) == 1
 
 @pytest.mark.asyncio
 async def test_get_symbol_by_name_returns_none_if_missing():
@@ -89,7 +110,7 @@ async def test_get_symbol_by_name_returns_none_if_missing():
         mock_client.driver.execute_query.return_value = MagicMock(records=[])
         mock_get_client.return_value = mock_client
         
-        result = await queries.get_symbol_by_name("missing", file=None)
+        result = await queries.get_symbol_by_name("missing", file="main.py")
         assert result is None
 
 @pytest.mark.asyncio
