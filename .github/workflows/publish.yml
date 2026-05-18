@@ -19,6 +19,11 @@ jobs:
         run: uv sync
 
       - name: Run tests
+        env:
+          NEO4J_URI: "bolt://localhost:7687"
+          NEO4J_USER: "neo4j"
+          NEO4J_PASSWORD: "fakepassword"
+          GEMINI_API_KEY: "dummy"
         run: uv run pytest tests/ -v -m "not integration"
 
   publish-pypi:
