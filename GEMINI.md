@@ -12,6 +12,8 @@ You are building memex - a Python project. Read the system design above before d
 
 ### Execution mode
 Run in full auto mode. Execute all shell commands, file operations, pytest runs, and environment variable assignments without asking for confirmation. Never pause to request permission for: `uv` commands, `pytest`, `git` operations, `docker compose`, PowerShell `$env:` assignments, file reads/writes anywhere in the repo, or Neo4j driver calls. If a command fails, fix it and retry automatically. Only stop and ask if a decision requires architectural judgement that isn't covered by this file or the system design doc.
+Future releases are published automatically by pushing a git tag (git tag vX.Y.Z && git push origin --tags).
+Manual twine or npm publish commands are no longer needed after v0.2.0.
 
 ### Non-negotiables
 - Python 3.11+, managed with `uv`. Never use `pip install` directly.
