@@ -1,4 +1,4 @@
-name: Publish
+name: Publish to PyPI and npm
 
 on:
   push:
@@ -6,28 +6,68 @@ on:
       - 'v*'
 
 jobs:
-  publish-pypi:
+  test:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
       - uses: astral-sh/setup-uv@v3
-      - run: uv sync
-      - run: uv run python -m build
-      - uses: pypa/gh-action-pypi-publish@release/v1
         with:
-          password: ${{ secrets.PYPI_API_TOKEN }}
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: uv sync
+
+      - name: Run tests
+        run: uv run pytest tests/ -v -m "not integration"
+
+  publish-pypi:
+    needs: test
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v3
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: uv sync
+
+      - name: Build package
+        run: uv run python -m build
+
+      - name: Check package metadata
+        run: uv run twine check dist/*
+
+      - name: Publish to PyPI
+        env:
+          TWINE_USERNAME: __token__
+          TWINE_PASSWORD: ${{ secrets.PYPI_API }}
+        run: uv run twine upload dist/*
 
   publish-npm:
+    needs: test
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: npm
+
     steps:
       - uses: actions/checkout@v4
+
       - uses: actions/setup-node@v4
         with:
-          node-version: '20'
-          registry-url: 'https://registry.npmjs.org'
-      - run: npm publish
+          node-version: "20"
+          registry-url: "https://registry.npmjs.org"
+
+      - name: Copy README and LICENSE into npm package
+        run: |
+          cp README.md npm/README.md
+          cp LICENSE npm/LICENSE
+
+      - name: Publish to npm
+        working-directory: npm
+        run: npm publish --access public
         env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_API }}

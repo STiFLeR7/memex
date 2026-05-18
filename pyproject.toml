@@ -1,20 +1,41 @@
 [project]
 name = "memex-mcp"
 version = "0.2.0"
-description = "Developer context continuity system — temporal knowledge graph for AI coding agents, served via MCP. Inspired by Vannevar Bush's 1945 concept of a machine that remembers everything."
+description = "Developer context continuity system — builds and maintains a temporal knowledge graph of your codebase, served to AI coding agents via MCP. Inspired by Vannevar Bush's 1945 concept of a machine that remembers everything."
 readme = "README.md"
-license = {text = "MIT"}
+license = { text = "MIT" }
 requires-python = ">=3.11"
-keywords = ["mcp", "ai-agents", "knowledge-graph", "developer-tools", "context", "gemini", "claude"]
-classifiers = [
-    "Development Status :: 4 - Beta",
-    "Intended Audience :: Developers",
-    "License :: OSI Approved :: MIT License",
-    "Programming Language :: Python :: 3.11",
-    "Programming Language :: Python :: 3.12",
-    "Topic :: Software Development :: Libraries :: Python Modules",
-    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+authors = [
+  { name = "Hill Patel", email = "hillaniljppatel@gmail.com" }
 ]
+maintainers = [
+  { name = "Hill Patel", email = "hillaniljppatel@gmail.com" }
+]
+keywords = [
+  "mcp",
+  "ai-agents",
+  "knowledge-graph",
+  "developer-tools",
+  "context",
+  "gemini",
+  "claude-code",
+  "temporal-graph",
+  "neo4j",
+  "graphiti"
+]
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "Intended Audience :: Developers",
+  "License :: OSI Approved :: MIT License",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Topic :: Software Development :: Libraries :: Python Modules",
+  "Topic :: Scientific/Engineering :: Artificial Intelligence",
+  "Topic :: Software Development :: Version Control :: Git",
+  "Operating System :: OS Independent",
+]
+
 dependencies = [
     "graphiti-core[google-genai]>=0.29.0,<1.0.0",
     "google-genai>=2.0.1,<3.0.0",
@@ -38,7 +59,9 @@ dependencies = [
 [project.urls]
 Homepage = "https://github.com/STiFLeR7/memex"
 Repository = "https://github.com/STiFLeR7/memex"
+Documentation = "https://github.com/STiFLeR7/memex/blob/main/README.md"
 "Bug Tracker" = "https://github.com/STiFLeR7/memex/issues"
+Changelog = "https://github.com/STiFLeR7/memex/releases"
 
 [tool.uv]
 managed = true

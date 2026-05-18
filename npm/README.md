@@ -1,15 +1,15 @@
 <div align="center">
 
-# memex-mcp
+# memex
 
 **A developer context continuity system that builds and maintains a temporal knowledge graph of your codebase.**
 
 [![PyPI](https://img.shields.io/pypi/v/memex-mcp)](https://pypi.org/project/memex-mcp/)
-[![npm](https://img.shields.io/npm/v/stifler-memex-mcp)](https://www.npmjs.com/package/stifler-memex-mcp)
+[![npm](https://img.shields.io/npm/v/memex-mcp)](https://www.npmjs.com/package/memex-mcp)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![Tests](https://img.shields.io/github/actions/workflow/status/STiFLeR7/memex/ci.yml)](https://github.com/STiFLeR7/memex/actions)
 
-![memex banner](assets/memex.png)
+![memex banner](https://raw.githubusercontent.com/STiFLeR7/memex/master/assets/memex.png)
 
 > *Inspired by Vannevar Bush's 1945 concept of a machine that remembers everything — memex is a developer context continuity system. It watches your repo, builds a temporal knowledge graph of your codebase, and serves it to any AI coding agent via MCP — so every agent session starts knowing your architecture, your recent decisions, and your open problems. Automatically. Without any manual context pasting.*
 
