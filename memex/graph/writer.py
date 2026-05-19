@@ -2,7 +2,7 @@ import logging
 from datetime import datetime, UTC
 from pydantic import ValidationError
 from memex.graph.client import get_graph_client
-from memex.graph.schema import SymbolNode, DecisionNode, ModuleNode
+from memex.graph.schema import SymbolNode, DecisionNode, ModuleNode, Dependency
 from memex.extractor.treesitter import SymbolDelta
 
 logger = logging.getLogger(__name__)
@@ -167,3 +167,181 @@ async def write_decision(decision, modules: list[str], commit_sha: str, confiden
                 episode_name,
                 exc_info=True,
             )
+
+
+# ---------------------------------------------------------------------------
+# v0.3.1 Deliverable 5 — IMPORTS edges + Dependency nodes from lockfiles
+# ---------------------------------------------------------------------------
+
+
+#: Initial confidence anchor for IMPORTS edges. Lockfile-derived edges
+#: come from deterministic AST parsing — higher than the watcher Decision
+#: default (0.6) but not 1.0 so two-regime decay can still surface
+#: long-stale imports.
+_IMPORT_EDGE_BASE_CONFIDENCE = 0.9
+
+_DEPENDENCY_BASE_CONFIDENCE = 0.95
+
+
+async def write_lockfile_delta(
+    repo_root: str,
+    dependencies: list[Dependency],
+    imports: list[tuple[str, str, dict]],
+) -> dict[str, int]:
+    """Persist Dependency nodes + Module IMPORTS edges from lockfile parsing.
+
+    Wired into :func:`memex.watcher.handlers.handle_lockfile_change`. Both
+    writes follow the v0.3.0 hybrid pattern (Q1 in ARCHITECTURE §4):
+
+    - Dependency nodes use ``client.add_episode`` so the NL Graphiti
+      pipeline can still surface them in search, with a post-hoc Cypher
+      SET for the v0.3.0 fields (``write_policy``, ``last_reinforced_at``,
+      ``base_confidence``) that Graphiti doesn't parse from NL.
+
+    - IMPORTS edges are pure structure (no NL surface). We MERGE the
+      Module endpoints (idempotent — the watcher may have already
+      created them) and MERGE the ``IMPORTS`` edge with the v0.3.0
+      fields written inline so future composite-reranker filters
+      (``WHERE r.expired_at IS NULL``) see them.
+
+    Returns a ``{"deps_written": N, "edges_written": M}`` summary used by
+    the watcher log line so re-runs are observable.
+    """
+    client = await get_graph_client()
+    now = datetime.now(UTC)
+    deps_written = 0
+    edges_written = 0
+
+    # 1. Dependencies — episode + post-hoc SET
+    for dep in dependencies:
+        episode_name = f"dependency_{dep.ecosystem}_{dep.name}"
+        try:
+            result = await client.add_episode(
+                name=episode_name,
+                episode_body=(
+                    f"Dependency: {dep.name} version {dep.version} "
+                    f"({dep.ecosystem} ecosystem)."
+                ),
+                source_description=f"lockfile scan in {repo_root}",
+                reference_time=now,
+            )
+        except Exception:
+            logger.warning(
+                "lockfile: add_episode failed for dependency %s",
+                episode_name,
+                exc_info=True,
+            )
+            continue
+
+        episode_uuid = getattr(getattr(result, "episode", None), "uuid", None)
+        set_query = """
+        MATCH (n:Entity)
+        WHERE n.uuid = $uuid OR elementId(n) = $uuid
+        SET n.type = 'Dependency',
+            n.ecosystem = $ecosystem,
+            n.version = $version,
+            n.last_updated = $now,
+            n.last_reinforced_at = $now,
+            n.base_confidence = $base_confidence,
+            n.write_policy = 'locked',
+            n.repo_path = $repo,
+            n.access_count = coalesce(n.access_count, 0)
+        """
+        if episode_uuid is None:
+            logger.debug(
+                "lockfile: dependency %s missing episode.uuid; "
+                "skipping v0.3.0 SET to avoid mis-targeting",
+                episode_name,
+            )
+        else:
+            try:
+                await client.driver.execute_query(
+                    set_query,
+                    params={
+                        "uuid": episode_uuid,
+                        "ecosystem": dep.ecosystem,
+                        "version": dep.version,
+                        "now": now,
+                        "base_confidence": _DEPENDENCY_BASE_CONFIDENCE,
+                        "repo": repo_root,
+                    },
+                )
+                deps_written += 1
+            except Exception:
+                logger.warning(
+                    "lockfile: post-hoc SET failed for dependency %s",
+                    episode_name,
+                    exc_info=True,
+                )
+
+    # 2. IMPORTS edges — MERGE Module endpoints + MERGE edge
+    # We rely on the watcher having created Entity rows for these modules
+    # under name=module_path; if they don't exist yet we create them with
+    # type='Module' so the edge always has both endpoints. The watcher's
+    # symbol pass will fill in language / created_at on its next visit.
+    edge_query = """
+    MERGE (src:Entity {name: $from_path, repo_path: $repo})
+      ON CREATE SET src.type = 'Module',
+                    src.created_at = $now,
+                    src.write_policy = 'locked',
+                    src.access_count = 0
+    MERGE (dst:Entity {name: $to_path, repo_path: $repo})
+      ON CREATE SET dst.type = 'Module',
+                    dst.created_at = $now,
+                    dst.write_policy = 'locked',
+                    dst.access_count = 0
+    MERGE (src)-[r:IMPORTS]->(dst)
+      ON CREATE SET r.created_at = $now,
+                    r.base_confidence = $base_confidence,
+                    r.kind = $kind,
+                    r.expired_at = NULL,
+                    r.last_reinforced_at = $now
+      ON MATCH SET  r.last_reinforced_at = $now,
+                    r.kind = $kind,
+                    r.expired_at = NULL
+    """
+    for from_module, to_module, meta in imports:
+        from_path = _dotted_to_repo_path(from_module)
+        to_path = _dotted_to_repo_path(to_module)
+        if not from_path or not to_path or from_path == to_path:
+            continue
+        try:
+            await client.driver.execute_query(
+                edge_query,
+                params={
+                    "from_path": from_path,
+                    "to_path": to_path,
+                    "repo": repo_root,
+                    "now": now,
+                    "base_confidence": _IMPORT_EDGE_BASE_CONFIDENCE,
+                    "kind": meta.get("kind", "import"),
+                },
+            )
+            edges_written += 1
+        except Exception:
+            logger.warning(
+                "lockfile: IMPORTS edge write failed for %s -> %s",
+                from_path,
+                to_path,
+                exc_info=True,
+            )
+
+    return {"deps_written": deps_written, "edges_written": edges_written}
+
+
+def _dotted_to_repo_path(name: str) -> str:
+    """Map a dotted Python module name back to its repo-relative path.
+
+    ``extract_module_imports`` returns dotted names (``memex.watcher.handlers``);
+    Module nodes elsewhere are stored under ``name=<repo-relative path>``
+    (``memex/watcher/handlers.py``). We append ``.py`` because the import
+    extractor only walks Python today. If the input already looks like a
+    path (contains ``/`` or ends with a known extension), passthrough.
+    """
+    if not name:
+        return ""
+    if "/" in name or "\\" in name:
+        return str(name).replace("\\", "/")
+    if "." in name and not name.endswith(".py"):
+        return name.replace(".", "/") + ".py"
+    return name
