@@ -336,10 +336,13 @@ def main(args=None):
         path = repo_root or "."
         from dotenv import load_dotenv as _load_dotenv
         repo_env = Path(path) / ".env"
+        # override=True: when the user passes --repo / --env-file explicitly,
+        # those files represent intent — they should beat stale shell/User env
+        # vars inherited from the parent process.
         if repo_env.exists():
-            _load_dotenv(repo_env, override=False)
+            _load_dotenv(repo_env, override=True)
         if parsed_args.env_file:
-            _load_dotenv(parsed_args.env_file, override=False)
+            _load_dotenv(parsed_args.env_file, override=True)
         # Reset cached config so values loaded above are picked up.
         from memex import config as _config_mod
         _config_mod._config = None
