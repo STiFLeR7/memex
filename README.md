@@ -2,103 +2,103 @@
 
 # memex
 
-**A developer context continuity system that builds and maintains a temporal knowledge graph of your codebase.**
+### Persistent memory for your AI coding agents.
+
+memex builds a temporal knowledge graph of your codebase and serves it to any MCP-compatible agent — so every session starts knowing your architecture, your decisions, and your open problems. No more cold starts. No more context pasting.
 
 [![PyPI](https://img.shields.io/pypi/v/memex-mcp)](https://pypi.org/project/memex-mcp/)
 [![npm](https://img.shields.io/npm/v/memex-mcp)](https://www.npmjs.com/package/memex-mcp)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![Tests](https://img.shields.io/github/actions/workflow/status/STiFLeR7/memex/ci.yml)](https://github.com/STiFLeR7/memex/actions)
+[![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
 
 ![memex banner](https://raw.githubusercontent.com/STiFLeR7/memex/master/assets/memex.png)
-
-> *Inspired by Vannevar Bush's 1945 concept of a machine that remembers everything — memex is a developer context continuity system. It watches your repo, builds a temporal knowledge graph of your codebase, and serves it to any AI coding agent via MCP — so every agent session starts knowing your architecture, your recent decisions, and your open problems. Automatically. Without any manual context pasting.*
 
 </div>
 
 ---
 
-## The problem
+## Why memex?
 
-Every time you open a new agent session — Gemini CLI, Claude Code, Codex — the agent starts blind. You find yourself re-explaining architecture decisions, pasting the same core files, and watching the agent rediscover refactors you finished last month. This cycle wastes tokens, adds friction, and prevents AI agents from becoming deep collaborators. memex eliminates this "cold start" problem by providing agents with a persistent, evolving memory of your project's history and rationale.
+Every AI agent session starts blind. You re-paste files, re-explain architecture, watch the agent rediscover a refactor you finished last month. **memex fixes that.**
+
+It runs quietly in the background, learning your codebase from every commit. When an agent connects, it already knows what's there.
+
+```text
+Without memex                          With memex
+─────────────                          ──────────
+You: "We use Postgres, not MySQL"      Agent: I see you're using Postgres
+You: "Auth lives in services/auth"     Agent: Editing services/auth/jwt.py...
+You: "We decided on JWT last week"     Agent: Continuing the JWT decision
+You: "Don't touch the migrations"      Agent: Skipping migrations/ (locked)
+```
+
+---
 
 ## How it works
 
 ```text
-┌──────────────────┐      ┌──────────────┐      ┌─────────────┐
-│ Your Repository  │ ───► │ memex Watcher│ ───► │    Neo4j    │
-│ (Files + Git)    │      │ (Tree-sitter)│      │ (Knowledge  │
-└──────────────────┘      └──────────────┘      │    Graph)   │
-                                                └──────┬──────┘
-                                                       │
-                                                       ▼
-┌──────────────────┐      ┌──────────────┐      ┌─────────────┐
-│    AI Agent      │ ◄─── │  MCP Server  │ ◄────┤  Graphiti   │
-│ (Gemini/Claude)  │      │  (stdio)     │      │   Engine    │
-└──────────────────┘      └──────────────┘      └─────────────┘
+   ┌──────────────────┐     ┌───────────────┐     ┌─────────────┐
+   │ Your Repository  │ ──► │ memex Watcher │ ──► │   Neo4j     │
+   │  files + git     │     │  tree-sitter  │     │  knowledge  │
+   │                  │     │  + Gemini     │     │    graph    │
+   └──────────────────┘     └───────────────┘     └──────┬──────┘
+                                                          │
+   ┌──────────────────┐     ┌───────────────┐            │
+   │    AI Agent      │ ◄── │  MCP Server   │ ◄──────────┘
+   │ Claude · Gemini  │     │  stdio / HTTP │
+   │  Codex · others  │     │               │
+   └──────────────────┘     └───────────────┘
 ```
 
-memex runs a background watcher that uses tree-sitter to extract structured symbols and Gemini Flash to synthesize technical decisions from git commits. This data is woven into a temporal knowledge graph powered by Graphiti and Neo4j, which maintains a high-fidelity record of how your code evolves. Agents connect to this graph via a standard Model Context Protocol (MCP) server, allowing them to query context on demand rather than requiring manual file-pasting.
+1. **Watcher** uses tree-sitter to extract symbols and Gemini Flash to synthesize architectural decisions from your commits.
+2. **Graph** stores everything in Neo4j via [Graphiti](https://github.com/getzep/graphiti) — bitemporally, so every fact has a "true from" and "true until."
+3. **MCP server** exposes 14 tools any agent can call to read context or write back its own observations.
 
-## Installation
-
-**via npx (no install required)**
-```bash
-npx memex-mcp init --repo .
-npx memex-mcp watch --repo .
-```
-
-**via pip / uv**
-```bash
-uv add memex-mcp
-pip install memex-mcp
-```
-
-**from source**
-```bash
-git clone https://github.com/STiFLeR7/memex
-cd memex
-uv sync
-```
+---
 
 ## Quickstart
 
-**Prerequisites**: Python 3.11+, [uv](https://github.com/astral-sh/uv), Docker, and a Gemini API Key.
+> **Prerequisites:** Python 3.11+, [uv](https://github.com/astral-sh/uv), Docker, a Gemini API key.
 
 ```bash
-# 1. Start Neo4j infrastructure
-docker-compose -f docker/docker-compose.yml up -d
+# 1. Start Neo4j
+docker compose -f docker/docker-compose.yml up -d
 
-# 2. Configure environment
-# In your project root, create a .env file:
-# NEO4J_URI=bolt://localhost:7687
-# NEO4J_USER=neo4j
-# NEO4J_PASSWORD=your_password
-# GEMINI_API_KEY=your_api_key
+# 2. Create .env in your project root
+cat > .env <<EOF
+NEO4J_URI=bolt://localhost:7687
+NEO4J_USER=neo4j
+NEO4J_PASSWORD=memex-local
+GEMINI_API_KEY=your-key-here
+EOF
 
-# 3. Initialize and watch your repo
-memex init --repo .
-memex watch --repo .
+# 3. Initialize and start watching
+npx memex-mcp init --repo .
+npx memex-mcp watch --repo .
 
-# 4. Serve the MCP context (in a new terminal)
-memex serve --repo .
+# 4. In a new terminal, serve the context
+npx memex-mcp serve --repo .
 ```
 
-## Connecting your agent
+That's it. Your agent now has memory.
 
-### Gemini CLI
-Add to `~/.gemini/settings.json`:
-```json
-{
-  "mcpServers": {
-    "memex": {
-      "command": "npx",
-      "args": ["-y", "memex-mcp", "serve", "--repo", "."]
-    }
-  }
-}
-```
+**Install options:**
 
-### Claude Code
+| via | command |
+|----|---------|
+| npx (no install) | `npx memex-mcp ...` |
+| uv | `uv add memex-mcp` |
+| pip | `pip install memex-mcp` |
+| source | `git clone github.com/STiFLeR7/memex && uv sync` |
+
+---
+
+## Connect your agent
+
+<details>
+<summary><b>Claude Code</b></summary>
+
 Add to `.claude/settings.json`:
 ```json
 {
@@ -111,25 +111,44 @@ Add to `.claude/settings.json`:
   }
 }
 ```
+</details>
 
-### Codex
+<details>
+<summary><b>Gemini CLI</b></summary>
+
+Add to `~/.gemini/settings.json`:
+```json
+{
+  "mcpServers": {
+    "memex": {
+      "command": "npx",
+      "args": ["-y", "memex-mcp", "serve", "--repo", "."]
+    }
+  }
+}
+```
+</details>
+
+<details>
+<summary><b>Codex</b></summary>
+
 Add to `~/.codex/config.toml`:
 ```toml
 [mcp_servers.memex]
 command = "npx"
 args = ["-y", "memex-mcp", "serve", "--repo", "."]
 ```
+</details>
 
-### Claude memory tool (v0.3.0+)
+<details>
+<summary><b>Claude's built-in memory tool</b> (v0.3.0+)</summary>
 
-memex can also serve as a backend for Anthropic's built-in memory tool (`memory_20250818`). Claude reads from a read-only projection of your knowledge graph plus a writable scratch zone. To enable, run alongside the MCP server:
+memex can back Anthropic's native `memory_20250818` tool — Claude reads from a per-session graph projection plus a writable scratch zone.
 
 ```bash
-memex memory-tool serve --repo .                      # in-process (Python clients)
-memex memory-tool serve --repo . --transport http     # FastAPI shim on :7464 (any SDK)
+memex memory-tool serve --repo .                     # in-process (Python)
+memex memory-tool serve --repo . --transport http    # FastAPI on :7464
 ```
-
-Then in your Anthropic Python client:
 
 ```python
 from memex.memory_tool import MemexAsyncMemoryTool
@@ -137,52 +156,108 @@ memory_tool = MemexAsyncMemoryTool(repo_root=".")
 client.beta.messages.run_tools(..., tools=[memory_tool])
 ```
 
-The memory tool is single-vendor (Anthropic-only) and complementary to the MCP server — keep both running for cross-agent coverage.
+Run alongside the MCP server for full coverage.
+</details>
 
-## MCP tools
+---
 
-### Read Tools (Context Retrieval)
-| Tool | When to call it | Returns |
-|------|-----------------|---------|
-| `get_project_context` | At session start to get a project overview. | Markdown briefing of clusters (v0.3.0), modules, decisions, debt, and unvalidated count. |
-| `get_symbol_context` | Before editing a specific function or class. | Signatures, callers, callees, and linked history. |
-| `get_recent_decisions` | To understand recent architectural shifts. | Chronological list of tech decisions and rationales, with conflict flags. |
-| `get_open_problems` | To find technical debt or active bugs. | List of problems sorted by severity (Critical → Low). |
-| `search_context` | For broad discovery across all node types. | Hybrid search results with composite score breakdown (semantic × recency × confidence × rehearsal). |
-| `get_stale_context` | To identify potentially outdated documentation. | Report of edges with low computed confidence. |
-| `explain_change` *(v0.3.0)* | After a notable commit to ground the rationale in graph history. | Natural-language explanation cross-referenced against linked Decisions and Problems (Gemini Pro). |
-| `predict_impact` *(v0.3.0)* | Before refactoring a file. | Ranked list of likely-affected modules with coupling-strength explanations (pure graph traversal, no LLM). |
+## What agents can do with memex
 
-### Write Tools (Graph Compounding)
-| Tool | When to call it | Returns |
-|------|-----------------|---------|
-| `record_decision` | After making a technical or architectural choice. | Confirmation with the new Decision ID. |
-| `record_problem` | When discovering a bug or technical debt item. | Confirmation with the new Problem ID. |
-| `resolve_problem` | When a tracked problem has been fixed. | Confirmation of closure and session link. |
-| `invalidate_edge` | When identifying a stale or incorrect fact. | Confirmation of edge invalidation. |
+memex exposes **14 MCP tools** — eight for reading context, four for writing observations back, and two for analysis.
+
+### Reading context
+
+| Tool | When |
+|------|------|
+| `get_project_context` | At session start — get the lay of the land |
+| `get_symbol_context` | Before editing a function or class |
+| `get_recent_decisions` | To see what's changed architecturally |
+| `get_open_problems` | To find active bugs and tech debt |
+| `search_context` | Hybrid search across the whole graph |
+| `get_stale_context` | Spot outdated documentation |
+| `explain_change` 🆕 | After a commit — *why* did this happen? |
+| `predict_impact` 🆕 | Before a refactor — *what* might break? |
+
+### Writing observations
+
+| Tool | When |
+|------|------|
+| `record_decision` | After making a technical choice |
+| `record_problem` | When you discover a bug or piece of debt |
+| `resolve_problem` | When a tracked problem is fixed |
+| `invalidate_edge` | When a fact is no longer true |
+
+Agents write back into the graph as they work. Next session, that knowledge is there.
+
+---
+
+## Highlights
+
+- **🧠 Bitemporal memory.** Every fact has a creation time and an optional invalidation time. The graph never forgets — but it knows what's still current.
+- **📉 Two-regime confidence decay.** Validated facts decay slowly; unvalidated ones cross the staleness threshold at exactly 30 days. Old hallucinations lose their grip naturally.
+- **🤝 Human-in-the-loop.** `memex review` opens a TUI to validate machine-synthesized decisions, lowest-confidence first.
+- **🔒 Write governance.** Per-node-type ACL, intent-confirmation on agent writes, and explicit `corroborates` / `supersedes` semantics — no silent duplicates.
+- **🔍 Composite retrieval.** Hybrid search × recency × confidence × rehearsal, with the score breakdown surfaced so agents see *why* a result ranked where it did.
+- **🌐 Multi-repo aware.** Single watcher and MCP server can manage hundreds of repos with zero-config switching.
+- **🖥️ Visual graph.** `memex graph --output graph.html` produces a self-contained D3 force layout with cluster overlays.
+
+---
 
 ## How the graph works
 
-The memex knowledge graph is built on a bitemporal model, meaning every relationship has both a creation time and an optional invalidation time. This allows the system to store a complete history of the codebase, enabling agents to query what was true at any point in time. Confidence is **computed at query time** from a two-regime decay (validated facts decay slowly; unvalidated ones cross the staleness threshold at ~30 days), so old hallucinations naturally lose their grip on agent context without ever overwriting the historical record. Because the system is bidirectional, agent observations compound over time; if an agent records a decision in one session, every subsequent agent session automatically starts with that knowledge.
+The knowledge graph is **bitemporal**: every relationship knows when it was created and when (if ever) it became invalid. Agents can ask *what was true on day X* and get a real answer.
 
-### v0.3.0 additions
-- **Cluster hierarchy** above Module so `get_project_context()` scales to large codebases.
-- **Human-in-the-loop validation** (`memex review`) lifts confidence caps on machine-synthesised decisions via a rich TUI, lowest-confidence-first ordering.
-- **Anthropic memory-tool adapter** lets Claude treat memex as its storage backend, not just an MCP source.
-- **Composite retrieval scoring** weights recency, confidence, and rehearsal on top of Graphiti's hybrid search.
-- **Write governance** per node type, plus intent-confirmation on agent writes — no silent duplicates.
-- **Visual graph export** (`memex graph --output graph.html`) — static D3.js force layout of the module-dependency graph with Cluster hulls; pure HTML, opens in any browser.
-- **Retrieval-tracing harness** — every MCP retrieval appends a JSONL trace; `memex doctor` surfaces a 7-day summary.
-- **Note for Windows contributors**: cluster engine (`graspologic`) requires Visual Studio Build Tools 2022. Develop on macOS/Linux/WSL or install build tools.
+Confidence isn't a stored number that mutates — it's **computed at query time** from a node's `base_confidence`, validation status, and time since last reinforcement. Two regimes:
 
-## Releasing
+- **Validated** (a human said "yes, this is real"): half-life ~139 days.
+- **Unvalidated** (the watcher synthesized it from a commit): crosses the staleness threshold (0.3) at **exactly 30 days**.
 
-1. Add `PYPI_API_TOKEN` to GitHub repo secrets (Settings → Secrets → Actions)
-2. Add `NPM_TOKEN` to GitHub repo secrets
-3. Push a tag `git tag v0.3.0 && git push origin --tags` to trigger both publishes automatically
+When an agent records a decision in one session, the next session — yours or someone else's — starts with that knowledge. The graph compounds.
 
-## Inspiration
-Vannevar Bush's 1945 essay "As We May Think" described the memex as a device that stores all of a person's knowledge, cross-referenced and associative. This project is a small step toward that idea, applied to the context an AI agent needs to work effectively inside a codebase.
+---
 
-## License
-MIT - [STiFLeR7](https://github.com/STiFLeR7)
+## Project structure
+
+```
+memex/
+├── memex/
+│   ├── extractor/        # tree-sitter + lockfile parsers
+│   ├── graph/            # Neo4j writes, confidence, archive
+│   ├── synthesizer/      # Gemini Flash → Decision nodes
+│   ├── mcp_server/       # 14 MCP tools (read + write + analytic)
+│   ├── memory_tool/      # Anthropic memory_20250818 adapter
+│   ├── watcher/          # daemon + git hooks
+│   └── cli.py            # init / watch / serve / review / graph
+├── tests/                # 282 tests, ~93% coverage
+├── docker/               # Neo4j compose
+└── npm/                  # npx wrapper
+```
+
+---
+
+## Contributors
+
+<table>
+<tr>
+<td align="center">
+<a href="https://github.com/STiFLeR7"><b>Hill Patel</b></a><br/>
+<sub>Architect &amp; Project Lead</sub>
+</td>
+<td align="center">
+<a href="https://github.com/Nirvaan05"><b>Nirvaan Lagishetty</b></a><br/>
+<sub>Lead Contributor</sub>
+</td>
+</tr>
+</table>
+
+Want to contribute? Open an issue or a PR. The codebase is well-tested and welcoming — `uv sync` and `uv run pytest tests/` is all the setup you need.
+
+---
+
+## License & inspiration
+
+MIT — free to use, modify, and ship.
+
+> *Vannevar Bush, 1945:* "Consider a future device for individual use, which is a sort of mechanized private file and library. It needs a name, and to coin one at random, **memex** will do."
+
+This is a small step toward that idea, applied to the context an AI agent needs to work effectively inside a codebase.
