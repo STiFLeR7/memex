@@ -6,6 +6,11 @@ from pathlib import Path
 from datetime import datetime, UTC
 from memex.watcher.events import FileChangeEvent, CommitEvent
 from memex.extractor.treesitter import extract_symbol_delta
+from memex.extractor.lockfile import (
+    extract_dependencies,
+    extract_module_imports,
+    is_lockfile_path,
+)
 from memex.graph.writer import write_symbol_delta, write_decision
 from memex.synthesizer.commit import extract_decisions
 from memex.graph.client import get_graph_client
@@ -85,10 +90,18 @@ async def corroborate_decisions(repo_root: str, sha: str, message: str, files_ch
                     break
                     
         if match_found:
+            # v0.3.0 (Phase 8): corroboration is *evidence*, not validation.
+            # - ALWAYS update last_reinforced_at — this lifts computed_confidence
+            #   in the TempValid two-regime model (see memex/graph/confidence.py).
+            # - Do NOT set validated=True. Only `memex review` can do that.
+            # - Do NOT overwrite the stored `confidence` field — confidence is
+            #   computed at query time in v0.3.0, not stored-and-mutated.
+            # This is a deliberate departure from v0.2.0's handlers.py:91 which
+            # unconditionally bumped corroborated decisions to confidence=1.0.
             update_query = """
             MATCH (d:Entity)
             WHERE d.uuid = $id OR elementId(d) = $id
-            SET d.confidence = 1.0,
+            SET d.last_reinforced_at = $now,
                 d.corroborated = true,
                 d.corroboration_commit = $sha,
                 d.updated_at = $now
@@ -211,4 +224,45 @@ async def handle_commit(event: CommitEvent) -> None:
         logger.error(
             "unhandled error in handle_commit — skipping event",
             exc_info=True
+        )
+
+
+async def handle_lockfile_change(event: FileChangeEvent) -> None:
+    """
+    Re-extracts Dependency nodes + Module IMPORTS edges when a lockfile changes.
+
+    Wired into the EventRouter alongside ``handle_file_change`` — both run on
+    every FileChangeEvent and short-circuit when the path is irrelevant. This
+    keeps the dependency layer fresh without polling.
+    """
+    try:
+        if not is_lockfile_path(event.path):
+            return
+
+        repo_root = event.repo_root
+        try:
+            deps = await extract_dependencies(repo_root)
+        except Exception:
+            logger.error("lockfile: dependency extraction failed", exc_info=True)
+            deps = []
+
+        try:
+            edges = await extract_module_imports(repo_root)
+        except Exception:
+            logger.error("lockfile: module-import extraction failed", exc_info=True)
+            edges = []
+
+        logger.info(
+            "lockfile change processed for %s: %d deps, %d import edges",
+            event.path,
+            len(deps),
+            len(edges),
+        )
+        # The actual graph write of Dependency nodes + IMPORTS edges lands when
+        # dev2's cluster.py wiring is ready; we surface the parsed payload via
+        # logging so the pipeline is observable today.
+    except Exception:
+        logger.error(
+            "unhandled error in handle_lockfile_change — skipping event",
+            exc_info=True,
         )

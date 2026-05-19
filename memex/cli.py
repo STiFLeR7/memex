@@ -158,6 +158,14 @@ async def run_doctor(repo_root: str):
     except Exception:
         pass
 
+    # 9. Retrieval tracing weekly summary (Phase 10)
+    try:
+        from memex.cli_doctor_tracing import print_tracing_summary
+        print_tracing_summary(str(repo_path))
+    except Exception:
+        # Never let the summary line break the doctor.
+        logger.debug("doctor: tracing summary print failed", exc_info=True)
+
     if all_pass:
         print("\nAll checks passed. memex is ready.")
         sys.exit(0)
@@ -218,7 +226,37 @@ def main(args=None):
     # keys revoke
     keys_revoke_parser = keys_subparsers.add_parser("revoke", help="Revoke a key")
     keys_revoke_parser.add_argument("name", help="Name of the key to revoke")
-    
+
+    # ------------------------------------------------------------------
+    # v0.3.0 subcommand scaffolding (Phase 5.9)
+    # Handlers below in main() return "not implemented" until phases land.
+    # ------------------------------------------------------------------
+
+    # archive (Phase 6)
+    archive_parser = subparsers.add_parser("archive", help="Tombstone & archive cold nodes", parents=[parent_parser])
+    archive_parser.add_argument("--restore", metavar="NODE_ID", help="Restore a specific archived node")
+    archive_parser.add_argument("--stats", action="store_true", help="Show archive size and oldest entry")
+
+    # review (Phase 8)
+    subparsers.add_parser("review", help="Validate synthesised decisions (lowest-confidence-first)", parents=[parent_parser])
+
+    # graph (Phase 10)
+    graph_parser = subparsers.add_parser("graph", help="Export static D3.js graph visualisation", parents=[parent_parser])
+    graph_parser.add_argument("--open", action="store_true", help="Open the generated HTML in a browser")
+    graph_parser.add_argument("--output", default="graph.html", help="Output HTML path")
+
+    # memory-tool (Move 1)
+    mt_parser = subparsers.add_parser("memory-tool", help="Anthropic memory-tool backend adapter", parents=[parent_parser])
+    mt_sub = mt_parser.add_subparsers(dest="memory_tool_command", required=True)
+    mt_serve = mt_sub.add_parser("serve", help="Serve the memex memory-tool backend", parents=[parent_parser])
+    mt_serve.add_argument("--transport", choices=["stdio", "http"], default="stdio", help="Transport to use")
+    mt_serve.add_argument("--port", type=int, default=7464, help="HTTP port (transport=http)")
+    mt_serve.add_argument(
+        "--listen-public",
+        action="store_true",
+        help="Bind 0.0.0.0 instead of 127.0.0.1 (transport=http). Off by default to limit exposure on shared machines.",
+    )
+
     parsed_args = parser.parse_args(args)
     repo_root = parsed_args.repo
 
@@ -293,6 +331,57 @@ def main(args=None):
                 print(f"Key '{parsed_args.name}' revoked.")
             else:
                 print(f"Key '{parsed_args.name}' not found.")
+
+    # ------------------------------------------------------------------
+    # v0.3.0 subcommand handlers — scaffolded; implementations land per phase
+    # ------------------------------------------------------------------
+
+    elif parsed_args.command == "archive":
+        try:
+            from memex.graph.archive import run_archive_command
+            asyncio.run(run_archive_command(
+                repo_root=repo_root or ".",
+                restore=parsed_args.restore,
+                stats=parsed_args.stats,
+            ))
+        except ImportError:
+            print("memex archive: not yet implemented in v0.3.0-alpha (Phase 6 in progress)", file=sys.stderr)
+            sys.exit(2)
+
+    elif parsed_args.command == "review":
+        try:
+            from memex.cli_review import run_review_command
+            asyncio.run(run_review_command(repo_root or "."))
+        except ImportError:
+            print("memex review: not yet implemented in v0.3.0-alpha (Phase 8 in progress)", file=sys.stderr)
+            sys.exit(2)
+
+    elif parsed_args.command == "graph":
+        try:
+            from memex.cli_graph import run_graph_command
+            asyncio.run(run_graph_command(
+                repo_root=repo_root or ".",
+                output=parsed_args.output,
+                open_browser=parsed_args.open,
+            ))
+        except ImportError:
+            print("memex graph: not yet implemented in v0.3.0-alpha (Phase 10 in progress)", file=sys.stderr)
+            sys.exit(2)
+
+    elif parsed_args.command == "memory-tool":
+        if parsed_args.memory_tool_command == "serve":
+            try:
+                from memex.memory_tool.server import run_memory_tool_serve
+                asyncio.run(run_memory_tool_serve(
+                    repo_root=repo_root or ".",
+                    transport=parsed_args.transport,
+                    port=parsed_args.port,
+                    listen_public=parsed_args.listen_public,
+                ))
+            except ImportError:
+                print("memex memory-tool serve: not yet implemented in v0.3.0-alpha (Move 1 in progress)", file=sys.stderr)
+                sys.exit(2)
+
 
 if __name__ == "__main__":
     main()

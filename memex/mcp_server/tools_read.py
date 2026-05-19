@@ -12,7 +12,9 @@ from memex.mcp_server.queries import (
     get_symbol_callers,
     get_symbol_callees,
     get_symbol_decisions,
-    get_symbol_problems
+    get_symbol_problems,
+    count_unvalidated_decisions,
+    composite_search,  # Phase 7
 )
 from memex.mcp_server.formatter import (
     format_project_context,
@@ -20,6 +22,7 @@ from memex.mcp_server.formatter import (
     format_decisions,
     format_problems,
     format_search_results,
+    format_search_results_with_breakdown,  # Phase 7
     format_stale_edges
 )
 
@@ -37,14 +40,22 @@ async def get_project_context(scope: Optional[str] = None, repo: Optional[str] =
         decisions = await get_recent_decisions_raw(since_days=7, module=scope, limit=10, repo=repo)
         problems = await get_open_problems_raw(module=scope, repo=repo)
         stale_list = await get_stale_edges(threshold=0.3, limit=1, repo=repo)
-        
+        # v0.3.0 Phase 8 — surface unvalidated decision count as a leading
+        # warning so the gap between watcher-synthesised and human-reviewed
+        # decisions stays visible.
+        try:
+            unvalidated_count = await count_unvalidated_decisions(repo=repo)
+        except Exception:
+            unvalidated_count = 0
+
         return format_project_context(
             repo_root=repo or config.repo_root,
             counts=counts,
             modules=modules,
             decisions=decisions,
             problems=problems,
-            stale_count=len(stale_list)
+            stale_count=len(stale_list),
+            unvalidated_count=unvalidated_count,
         )
 
     except Exception as e:
@@ -91,9 +102,22 @@ async def get_symbol_context(symbol_name: str, file: Optional[str] = None, repo:
 async def get_recent_decisions(days: int = 30, module: Optional[str] = None, repo: Optional[str] = None) -> str:
     """
     Returns Decision nodes created within the last days days, newest first.
+    Phase 7: runs `detect_decision_conflicts` so contradictory Decisions with
+    overlapping validity windows get a `conflict: true` flag the formatter
+    surfaces to the agent.
     """
     try:
         decisions = await get_recent_decisions_raw(since_days=days, module=module, limit=21, repo=repo)
+        # Phase 7 conflict detection — opportunistic. Falls back silently if
+        # the graph client / similarity function isn't usable so an LLM
+        # hiccup doesn't break the read tool.
+        try:
+            from memex.mcp_server.conflict import detect_decision_conflicts
+            client = await get_graph_client()
+            decisions = await detect_decision_conflicts(decisions, client)
+        except Exception:
+            logger.debug("conflict detection skipped this run", exc_info=True)
+
         return format_decisions(
             decisions=decisions,
             days=days,
@@ -129,28 +153,37 @@ async def get_open_problems(module: Optional[str] = None, repo: Optional[str] = 
 async def search_context(query: str, top_k: int = 8, repo: Optional[str] = None) -> str:
     """
     Semantic + keyword + graph traversal search across all node types.
+
+    Phase 7: delegates to ``queries.composite_search`` which runs the
+    multiplicative composite reranker (memex/mcp_server/reranker.py) + RRF +
+    access_count bump, then renders the result with the per-factor breakdown
+    (ARCHITECTURE-v0.3.0 §8).
+
+    We resolve the graph client here and pass it explicitly to
+    ``composite_search(client=...)`` so existing tests that patch
+    ``tools_read.get_graph_client`` keep working — the production wiring is
+    a single shared implementation in queries.py.
     """
     if not query or not query.strip():
         return "query must be non-empty"
 
     top_k = min(max(1, top_k), 20)
-    
+
     try:
         client = await get_graph_client()
-        # Increase num_results if we are going to filter in memory
-        search_top_k = top_k * 2 if repo else top_k
-        results = await client.search(query, num_results=search_top_k)
-        
-        if repo:
-            results = [r for r in results if getattr(r, 'repo_path', None) == repo]
-            results = results[:top_k]
+        merged = await composite_search(
+            query=query,
+            num_results=top_k,
+            repo=repo,
+            client=client,
+        )
 
-        if not results:
+        if not merged:
             return f"no relevant context found for query: '{query}'"
-            
-        return format_search_results(query=query, results=results)
 
-    except Exception as e:
+        return format_search_results_with_breakdown(query=query, results=merged)
+
+    except Exception:
         logger.error("Graphiti search failed", exc_info=True)
         return "search temporarily unavailable — try get_project_context() instead"
 
@@ -171,3 +204,13 @@ async def get_stale_context(threshold: float = 0.5, repo: Optional[str] = None) 
     except Exception as e:
         logger.error("Failed to fetch stale context", exc_info=True)
         return f"Error: Failed to retrieve stale context from Neo4j. {e}"
+
+
+# ---------------------------------------------------------------------------
+# Phase 9 — new read tools (explain_change, predict_impact)
+# Re-exported here so server.py and tests can import them from a single
+# `memex.mcp_server.tools_read` surface alongside the v0.1 read tools.
+# ---------------------------------------------------------------------------
+
+from memex.mcp_server.tools_explain import explain_change  # noqa: E402, F401
+from memex.mcp_server.tools_impact import predict_impact   # noqa: E402, F401

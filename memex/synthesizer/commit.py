@@ -56,24 +56,37 @@ async def extract_decisions(
     # Retry logic with exponential backoff
     for attempt in range(3):
         try:
-            response = client.models.generate_content(
+            # google-genai's generate_content is synchronous. Wrap it in
+            # asyncio.to_thread so the watcher event loop isn't blocked for
+            # the full LLM round-trip (typically 1-5s on Gemini Flash).
+            response = await asyncio.to_thread(
+                client.models.generate_content,
                 model=config.gemini_model,
                 contents=prompt,
                 config={
                     'response_mime_type': 'application/json',
                     'response_schema': DecisionsResponse,
-                }
+                },
             )
             
             data = json.loads(response.text)
             extracted_decisions = []
             
             for d in data.get("decisions", []):
+                # v0.3.0 defaults (Phase 8 — Hallucination Mitigation):
+                #   validated=False  — watcher-synthesised, must be approved via `memex review`
+                #   base_confidence=0.6 — anchors the TempValid two-regime decay
+                #   source="watcher" — distinguishes from agent-recorded decisions
+                # ``last_reinforced_at`` is set to ``created_at`` by the writer so the
+                # computed_confidence helper has an anchor on freshly-synthesised nodes.
                 extracted_decisions.append(Decision(
                     text=d["text"],
                     rationale=d["rationale"],
                     scope=d["scope"],
-                    source_commit=commit_sha
+                    source_commit=commit_sha,
+                    source="watcher",
+                    validated=False,
+                    base_confidence=0.6,
                 ))
                 
             return extracted_decisions

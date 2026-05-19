@@ -53,13 +53,24 @@ async def test_decision_corroboration_by_message():
             await handle_commit(event)
     
     # 5. Verify in Neo4j
+    # v0.3.0: corroboration is evidence, not validation. It lifts
+    # last_reinforced_at and flips corroborated/corroboration_commit; it does
+    # NOT overwrite the stored confidence field (which is computed at query
+    # time now — see memex/graph/confidence.py).
     res = await client.driver.execute_query(
-        "MATCH (d:Entity {uuid: 'test-uuid-msg'}) RETURN d.corroborated as corroborated, d.confidence as confidence, d.corroboration_commit as sha"
+        "MATCH (d:Entity {uuid: 'test-uuid-msg'}) RETURN d.corroborated as corroborated, d.confidence as confidence, d.corroboration_commit as sha, d.last_reinforced_at as lra, d.validated as validated"
     )
     assert len(res.records) > 0
-    assert res.records[0]["corroborated"] is True
-    assert res.records[0]["confidence"] == 1.0
-    assert res.records[0]["sha"] == "sha_msg_123"
+    rec = res.records[0]
+    assert rec["corroborated"] is True
+    assert rec["sha"] == "sha_msg_123"
+    # confidence stays at its original stored value (0.6) — corroboration no
+    # longer bumps it to 1.0 in v0.3.0.
+    assert rec["confidence"] == 0.6
+    # validated is not flipped by corroboration; only `memex review` does that.
+    assert rec["validated"] in (False, None)
+    # last_reinforced_at must have been set
+    assert rec["lra"] is not None
 
 @pytest.mark.asyncio
 async def test_decision_corroboration_by_file():
@@ -105,13 +116,16 @@ async def test_decision_corroboration_by_file():
             mock_config.return_value.repo_root = "."
             await handle_commit(event)
 
-    # 5. Verify
+    # 5. Verify — v0.3.0: confidence is no longer mutated by corroboration.
     res = await client.driver.execute_query(
-        "MATCH (d:Entity {uuid: 'test-uuid-file'}) RETURN d.corroborated as corroborated, d.confidence as confidence"
+        "MATCH (d:Entity {uuid: 'test-uuid-file'}) RETURN d.corroborated as corroborated, d.confidence as confidence, d.last_reinforced_at as lra"
     )
     assert len(res.records) > 0
-    assert res.records[0]["corroborated"] is True
-    assert res.records[0]["confidence"] == 1.0
+    rec = res.records[0]
+    assert rec["corroborated"] is True
+    # stored confidence stays at its original value (0.6); not bumped to 1.0.
+    assert rec["confidence"] == 0.6
+    assert rec["lra"] is not None
 
 @pytest.mark.asyncio
 async def test_decision_no_corroboration_no_match():

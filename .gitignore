@@ -59,3 +59,9 @@ npm/node_modules/
 
 .gemini
 .memex
+
+# Internal planning docs — not for main branch
+TRASH/
+
+# Claude Code local settings
+.claude/

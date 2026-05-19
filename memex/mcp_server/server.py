@@ -18,7 +18,10 @@ from memex.mcp_server.tools_read import (
     get_recent_decisions,
     get_open_problems,
     search_context,
-    get_stale_context
+    get_stale_context,
+    # Phase 9
+    explain_change,
+    predict_impact,
 )
 from memex.mcp_server.tools_write import record_decision, record_problem, resolve_problem, invalidate_edge
 
@@ -40,7 +43,7 @@ class MemexStartupError(Exception):
 
 async def handle_list_tools() -> list[Tool]:
     """
-    Returns the list of 10 tools.
+    Returns the list of 12 tools (6 v0.1 read + 4 v0.1 write + 2 Phase 9 read).
     """
     return [
         Tool(
@@ -164,13 +167,13 @@ async def handle_list_tools() -> list[Tool]:
         ),
         Tool(
             name="record_decision",
-            description="Creates a Decision node in the graph. Call this when making or discovering architectural choices. Returns a status string.",
+            description="Creates a Decision node in the graph. Call this when making or discovering architectural choices. Returns a status string. Phase 9: pass corroborates=<id> to reinforce, supersedes=<id> to replace, or force=true to bypass duplicate detection.",
             inputSchema={
                 "type": "object",
                 "properties": {
                     "text": {
                         "type": "string",
-                        "description": "The decision text (min 10 chars)."
+                        "description": "The decision text (min 10 chars). Not required when only corroborating."
                     },
                     "module": {
                         "type": "string",
@@ -187,6 +190,19 @@ async def handle_list_tools() -> list[Tool]:
                     "repo": {
                         "type": "string",
                         "description": "Optional absolute path to the repository."
+                    },
+                    "corroborates": {
+                        "type": "string",
+                        "description": "Phase 9: id of an existing Decision to reinforce. No new node is created; the existing node's last_reinforced_at is bumped."
+                    },
+                    "supersedes": {
+                        "type": "string",
+                        "description": "Phase 9: id of an existing Decision this one replaces. A new node is created with supersedes=<id> and the old node's outgoing edges are expired."
+                    },
+                    "force": {
+                        "type": "boolean",
+                        "description": "Phase 9: skip intent-confirmation similarity check and always write a sibling decision.",
+                        "default": False
                     }
                 },
                 "required": ["text"]
@@ -262,6 +278,47 @@ async def handle_list_tools() -> list[Tool]:
                 },
                 "required": ["edge_id", "reason"]
             }
+        ),
+        # Phase 9 — synthesis tool. Cross-references a commit's diff with
+        # Decision/Problem nodes linked to the affected files and asks
+        # Gemini Pro to explain what changed and why.
+        Tool(
+            name="explain_change",
+            description="Cross-references a git commit's diff with linked Decision/Problem nodes and returns a grounded Markdown explanation synthesised by Gemini Pro.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "commit_sha": {
+                        "type": "string",
+                        "description": "The git commit SHA to explain (short or full)."
+                    },
+                    "repo": {
+                        "type": "string",
+                        "description": "Optional absolute path to the repository."
+                    }
+                },
+                "required": ["commit_sha"]
+            }
+        ),
+        # Phase 9 — pure graph traversal. Predicts which modules are likely
+        # affected by changes to `file_path` based on historical coupling.
+        Tool(
+            name="predict_impact",
+            description="Returns a ranked Markdown list of modules likely affected by changes to a file, based on graph coupling (calls + imports + decision links). No LLM call.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "file_path": {
+                        "type": "string",
+                        "description": "Relative path of the file whose change-impact you want predicted."
+                    },
+                    "repo": {
+                        "type": "string",
+                        "description": "Optional absolute path to the repository."
+                    }
+                },
+                "required": ["file_path"]
+            }
         )
     ]
 
@@ -315,7 +372,14 @@ async def handle_call_tool(name: str, arguments: dict) -> list[TextContent | Ima
             module = str(arguments.get("module")) if arguments.get("module") else None
             symbol = str(arguments.get("symbol")) if arguments.get("symbol") else None
             rationale = str(arguments.get("rationale")) if arguments.get("rationale") else None
-            result = await record_decision(text, module, symbol, rationale, repo=repo)
+            # Phase 9 — governance kwargs
+            corroborates = str(arguments.get("corroborates")) if arguments.get("corroborates") else None
+            supersedes = str(arguments.get("supersedes")) if arguments.get("supersedes") else None
+            force = bool(arguments.get("force", False))
+            result = await record_decision(
+                text, module, symbol, rationale, repo=repo,
+                corroborates=corroborates, supersedes=supersedes, force=force,
+            )
             return [TextContent(type="text", text=result)]
         elif name == "record_problem":
             text = str(arguments.get("text", ""))
@@ -332,6 +396,19 @@ async def handle_call_tool(name: str, arguments: dict) -> list[TextContent | Ima
             edge_id = str(arguments.get("edge_id", ""))
             reason = str(arguments.get("reason", ""))
             result = await invalidate_edge(edge_id, reason, repo=repo)
+            return [TextContent(type="text", text=result)]
+        # Phase 9 — new tools
+        elif name == "explain_change":
+            commit_sha = str(arguments.get("commit_sha", ""))
+            if not commit_sha:
+                return [TextContent(type="text", text="Error: 'commit_sha' is required.")]
+            result = await explain_change(commit_sha, repo=repo)
+            return [TextContent(type="text", text=result)]
+        elif name == "predict_impact":
+            file_path = str(arguments.get("file_path", ""))
+            if not file_path:
+                return [TextContent(type="text", text="Error: 'file_path' is required.")]
+            result = await predict_impact(file_path, repo=repo)
             return [TextContent(type="text", text=result)]
         return [TextContent(type="text", text=f"Tool {name} not found")]
     except Exception as e:

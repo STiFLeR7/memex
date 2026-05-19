@@ -154,3 +154,68 @@ async def test_get_open_problems_exception():
     with patch("memex.mcp_server.tools_read.get_open_problems_raw", side_effect=Exception("Query fail")):
         result = await get_open_problems()
         assert "Error: Failed to retrieve problems" in result
+
+
+# ---------------------------------------------------------------------------
+# B4 regression — conflict detection wiring through get_recent_decisions.
+# Previously dead because (a) the row lacked a `module` field, and
+# (b) format_decisions didn't render the conflict flag. Both fixed in v0.3.0;
+# this test asserts the integrated path.
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_get_recent_decisions_renders_conflict_marker_end_to_end():
+    """Inject a deterministic similarity function (forced low) so two same-
+    module Decisions with overlapping validity get flagged. Assert the
+    formatter output contains [CONFLICT]."""
+    from datetime import datetime, UTC
+    from memex.mcp_server.tools_read import get_recent_decisions
+
+    now = datetime.now(UTC)
+    earlier = now.replace(year=now.year - 1)
+
+    # Two decisions on the SAME module with OVERLAPPING validity windows.
+    fake_rows = [
+        {
+            "text": "switched auth to EdDSA",
+            "date": now,
+            "scope": "module",
+            "rationale": "key rotation",
+            "sha": "abcd1234",
+            "module_paths": ["auth/service.py"],
+            "module": "auth/service.py",
+            "valid_from": earlier,
+            "valid_until": None,
+            "id": "dec-a",
+        },
+        {
+            "text": "keeping RS256 because library support",
+            "date": now,
+            "scope": "module",
+            "rationale": "ecosystem",
+            "sha": "ef567890",
+            "module_paths": ["auth/service.py"],
+            "module": "auth/service.py",
+            "valid_from": earlier,
+            "valid_until": None,
+            "id": "dec-b",
+        },
+    ]
+
+    with (
+        patch("memex.mcp_server.tools_read.get_recent_decisions_raw",
+              new=AsyncMock(return_value=fake_rows)),
+        # Provide a graph client (any object — conflict.py only uses it to
+        # call the similarity function we inject below).
+        patch("memex.mcp_server.tools_read.get_graph_client", new=AsyncMock(return_value=MagicMock())),
+        # Force similarity = 0.1 — well below the 0.4 conflict threshold,
+        # so the pair MUST be flagged.
+        patch("memex.mcp_server.conflict._default_similarity",
+              new=AsyncMock(return_value=0.1)),
+    ):
+        out = await get_recent_decisions(days=30, module="auth", repo="/r")
+
+    assert "[CONFLICT]" in out, (
+        f"format_decisions must render [CONFLICT] prefix when conflict "
+        f"detection flagged the pair. Got:\n{out}"
+    )

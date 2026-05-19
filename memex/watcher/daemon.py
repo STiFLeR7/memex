@@ -8,7 +8,7 @@ from memex.graph.client import get_graph_client
 from memex.watcher.fs_observer import FSObserver
 from memex.watcher.commit_poller import CommitPoller
 from memex.watcher.event_router import EventRouter
-from memex.watcher.handlers import handle_file_change, handle_commit
+from memex.watcher.handlers import handle_file_change, handle_commit, handle_lockfile_change
 from memex.graph.decay import DecayScheduler
 from memex.watcher.registry import get_active_repositories, DEFAULT_REGISTRY_DIR
 from memex.watcher.git_hook import install_hooks
@@ -91,6 +91,7 @@ async def run_daemon(repo_root: str | None = None) -> None:
     # Components
     router = EventRouter(queue)
     router.on_file_change(handle_file_change)
+    router.on_file_change(handle_lockfile_change)
     router.on_commit(handle_commit)
     decay = DecayScheduler()
 

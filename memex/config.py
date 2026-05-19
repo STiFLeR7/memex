@@ -11,6 +11,19 @@ class HarnessConfig(BaseModel):
     initial_decision_confidence: float = 0.6
     corroboration_window_days: int = 14
 
+
+# Phase 7 — Retrieval composite-reranker config (ARCHITECTURE-v0.3.0 §8).
+# Defaults mirror the module constants in ``memex.mcp_server.reranker`` so
+# explicit config and module-default behaviour stay in sync.
+class RetrievalConfig(BaseModel):
+    recency_tau_days: int = 90                # τ — exponential decay (days)
+    conf_floor: float = 0.5                   # confidence factor floor
+    rehearsal_weight: float = 0.1             # access_count log coefficient
+    rrf_k: int = 60                           # RRF constant for cross-modality merge
+    conflict_similarity_threshold: float = 0.4  # below this + overlapping validity = conflict (Phase 7)
+    contradiction_similarity_threshold: float = 0.85  # MCP-write intent-confirmation threshold (Phase 9)
+
+
 class Config(BaseModel):
     neo4j_uri: str
     neo4j_user: str
@@ -20,6 +33,10 @@ class Config(BaseModel):
     
     # Model configuration
     gemini_model: str = "gemini-2.5-flash"
+    # Phase 9 — Gemini Pro used for synthesis tools (explain_change). Flash
+    # remains the default for extractive / classification tasks; Pro is used
+    # only when the tool description explicitly calls for grounded synthesis.
+    pro_model: str = "gemini-2.5-pro"
     embedding_model: str = "models/gemini-embedding-2"
     
     # Performance & Timing
@@ -41,6 +58,9 @@ class Config(BaseModel):
 
     # Harness configurations
     harnesses: Dict[str, HarnessConfig] = Field(default_factory=dict)
+
+    # Phase 7 — composite-reranker / RRF / conflict-detection knobs.
+    retrieval: RetrievalConfig = Field(default_factory=RetrievalConfig)
 
 def load_config() -> Config:
     """

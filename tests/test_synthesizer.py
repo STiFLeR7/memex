@@ -50,7 +50,35 @@ async def test_extract_decisions_success():
         mock_response = MagicMock()
         mock_response.text = '{"decisions": [{"text": "D1", "rationale": "R1", "scope": "local"}]}'
         mock_instance.models.generate_content.return_value = mock_response
-        
+
         result = await extract_decisions("commit msg", "diff", "sha123")
         assert len(result) == 1
         assert result[0].text == "D1"
+
+
+@pytest.mark.asyncio
+async def test_synthesised_decision_starts_unvalidated_at_0_6():
+    """v0.3.0 Phase 8 (Hallucination Mitigation): every watcher-synthesised
+    Decision must come back with validated=False, base_confidence=0.6, and
+    source='watcher'. These are the anchors the TempValid two-regime decay
+    depends on."""
+    with patch("memex.synthesizer.commit.genai.Client") as mock_genai_client:
+        mock_instance = mock_genai_client.return_value
+        mock_response = MagicMock()
+        mock_response.text = (
+            '{"decisions": [{"text": "switched to EdDSA", '
+            '"rationale": "RSA rotation too operationally complex", '
+            '"scope": "module"}]}'
+        )
+        mock_instance.models.generate_content.return_value = mock_response
+
+        result = await extract_decisions(
+            "refactor auth: switched from RS256 to EdDSA", "diff", "abc12345"
+        )
+
+        assert len(result) == 1
+        d = result[0]
+        assert d.validated is False, "watcher-synthesised decisions must start unvalidated"
+        assert d.base_confidence == 0.6
+        assert d.source == "watcher"
+        assert d.source_commit == "abc12345"

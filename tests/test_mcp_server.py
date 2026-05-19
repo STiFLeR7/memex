@@ -6,23 +6,27 @@ from memex.mcp_server import server
 from memex.mcp_server.server import create_server, ConfigError, MemexStartupError, handle_list_tools, handle_call_tool
 
 @pytest.mark.asyncio
-async def test_server_registers_all_10_tools():
+async def test_server_registers_all_12_tools():
     # constructs the instance, validates config, checks Neo4j
     with patch("memex.mcp_server.server.get_graph_client") as mock_get_client:
         mock_client = AsyncMock()
         mock_get_client.return_value = mock_client
         with patch("memex.mcp_server.server.get_config"):
             srv = await create_server("/fake/repo")
-            
+
             # Verify the tool names we expect are returned by the list handler
             tools = await handle_list_tools()
             expected = [
+                # 6 v0.1 read tools
                 "get_project_context", "get_symbol_context", "get_recent_decisions",
                 "get_open_problems", "search_context", "get_stale_context",
-                "record_decision", "record_problem", "resolve_problem", "invalidate_edge"
+                # 4 v0.1 write tools
+                "record_decision", "record_problem", "resolve_problem", "invalidate_edge",
+                # 2 Phase 9 read tools
+                "explain_change", "predict_impact",
             ]
-            
-            assert len(tools) == 10
+
+            assert len(tools) == 12
             actual_names = [t.name for t in tools]
             for name in expected:
                 assert name in actual_names

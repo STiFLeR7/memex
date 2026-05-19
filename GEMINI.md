@@ -59,12 +59,27 @@ memex/
 ```
 
 ### Current phase
-**Phase 1 — Graph Writes.** Focus: get Neo4j running, Graphiti connected, tree-sitter parsing, and commits populating Decision nodes. No MCP yet.
+**v0.3.0 — research-locked, Phase 5.9 scaffolding shipped.** See `TRASH/PLAN-v0.3.0.md` and `TRASH/ARCHITECTURE-v0.3.0.md` (locally gitignored — not on main) for the full plan. Build environment: graspologic requires MSVC Build Tools; cluster-engine portions of Phase 6 are assigned to dev2 (Hill Patel).
 
 Update this section as phases complete:
 - [x] Phase 1 — Graph Writes
 - [x] Phase 2 — Watcher Daemon + CLI
 - [x] Phase 3 — MCP Read Tools
 - [x] Phase 4 — MCP Write Tools + Polish
+- [x] v0.2.0 — Multi-Repo + HTTP/SSE
+- [x] Phase 5.9 — v0.3.0 scaffolding (schema fields, CLI subparsers, query placeholders)
+- [~] Phase 6 — Cluster + lockfile + archive (Wave 1; lockfile + archive done, cluster engine deferred to dev2)
+- [x] Phase 7 — Composite scoring + expired_at filter (Wave 2)
+- [x] Phase 8 — HITL + TempValid decay + memex review (Wave 1)
+- [x] Phase 9 — Write governance ACL + intent confirmation + explain_change/predict_impact (Wave 2)
+- [x] Move 1 — Anthropic memory-tool backend adapter (Wave 2)
+- [x] Phase 10 — memex graph viz + audit + release (Wave 3)
 
-Current status: v0.1.0 — shipped
+Current status: v0.3.0 — implementation complete pending dev2's cluster engine; release prep in progress
+
+### v0.3.0 additions to non-negotiables
+- Two new optional Gemini calls: cluster topic summarisation (Gemini Flash) and `explain_change` (Gemini Pro for synthesis quality).
+- `anthropic` SDK is allowed but only inside `memex/memory_tool/` — it must not leak into the watcher, MCP server, or graph layers.
+- `graspologic` and `hdbscan` are allowed dependencies despite their Windows build-tools requirement; document the requirement in the README for Windows contributors.
+- Confidence is computed at query time via `memex/graph/confidence.py` — never stored as a mutating value. The nightly job does NOT decay confidence; it only refreshes the `stale` cache and tombstones cold nodes.
+- All queries against Graphiti-managed edges must filter `WHERE e.expired_at IS NULL` — this is the latent v0.2.0 bug fix.

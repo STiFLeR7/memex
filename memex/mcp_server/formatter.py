@@ -42,15 +42,25 @@ def _truncate_if_needed(lines: List[str], limit_tokens: int) -> str:
     truncated_lines.append(msg)
     return "\n".join(truncated_lines)
 
-def format_project_context(repo_root: str, counts: Dict[str, int], modules: List[Dict], decisions: List[Dict], problems: List[Dict], stale_count: int) -> str:
-    """Assembles the primary project briefing."""
+def format_project_context(repo_root: str, counts: Dict[str, int], modules: List[Dict], decisions: List[Dict], problems: List[Dict], stale_count: int, unvalidated_count: int = 0) -> str:
+    """Assembles the primary project briefing.
+
+    ``unvalidated_count`` (v0.3.0 Phase 8): when > 0 a warning banner is
+    prepended directing the user to ``memex review``. Optional kwarg so all
+    existing call sites continue to work unchanged.
+    """
     now = datetime.now(UTC)
-    lines = [
+    lines: List[str] = []
+    if unvalidated_count and unvalidated_count > 0:
+        lines.append(
+            f"⚠ {unvalidated_count} unvalidated decisions — run `memex review`"
+        )
+    lines.extend([
         "# memex project context",
         f"generated: {now.isoformat()}",
         f"repo: {repo_root}",
         f"neo4j nodes: {counts['modules']} modules, {counts['symbols']} symbols, {counts['decisions']} decisions, {counts['problems']} open problems"
-    ]
+    ])
     
     lines.append("\n## active modules (last 30 days)")
     if modules:
@@ -139,7 +149,11 @@ def format_decisions(decisions: List[Dict], days: int, module: Optional[str], to
     for r in decisions[:20]:
         dt = r['date']
         date_str = dt.isoformat()[:10] if hasattr(dt, 'isoformat') else str(dt)[:10]
-        lines.append(f"\n[{date_str}] {r['text']}")
+        # Phase 7: [CONFLICT] prefix when conflict detection flagged this row
+        # (low semantic similarity + overlapping validity window vs another
+        # decision on the same module). ARCHITECTURE §8.
+        prefix = "[CONFLICT] " if r.get("conflict") else ""
+        lines.append(f"\n[{date_str}] {prefix}{r['text']}")
         lines.append(f"  scope: {r['scope']}")
         lines.append(f"  rationale: {r['rationale']}")
         lines.append(f"  commit: {r['sha'][:8]}")
@@ -217,5 +231,82 @@ def format_stale_edges(edges: List[Dict], threshold: float, total_found: int) ->
 
     if total_found > 50:
         lines.append(f"\n*noting: total {total_found} stale edges found, showing first 50*")
-        
+
+    return _truncate_if_needed(lines, TOKEN_LIMIT_STANDARD)
+
+
+# ---------------------------------------------------------------------------
+# Phase 7 — score breakdown rendering (ARCHITECTURE-v0.3.0 §8)
+#
+# Why a SEPARATE formatter rather than modifying ``format_search_results``:
+# multiplicative composition loses the "this term is 30% of the score"
+# interpretability, so §8 mandates surfacing the per-factor breakdown to
+# agents. Existing callers of ``format_search_results`` (and existing tests
+# that exercise it) stay on the original surface; ``search_context`` is
+# routed to this new function which expects ``ScoredResult`` objects.
+# ---------------------------------------------------------------------------
+
+
+def format_search_results_with_breakdown(query: str, results: List[Any]) -> str:
+    """Render composite-scored search results with the per-factor breakdown.
+
+    Each entry shows:
+      [<modality>] <name>
+        file: <path>                                # if known
+        final: 0.74  (graphiti: 0.81 | recency: 0.93 |
+                      conf: 0.94 | rehearsal: 1.04 | rrf: 0.0164)
+        stale: yes/no | validated: yes/no | last_reinforced: N days ago
+
+    Accepts ``ScoredResult`` objects from ``memex.mcp_server.reranker``.
+    """
+    if not results:
+        return f"no relevant context found for query: '{query}'"
+
+    lines = [f"# search results for: '{query}'"]
+    now = datetime.now(UTC)
+
+    for sr in results:
+        node = getattr(sr, "node_or_edge", sr)
+        modality = getattr(sr, "modality", "unknown")
+        name = getattr(node, "name", None) or getattr(node, "fact", None) or "unknown"
+        file_path = getattr(node, "file", None)
+
+        stale = bool(getattr(node, "stale", False))
+        validated = bool(getattr(node, "validated", False))
+        conflict = bool(getattr(node, "conflict", False))
+
+        last_reinforced = getattr(node, "last_reinforced_at", None)
+        if last_reinforced is None:
+            last_reinforced = getattr(node, "created_at", None)
+        last_str = "unknown"
+        if hasattr(last_reinforced, "isoformat"):
+            try:
+                lr = last_reinforced
+                if getattr(lr, "tzinfo", None) is None:
+                    from datetime import timezone as _tz
+                    lr = lr.replace(tzinfo=_tz.utc)
+                days = max(0, (now - lr).days)
+                last_str = f"{days} days ago"
+            except Exception:
+                pass
+
+        lines.append(f"\n[{modality}] {name}")
+        if file_path:
+            lines.append(f"  file: {file_path}")
+        lines.append(
+            f"  final: {sr.final_score:.2f}  "
+            f"(graphiti: {sr.graphiti_score:.2f} | "
+            f"recency: {sr.recency_factor:.2f} | "
+            f"conf: {sr.confidence_factor:.2f} | "
+            f"rehearsal: {sr.rehearsal_boost:.2f} | "
+            f"rrf: {sr.rrf_score:.4f})"
+        )
+        lines.append(
+            f"  stale: {'yes' if stale else 'no'} | "
+            f"validated: {'yes' if validated else 'no'} | "
+            f"last_reinforced: {last_str}"
+        )
+        if conflict:
+            lines.append("  conflict: yes")
+
     return _truncate_if_needed(lines, TOKEN_LIMIT_STANDARD)

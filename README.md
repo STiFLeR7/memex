@@ -120,17 +120,38 @@ command = "npx"
 args = ["-y", "memex-mcp", "serve", "--repo", "."]
 ```
 
+### Claude memory tool (v0.3.0+)
+
+memex can also serve as a backend for Anthropic's built-in memory tool (`memory_20250818`). Claude reads from a read-only projection of your knowledge graph plus a writable scratch zone. To enable, run alongside the MCP server:
+
+```bash
+memex memory-tool serve --repo .                      # in-process (Python clients)
+memex memory-tool serve --repo . --transport http     # FastAPI shim on :7464 (any SDK)
+```
+
+Then in your Anthropic Python client:
+
+```python
+from memex.memory_tool import MemexAsyncMemoryTool
+memory_tool = MemexAsyncMemoryTool(repo_root=".")
+client.beta.messages.run_tools(..., tools=[memory_tool])
+```
+
+The memory tool is single-vendor (Anthropic-only) and complementary to the MCP server — keep both running for cross-agent coverage.
+
 ## MCP tools
 
 ### Read Tools (Context Retrieval)
 | Tool | When to call it | Returns |
 |------|-----------------|---------|
-| `get_project_context` | At session start to get a project overview. | Markdown briefing of modules, decisions, and debt. |
+| `get_project_context` | At session start to get a project overview. | Markdown briefing of clusters (v0.3.0), modules, decisions, debt, and unvalidated count. |
 | `get_symbol_context` | Before editing a specific function or class. | Signatures, callers, callees, and linked history. |
-| `get_recent_decisions` | To understand recent architectural shifts. | Chronological list of tech decisions and rationales. |
+| `get_recent_decisions` | To understand recent architectural shifts. | Chronological list of tech decisions and rationales, with conflict flags. |
 | `get_open_problems` | To find technical debt or active bugs. | List of problems sorted by severity (Critical → Low). |
-| `search_context` | For broad discovery across all node types. | Hybrid search results (semantic + keyword + graph). |
-| `get_stale_context` | To identify potentially outdated documentation. | Report of edges with low confidence scores. |
+| `search_context` | For broad discovery across all node types. | Hybrid search results with composite score breakdown (semantic × recency × confidence × rehearsal). |
+| `get_stale_context` | To identify potentially outdated documentation. | Report of edges with low computed confidence. |
+| `explain_change` *(v0.3.0)* | After a notable commit to ground the rationale in graph history. | Natural-language explanation cross-referenced against linked Decisions and Problems (Gemini Pro). |
+| `predict_impact` *(v0.3.0)* | Before refactoring a file. | Ranked list of likely-affected modules with coupling-strength explanations (pure graph traversal, no LLM). |
 
 ### Write Tools (Graph Compounding)
 | Tool | When to call it | Returns |
@@ -142,13 +163,23 @@ args = ["-y", "memex-mcp", "serve", "--repo", "."]
 
 ## How the graph works
 
-The memex knowledge graph is built on a bitemporal model, meaning every relationship has both a creation time and an optional invalidation time. This allows the system to store a complete history of the codebase, enabling agents to query what was true at any point in time. To ensure the context remains relevant, a nightly decay scheduler reduces the confidence of information that hasn't been recently verified or interacted with. This "forgetting" mechanism prevents old documentation from cluttering agent context while still preserving it in the historical graph. Because the system is bidirectional, agent observations compound over time; if an agent records a decision in one session, every subsequent agent session automatically starts with that knowledge.
+The memex knowledge graph is built on a bitemporal model, meaning every relationship has both a creation time and an optional invalidation time. This allows the system to store a complete history of the codebase, enabling agents to query what was true at any point in time. Confidence is **computed at query time** from a two-regime decay (validated facts decay slowly; unvalidated ones cross the staleness threshold at ~30 days), so old hallucinations naturally lose their grip on agent context without ever overwriting the historical record. Because the system is bidirectional, agent observations compound over time; if an agent records a decision in one session, every subsequent agent session automatically starts with that knowledge.
+
+### v0.3.0 additions
+- **Cluster hierarchy** above Module so `get_project_context()` scales to large codebases.
+- **Human-in-the-loop validation** (`memex review`) lifts confidence caps on machine-synthesised decisions via a rich TUI, lowest-confidence-first ordering.
+- **Anthropic memory-tool adapter** lets Claude treat memex as its storage backend, not just an MCP source.
+- **Composite retrieval scoring** weights recency, confidence, and rehearsal on top of Graphiti's hybrid search.
+- **Write governance** per node type, plus intent-confirmation on agent writes — no silent duplicates.
+- **Visual graph export** (`memex graph --output graph.html`) — static D3.js force layout of the module-dependency graph with Cluster hulls; pure HTML, opens in any browser.
+- **Retrieval-tracing harness** — every MCP retrieval appends a JSONL trace; `memex doctor` surfaces a 7-day summary.
+- **Note for Windows contributors**: cluster engine (`graspologic`) requires Visual Studio Build Tools 2022. Develop on macOS/Linux/WSL or install build tools.
 
 ## Releasing
 
 1. Add `PYPI_API_TOKEN` to GitHub repo secrets (Settings → Secrets → Actions)
 2. Add `NPM_TOKEN` to GitHub repo secrets
-3. Push a tag `git tag v0.1.2 && git push origin --tags` to trigger both publishes automatically
+3. Push a tag `git tag v0.3.0 && git push origin --tags` to trigger both publishes automatically
 
 ## Inspiration
 Vannevar Bush's 1945 essay "As We May Think" described the memex as a device that stores all of a person's knowledge, cross-referenced and associative. This project is a small step toward that idea, applied to the context an AI agent needs to work effectively inside a codebase.

@@ -79,22 +79,68 @@ async def test_record_problem_invalid_severity_coerced():
 
 @pytest.mark.asyncio
 async def test_record_problem_duplicate_detection():
+    """Post-B6: same-repo near-duplicate Problem returns the dedup string.
+    The mock's repo_path must match the call's repo for the strict check."""
+    import os
+    target_repo = os.path.abspath("/tmp/repo")
+
     with patch("memex.mcp_server.tools_write.get_graph_client") as mock_get_client:
         mock_client = AsyncMock()
-        # Mock a similar problem found in search
         mock_duplicate = MagicMock()
         mock_duplicate.type = "Problem"
         mock_duplicate.score = 0.95
         mock_duplicate.name = "Watcher memory leak"
         mock_duplicate.uuid = "old-prob-999"
-        
+        mock_duplicate.repo_path = target_repo
+
         mock_client.search.return_value = [mock_duplicate]
         mock_get_client.return_value = mock_client
-        
-        result = await record_problem(text="Memory leak in watcher daemon.")
+
+        result = await record_problem(
+            text="Memory leak in watcher daemon.",
+            repo=target_repo,
+        )
         assert "similar problem already recorded" in result
         assert "old-prob-999" in result
         assert not mock_client.add_episode.called
+
+
+@pytest.mark.asyncio
+async def test_record_problem_dedup_ignores_cross_repo_hit():
+    """B6 regression: a near-duplicate Problem in a DIFFERENT repo must NOT
+    trigger the dedup return — that would surface an actionable id pointing
+    at the wrong repo's node. Twin of the B5 fix on record_decision."""
+    import os
+    target_repo = os.path.abspath("/test/repo")
+    cross_repo = os.path.abspath("/other/repo")
+
+    with (
+        patch("memex.mcp_server.tools_write.get_graph_client") as mock_get_client,
+        patch("memex.mcp_server.tools_write._get_or_create_session",
+              return_value="session_xyz"),
+    ):
+        mock_client = AsyncMock()
+        cross_repo_dup = MagicMock()
+        cross_repo_dup.type = "Problem"
+        cross_repo_dup.score = 0.99
+        cross_repo_dup.name = "Watcher memory leak"
+        cross_repo_dup.uuid = "other-repo-prob"
+        cross_repo_dup.repo_path = cross_repo
+
+        mock_client.search.return_value = [cross_repo_dup]
+        mock_client.add_episode.return_value = MagicMock(
+            episode=MagicMock(uuid="new-prob-uuid")
+        )
+        mock_get_client.return_value = mock_client
+
+        result = await record_problem(
+            text="Memory leak in watcher daemon.",
+            repo=target_repo,
+        )
+
+    # Must NOT be the dedup string — cross-repo hit must be filtered out.
+    assert "similar problem already recorded" not in result
+    assert "other-repo-prob" not in result
 
 @pytest.mark.asyncio
 async def test_resolve_problem_closes_node():
@@ -175,16 +221,21 @@ async def test_invalidate_edge_already_invalidated_returns_message():
 @pytest.mark.asyncio
 async def test_record_problem_concurrent_calls_no_duplicate():
     """
-    Use asyncio.gather to fire two identical record_problem calls simultaneously, 
+    Use asyncio.gather to fire two identical record_problem calls simultaneously,
     assert only one Problem node was created.
+    Post-B6: the simulated duplicate must carry the call's repo_path so the
+    strict-match dedup check fires.
     """
+    import os
+    target_repo = os.path.abspath("/tmp/repo")
+
     mock_result = MagicMock()
     mock_result.episode.uuid = "prob-unique"
-    
+
     with patch("memex.mcp_server.tools_write.get_graph_client") as mock_get_client:
         mock_client = AsyncMock()
-        # Mock search to return nothing initially, but we want to simulate the lock
-        # So we use a side effect that changes after the first call
+        # Mock search to return nothing initially; the second call sees the
+        # duplicate the first one is racing to write.
         call_count = 0
         async def mock_search(*args, **kwargs):
             nonlocal call_count
@@ -192,29 +243,26 @@ async def test_record_problem_concurrent_calls_no_duplicate():
                 call_count += 1
                 return []
             else:
-                # Simulate the duplicate found in the second call
                 dup = MagicMock()
                 dup.type = "Problem"
                 dup.score = 0.99
                 dup.name = "Duplicate issue"
                 dup.uuid = "prob-unique"
+                dup.repo_path = target_repo  # B6: must match for dedup
                 return [dup]
-        
+
         mock_client.search.side_effect = mock_search
         mock_client.add_episode.return_value = mock_result
         mock_get_client.return_value = mock_client
-        
-        # Run two calls concurrently
+
         results = await asyncio.gather(
-            record_problem(text="Concurrent issue detection."),
-            record_problem(text="Concurrent issue detection.")
+            record_problem(text="Concurrent issue detection.", repo=target_repo),
+            record_problem(text="Concurrent issue detection.", repo=target_repo),
         )
-        
-        # One should be successful, one should be a duplicate
+
         success = [r for r in results if "problem recorded" in r]
         duplicates = [r for r in results if "similar problem already recorded" in r]
-        
+
         assert len(success) == 1
         assert len(duplicates) == 1
-        # 1 call for the successful problem recording
         assert mock_client.add_episode.call_count == 1
