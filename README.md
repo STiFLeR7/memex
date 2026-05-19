@@ -74,11 +74,11 @@ GEMINI_API_KEY=your-key-here
 EOF
 
 # 3. Initialize and start watching
-npx memex-mcp init --repo .
-npx memex-mcp watch --repo .
+npx stifler-memex-mcp init --repo .
+npx stifler-memex-mcp watch --repo .
 
 # 4. In a new terminal, serve the context
-npx memex-mcp serve --repo .
+npx stifler-memex-mcp serve --repo .
 ```
 
 That's it. Your agent now has memory.
@@ -87,7 +87,7 @@ That's it. Your agent now has memory.
 
 | via | command |
 |----|---------|
-| npx (no install) | `npx memex-mcp ...` |
+| npx (no install) | `npx stifler-memex-mcp ...` |
 | uv | `uv add memex-mcp` |
 | pip | `pip install memex-mcp` |
 | source | `git clone github.com/STiFLeR7/memex && uv sync` |
@@ -106,7 +106,7 @@ Add to `.claude/settings.json`:
     "memex": {
       "type": "stdio",
       "command": "npx",
-      "args": ["-y", "memex-mcp", "serve", "--repo", "."]
+      "args": ["-y", "stifler-memex-mcp", "serve", "--repo", "."]
     }
   }
 }
@@ -122,7 +122,7 @@ Add to `~/.gemini/settings.json`:
   "mcpServers": {
     "memex": {
       "command": "npx",
-      "args": ["-y", "memex-mcp", "serve", "--repo", "."]
+      "args": ["-y", "stifler-memex-mcp", "serve", "--repo", "."]
     }
   }
 }
@@ -136,7 +136,7 @@ Add to `~/.codex/config.toml`:
 ```toml
 [mcp_servers.memex]
 command = "npx"
-args = ["-y", "memex-mcp", "serve", "--repo", "."]
+args = ["-y", "stifler-memex-mcp", "serve", "--repo", "."]
 ```
 </details>
 
