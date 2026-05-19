@@ -6,8 +6,8 @@
 
 memex builds a temporal knowledge graph of your codebase and serves it to any MCP-compatible agent — so every session starts knowing your architecture, your decisions, and your open problems. No more cold starts. No more context pasting.
 
-[![PyPI](https://img.shields.io/pypi/v/memex-mcp)](https://pypi.org/project/memex-mcp/)
-[![npm](https://img.shields.io/npm/v/stifler-memex-mcp)](https://www.npmjs.com/package/stifler-memex-mcp)
+[![PyPI](https://img.shields.io/pypi/v/memex-mcp?v=0.3.2)](https://pypi.org/project/memex-mcp/)
+[![npm](https://img.shields.io/npm/v/stifler-memex-mcp?v=0.3.2)](https://www.npmjs.com/package/stifler-memex-mcp)
 [![Claude Code marketplace](https://img.shields.io/badge/Claude%20Code-marketplace-7c3aed)](https://github.com/STiFLeR7/claude-plugins)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![Tests](https://img.shields.io/github/actions/workflow/status/STiFLeR7/memex/publish.yml?branch=master&label=tests)](https://github.com/STiFLeR7/memex/actions)
