@@ -1,0 +1,51 @@
+name: metrics-snapshot
+
+on:
+  schedule:
+    # GitHub traffic API retains 14 days; snapshot weekly (Mondays 00:00 UTC).
+    - cron: "0 0 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  snapshot:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Snapshot traffic + downloads
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          mkdir -p metrics
+          STAMP=$(date -u +%Y-%m-%d)
+
+          # GitHub traffic (clones ≈ marketplace adds, views = README hits)
+          gh api repos/${{ github.repository }}/traffic/clones    > "metrics/clones-${STAMP}.json"
+          gh api repos/${{ github.repository }}/traffic/views     > "metrics/views-${STAMP}.json"
+          gh api repos/${{ github.repository }}/traffic/popular/referrers > "metrics/referrers-${STAMP}.json"
+
+          # Marketplace repo traffic (the real install signal)
+          gh api repos/STiFLeR7/claude-plugins/traffic/clones    > "metrics/plugins-clones-${STAMP}.json" || true
+          gh api repos/STiFLeR7/claude-plugins/traffic/views     > "metrics/plugins-views-${STAMP}.json" || true
+
+          # npm + pypi download counts (last 30 days, rolling)
+          curl -s "https://api.npmjs.org/downloads/range/last-month/stifler-memex-mcp" \
+            > "metrics/npm-${STAMP}.json"
+          curl -s "https://pypistats.org/api/packages/memex-mcp/recent" \
+            > "metrics/pypi-${STAMP}.json"
+
+      - name: Commit snapshot
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add metrics/
+          if git diff --cached --quiet; then
+            echo "no changes"
+          else
+            git commit -m "chore(metrics): weekly snapshot $(date -u +%Y-%m-%d)"
+            git push
+          fi
