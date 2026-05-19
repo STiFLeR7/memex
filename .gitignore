@@ -64,4 +64,5 @@ npm/node_modules/
 TRASH/
 
 # Claude Code local settings
-.claude/
+.claude/ruvector.db
+ruvector.db

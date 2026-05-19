@@ -42,12 +42,27 @@ def _truncate_if_needed(lines: List[str], limit_tokens: int) -> str:
     truncated_lines.append(msg)
     return "\n".join(truncated_lines)
 
-def format_project_context(repo_root: str, counts: Dict[str, int], modules: List[Dict], decisions: List[Dict], problems: List[Dict], stale_count: int, unvalidated_count: int = 0) -> str:
+def format_project_context(
+    repo_root: str,
+    counts: Dict[str, int],
+    modules: List[Dict],
+    decisions: List[Dict],
+    problems: List[Dict],
+    stale_count: int,
+    unvalidated_count: int = 0,
+    clusters: Optional[List[Dict]] = None,
+) -> str:
     """Assembles the primary project briefing.
 
     ``unvalidated_count`` (v0.3.0 Phase 8): when > 0 a warning banner is
     prepended directing the user to ``memex review``. Optional kwarg so all
     existing call sites continue to work unchanged.
+
+    ``clusters`` (v0.3.1 Deliverable 4): when present and non-empty, a
+    cluster-level summary section replaces the module-level list as the
+    default response. Per ARCHITECTURE §10, this keeps the briefing under
+    1500 tokens regardless of repo size; the agent can drill into a
+    specific cluster's modules by passing ``scope=<cluster-prefix>``.
     """
     now = datetime.now(UTC)
     lines: List[str] = []
@@ -61,14 +76,25 @@ def format_project_context(repo_root: str, counts: Dict[str, int], modules: List
         f"repo: {repo_root}",
         f"neo4j nodes: {counts['modules']} modules, {counts['symbols']} symbols, {counts['decisions']} decisions, {counts['problems']} open problems"
     ])
-    
-    lines.append("\n## active modules (last 30 days)")
-    if modules:
-        for r in modules:
-            desc = r['description'][:100] + "..." if r['description'] and len(r['description']) > 100 else (r['description'] or 'no description')
-            lines.append(f"- {r['path']} — {desc} — {r['symbols']} symbols")
+
+    if clusters:
+        lines.append("\n## clusters")
+        for c in clusters:
+            desc = c.get("description") or ""
+            cnt = c.get("module_count", 0)
+            tail = f" — {desc}" if desc else ""
+            lines.append(f"- {c.get('name', 'unknown')} ({cnt} modules){tail}")
+        lines.append(
+            "\n_pass `scope=<cluster-name>` to drill into a cluster's modules._"
+        )
     else:
-        lines.append("- no active modules found.")
+        lines.append("\n## active modules (last 30 days)")
+        if modules:
+            for r in modules:
+                desc = r['description'][:100] + "..." if r['description'] and len(r['description']) > 100 else (r['description'] or 'no description')
+                lines.append(f"- {r['path']} — {desc} — {r['symbols']} symbols")
+        else:
+            lines.append("- no active modules found.")
 
     lines.append("\n## recent decisions (last 7 days)")
     if decisions:

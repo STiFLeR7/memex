@@ -11,7 +11,7 @@ from memex.extractor.lockfile import (
     extract_module_imports,
     is_lockfile_path,
 )
-from memex.graph.writer import write_symbol_delta, write_decision
+from memex.graph.writer import write_symbol_delta, write_decision, write_lockfile_delta
 from memex.synthesizer.commit import extract_decisions
 from memex.graph.client import get_graph_client
 from memex.config import get_config
@@ -253,14 +253,27 @@ async def handle_lockfile_change(event: FileChangeEvent) -> None:
             edges = []
 
         logger.info(
-            "lockfile change processed for %s: %d deps, %d import edges",
+            "lockfile change parsed for %s: %d deps, %d import edges",
             event.path,
             len(deps),
             len(edges),
         )
-        # The actual graph write of Dependency nodes + IMPORTS edges lands when
-        # dev2's cluster.py wiring is ready; we surface the parsed payload via
-        # logging so the pipeline is observable today.
+
+        # v0.3.1 Deliverable 5: actually persist the parsed payload.
+        try:
+            summary = await write_lockfile_delta(repo_root, deps, edges)
+            logger.info(
+                "lockfile change written for %s: %d deps written, %d edges written",
+                event.path,
+                summary["deps_written"],
+                summary["edges_written"],
+            )
+        except Exception:
+            logger.error(
+                "lockfile: write_lockfile_delta failed for %s",
+                event.path,
+                exc_info=True,
+            )
     except Exception:
         logger.error(
             "unhandled error in handle_lockfile_change — skipping event",
