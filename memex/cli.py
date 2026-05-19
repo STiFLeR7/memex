@@ -208,6 +208,7 @@ def main(args=None):
     serve_parser.add_argument("--transport", choices=["stdio", "http", "both"], default="stdio", help="Transport to use")
     serve_parser.add_argument("--host", default="0.0.0.0", help="HTTP host")
     serve_parser.add_argument("--port", type=int, default=8000, help="HTTP port")
+    serve_parser.add_argument("--env-file", dest="env_file", help="Path to an .env file to load before startup (in addition to <repo>/.env)")
 
     # doctor
     subparsers.add_parser("doctor", help="Check system health", parents=[parent_parser])
@@ -333,6 +334,15 @@ def main(args=None):
 
     elif parsed_args.command == "serve":
         path = repo_root or "."
+        from dotenv import load_dotenv as _load_dotenv
+        repo_env = Path(path) / ".env"
+        if repo_env.exists():
+            _load_dotenv(repo_env, override=False)
+        if parsed_args.env_file:
+            _load_dotenv(parsed_args.env_file, override=False)
+        # Reset cached config so values loaded above are picked up.
+        from memex import config as _config_mod
+        _config_mod._config = None
         asyncio.run(run_server(path, parsed_args.transport, parsed_args.host, parsed_args.port))
 
     elif parsed_args.command == "doctor":

@@ -125,7 +125,12 @@ def load_config() -> Config:
                 for k, v in placeholders.items():
                     config_dict.setdefault(k, v)
                 return Config(**config_dict)
-            raise ValueError(f"Missing required configuration: {', '.join(missing)}")
+            raise ValueError(
+                f"Missing required configuration: {', '.join(missing)}. "
+                "Set these as environment variables, or place them in a .env file at "
+                "<repo>/.env (auto-loaded by `memex serve --repo <path>`), or pass "
+                "`memex serve --env-file <path/to/.env>`."
+            )
         raise e
 
 # Singleton instance for the application
