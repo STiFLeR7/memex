@@ -1,6 +1,6 @@
 [project]
 name = "memex-mcp"
-version = "0.3.0"
+version = "0.3.1"
 description = "Developer context continuity system — builds and maintains a temporal knowledge graph of your codebase, served to AI coding agents via MCP. Inspired by Vannevar Bush's 1945 concept of a machine that remembers everything."
 readme = "README.md"
 license = { text = "MIT" }

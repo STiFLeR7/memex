@@ -200,6 +200,7 @@ Agents write back into the graph as they work. Next session, that knowledge is t
 - **🔍 Composite retrieval.** Hybrid search × recency × confidence × rehearsal, with the score breakdown surfaced so agents see *why* a result ranked where it did.
 - **🌐 Multi-repo aware.** Single watcher and MCP server can manage hundreds of repos with zero-config switching.
 - **🖥️ Visual graph.** `memex graph --output graph.html` produces a self-contained D3 force layout with cluster overlays.
+- **🧩 Hierarchical clusters** *(v0.3.1)*. `memex cluster` runs Leiden over a hybrid edge graph (directory co-location + module imports + symbol calls) and groups your codebase into named clusters. `get_project_context()` now returns a cluster-level briefing by default — stays under 1500 tokens whether your repo has 50 modules or 5000. Cluster IDs pin across re-runs via Jaccard ≥ 0.5 so renames are stable; `.memex/clusters.yaml` lets you override any assignment.
 
 ---
 
@@ -227,8 +228,8 @@ memex/
 │   ├── mcp_server/       # 14 MCP tools (read + write + analytic)
 │   ├── memory_tool/      # Anthropic memory_20250818 adapter
 │   ├── watcher/          # daemon + git hooks
-│   └── cli.py            # init / watch / serve / review / graph
-├── tests/                # 282 tests, ~93% coverage
+│   └── cli.py            # init / watch / serve / review / graph / cluster
+├── tests/                # 332 tests, ~93% coverage
 ├── docker/               # Neo4j compose
 └── npm/                  # npx wrapper
 ```
