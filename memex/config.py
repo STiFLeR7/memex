@@ -108,11 +108,24 @@ def load_config() -> Config:
     try:
         return Config(**config_dict)
     except Exception as e:
-        # Re-raise with a more helpful message if required fields are missing
+        # Re-raise with a more helpful message if required fields are missing.
         required_vars = ["NEO4J_URI", "NEO4J_USER", "NEO4J_PASSWORD", "GEMINI_API_KEY"]
-        missing = [v for v in required_vars if v not in config_dict]
+        missing = [v for v in required_vars if v.lower() not in config_dict]
         if missing:
-             raise ValueError(f"Missing required configuration: {', '.join(missing)}")
+            # Introspection-only mode: allow the server to start without a live
+            # backend so MCP clients (and directory sandboxes like glama.ai) can
+            # enumerate tools. Tool calls themselves will still fail loudly.
+            if os.getenv("MEMEX_INTROSPECTION_ONLY") == "1":
+                placeholders = {
+                    "neo4j_uri": "bolt://introspection-only:7687",
+                    "neo4j_user": "introspection",
+                    "neo4j_password": "introspection",
+                    "gemini_api_key": "introspection-only",
+                }
+                for k, v in placeholders.items():
+                    config_dict.setdefault(k, v)
+                return Config(**config_dict)
+            raise ValueError(f"Missing required configuration: {', '.join(missing)}")
         raise e
 
 # Singleton instance for the application

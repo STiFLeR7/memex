@@ -428,13 +428,17 @@ async def create_server(repo_root: str) -> Server:
         logger.error("Configuration error: %s", e)
         raise ConfigError(str(e))
 
-    # 2. Check Neo4j connectivity
-    try:
-        client = await get_graph_client()
-        await client.driver.execute_query("RETURN 1")
-    except Exception as e:
-        logger.error("Failed to connect to Neo4j during startup: %s", e, exc_info=True)
-        raise MemexStartupError(f"Neo4j connectivity check failed: {e}")
+    # 2. Check Neo4j connectivity (skipped in introspection-only mode so MCP
+    # directory sandboxes can enumerate tools without a live backend).
+    if os.getenv("MEMEX_INTROSPECTION_ONLY") == "1":
+        logger.info("MEMEX_INTROSPECTION_ONLY=1 — skipping Neo4j connectivity check")
+    else:
+        try:
+            client = await get_graph_client()
+            await client.driver.execute_query("RETURN 1")
+        except Exception as e:
+            logger.error("Failed to connect to Neo4j during startup: %s", e, exc_info=True)
+            raise MemexStartupError(f"Neo4j connectivity check failed: {e}")
     
     server = Server("memex", version=__version__)
     server.list_tools()(handle_list_tools)

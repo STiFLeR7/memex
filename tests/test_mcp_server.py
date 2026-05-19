@@ -47,6 +47,29 @@ async def test_server_startup_checks_neo4j():
             with pytest.raises(MemexStartupError):
                 await create_server("/fake/repo")
 
+
+@pytest.mark.asyncio
+async def test_introspection_only_mode_skips_neo4j(monkeypatch):
+    # MCP directory sandboxes (glama.ai) run the server with no backend.
+    # MEMEX_INTROSPECTION_ONLY=1 must let create_server boot so list_tools works.
+    monkeypatch.setenv("MEMEX_INTROSPECTION_ONLY", "1")
+    for var in ("NEO4J_URI", "NEO4J_USER", "NEO4J_PASSWORD", "GEMINI_API_KEY"):
+        monkeypatch.delenv(var, raising=False)
+
+    # Reset the cached config singleton so our env-var changes take effect.
+    from memex import config as _config_mod
+    monkeypatch.setattr(_config_mod, "_config", None)
+
+    # get_graph_client must NOT be called when introspection-only mode is on.
+    with patch(
+        "memex.mcp_server.server.get_graph_client",
+        side_effect=AssertionError("Neo4j should not be contacted in introspection mode"),
+    ):
+        srv = await create_server("/fake/repo")
+
+    tools = await handle_list_tools()
+    assert len(tools) == 12
+
 @pytest.mark.asyncio
 async def test_server_tool_returns_string_not_none():
     # Test one tool through the call_tool interface
