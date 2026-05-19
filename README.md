@@ -13,6 +13,8 @@ A daemon and MCP server that turns every commit and every file change into struc
 [![Tests](https://img.shields.io/github/actions/workflow/status/STiFLeR7/memex/publish.yml?branch=master&label=tests)](https://github.com/STiFLeR7/memex/actions)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
+![memex banner](https://raw.githubusercontent.com/STiFLeR7/memex/master/assets/memex.png)
+
 ```mermaid
 flowchart LR
     A[Your repository<br/>files + git] --> B[memex watcher<br/>tree-sitter + Gemini]
