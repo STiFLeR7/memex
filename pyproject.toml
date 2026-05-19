@@ -58,6 +58,18 @@ dependencies = [
     "rich>=13.0.0,<15.0.0",
 ]
 
+[project.optional-dependencies]
+# v0.3.1 cluster engine — graspologic (Leiden) + hdbscan (decision topic clusters).
+# graspologic pins numpy<2; on Windows + Python 3.13 you need MSVC Build Tools 2022
+# (https://aka.ms/vs/17/release/vs_BuildTools.exe — "Desktop development with C++").
+# Without MSVC, install will fail to compile numpy 1.x. Skip this extra to use memex
+# without cluster engine — module-level fallback still works.
+cluster = [
+    "graspologic>=3.4,<4.0",
+    "hdbscan>=0.8.40,<1.0",
+    "scikit-learn>=1.3,<2.0",
+]
+
 [project.urls]
 Homepage = "https://github.com/STiFLeR7/memex"
 Repository = "https://github.com/STiFLeR7/memex"
