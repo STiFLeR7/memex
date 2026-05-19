@@ -14,6 +14,7 @@ from memex.mcp_server.queries import (
     get_symbol_decisions,
     get_symbol_problems,
     count_unvalidated_decisions,
+    get_cluster_level_context,  # v0.3.1 Deliverable 4
     composite_search,  # Phase 7
 )
 from memex.mcp_server.formatter import (
@@ -48,6 +49,17 @@ async def get_project_context(scope: Optional[str] = None, repo: Optional[str] =
         except Exception:
             unvalidated_count = 0
 
+        # v0.3.1 Deliverable 4: prefer cluster-level summary when Cluster
+        # nodes exist for this repo. Scope=<cluster-name> still drills into
+        # modules — when scope is set, skip the cluster summary so the
+        # agent gets module-level detail for that scope.
+        clusters: list = []
+        if not scope:
+            try:
+                clusters = await get_cluster_level_context(repo=repo)
+            except Exception:
+                logger.debug("cluster-level context fetch failed", exc_info=True)
+
         return format_project_context(
             repo_root=repo or config.repo_root,
             counts=counts,
@@ -56,6 +68,7 @@ async def get_project_context(scope: Optional[str] = None, repo: Optional[str] =
             problems=problems,
             stale_count=len(stale_list),
             unvalidated_count=unvalidated_count,
+            clusters=clusters,
         )
 
     except Exception as e:
