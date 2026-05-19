@@ -245,6 +245,23 @@ def main(args=None):
     graph_parser.add_argument("--open", action="store_true", help="Open the generated HTML in a browser")
     graph_parser.add_argument("--output", default="graph.html", help="Output HTML path")
 
+    # cluster (Phase 6 / v0.3.1 — dev2 deliverable 3)
+    cluster_parser = subparsers.add_parser(
+        "cluster",
+        help="Run a one-shot Leiden cluster pass over Modules (hybrid edges)",
+        parents=[parent_parser],
+    )
+    cluster_parser.add_argument(
+        "--rerun",
+        action="store_true",
+        help="Re-cluster even if Cluster nodes already exist (default: idempotent)",
+    )
+    cluster_parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Print the clustering result without writing to Neo4j",
+    )
+
     # memory-tool (Move 1)
     mt_parser = subparsers.add_parser("memory-tool", help="Anthropic memory-tool backend adapter", parents=[parent_parser])
     mt_sub = mt_parser.add_subparsers(dest="memory_tool_command", required=True)
@@ -266,6 +283,20 @@ def main(args=None):
         (Path(path) / ".memex").mkdir(exist_ok=True)
         add_repository(path)
         print(f"memex initialized and registered in {Path(path).resolve()}")
+
+        # v0.3.1 Deliverable 3: kick off a one-shot cluster pass over the
+        # source tree. The watcher hasn't populated Module nodes in Neo4j
+        # yet, so we discover modules by walking the filesystem. Persist
+        # results best-effort — if Neo4j isn't reachable, log and move on
+        # so `memex init` doesn't hard-fail on a missing docker stack.
+        try:
+            from memex.graph.cluster_runner import run_init_cluster_pass
+            asyncio.run(run_init_cluster_pass(path))
+        except Exception:
+            logger.warning(
+                "init: cluster pass failed (non-fatal — run `memex cluster` later)",
+                exc_info=True,
+            )
 
     elif parsed_args.command == "watch":
         asyncio.run(run_daemon(repo_root))
@@ -367,6 +398,14 @@ def main(args=None):
         except ImportError:
             print("memex graph: not yet implemented in v0.3.0-alpha (Phase 10 in progress)", file=sys.stderr)
             sys.exit(2)
+
+    elif parsed_args.command == "cluster":
+        from memex.graph.cluster_runner import run_cluster_command
+        asyncio.run(run_cluster_command(
+            repo_root=repo_root or ".",
+            rerun=parsed_args.rerun,
+            dry_run=parsed_args.dry_run,
+        ))
 
     elif parsed_args.command == "memory-tool":
         if parsed_args.memory_tool_command == "serve":
