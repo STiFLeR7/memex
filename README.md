@@ -7,9 +7,10 @@
 memex builds a temporal knowledge graph of your codebase and serves it to any MCP-compatible agent — so every session starts knowing your architecture, your decisions, and your open problems. No more cold starts. No more context pasting.
 
 [![PyPI](https://img.shields.io/pypi/v/memex-mcp)](https://pypi.org/project/memex-mcp/)
-[![npm](https://img.shields.io/npm/v/memex-mcp)](https://www.npmjs.com/package/memex-mcp)
+[![npm](https://img.shields.io/npm/v/stifler-memex-mcp)](https://www.npmjs.com/package/stifler-memex-mcp)
+[![Claude Code marketplace](https://img.shields.io/badge/Claude%20Code-marketplace-7c3aed)](https://github.com/STiFLeR7/claude-plugins)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
-[![Tests](https://img.shields.io/github/actions/workflow/status/STiFLeR7/memex/ci.yml)](https://github.com/STiFLeR7/memex/actions)
+[![Tests](https://img.shields.io/github/actions/workflow/status/STiFLeR7/memex/publish.yml?branch=master&label=tests)](https://github.com/STiFLeR7/memex/actions)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
 
 ![memex banner](https://raw.githubusercontent.com/STiFLeR7/memex/master/assets/memex.png)
@@ -59,6 +60,17 @@ You: "Don't touch the migrations"      Agent: Skipping migrations/ (locked)
 
 ## Quickstart
 
+### The fastest path — Claude Code marketplace
+
+```text
+/plugin marketplace add STiFLeR7/claude-plugins
+/plugin install memex-mcp@stifler-marketplace
+```
+
+That's it. The plugin wires up the MCP server so every Claude Code session has memex's 14 tools. You still need Neo4j + a Gemini key locally (see below); the plugin only handles the agent-side wiring.
+
+### Manual install
+
 > **Prerequisites:** Python 3.11+, [uv](https://github.com/astral-sh/uv), Docker, a Gemini API key.
 
 ```bash
@@ -87,6 +99,7 @@ That's it. Your agent now has memory.
 
 | via | command |
 |----|---------|
+| Claude Code marketplace | `/plugin marketplace add STiFLeR7/claude-plugins` then `/plugin install memex-mcp@stifler-marketplace` |
 | npx (no install) | `npx stifler-memex-mcp ...` |
 | uv | `uv add memex-mcp` |
 | pip | `pip install memex-mcp` |
@@ -97,9 +110,16 @@ That's it. Your agent now has memory.
 ## Connect your agent
 
 <details>
-<summary><b>Claude Code</b></summary>
+<summary><b>Claude Code</b> (one-liner via marketplace)</summary>
 
-Add to `.claude/settings.json`:
+Easiest — install the plugin and you're done:
+
+```text
+/plugin marketplace add STiFLeR7/claude-plugins
+/plugin install memex-mcp@stifler-marketplace
+```
+
+Or wire it manually in `.claude/settings.json`:
 ```json
 {
   "mcpServers": {
