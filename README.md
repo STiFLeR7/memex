@@ -1,8 +1,8 @@
-# memex
+# memex — temporal knowledge graph memory for AI coding agents
 
 <!-- mcp-name: io.github.stifler7/memex -->
 
-> Persistent memory for AI coding agents. A bitemporal knowledge graph of your codebase, served to any MCP-compatible agent.
+> Persistent memory and codebase context for AI coding agents, served over MCP. A bitemporal knowledge graph of your repository — modules, symbols, decisions, problems — for Claude Code, Cursor, Codex, Gemini CLI, and any MCP-compatible agent.
 
 A daemon and MCP server that turns every commit and every file change into structured graph state: modules, symbols, decisions, problems, lockfile facts. Sessions stop starting blind. Agents stop re-discovering the same refactor every time you `/clear`.
 
@@ -15,7 +15,7 @@ A daemon and MCP server that turns every commit and every file change into struc
 [![Tests](https://img.shields.io/github/actions/workflow/status/STiFLeR7/memex/publish.yml?branch=master&label=tests)](https://github.com/STiFLeR7/memex/actions)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
-![memex banner](https://raw.githubusercontent.com/STiFLeR7/memex/master/assets/memex.png)
+![memex — temporal knowledge graph MCP server for AI coding agents, built on Graphiti and Neo4j](https://raw.githubusercontent.com/STiFLeR7/memex/master/assets/memex.png)
 
 ```mermaid
 flowchart LR
