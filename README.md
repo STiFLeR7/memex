@@ -1,5 +1,7 @@
 # memex
 
+<!-- mcp-name: io.github.stifler7/memex -->
+
 > Persistent memory for AI coding agents. A bitemporal knowledge graph of your codebase, served to any MCP-compatible agent.
 
 A daemon and MCP server that turns every commit and every file change into structured graph state: modules, symbols, decisions, problems, lockfile facts. Sessions stop starting blind. Agents stop re-discovering the same refactor every time you `/clear`.
