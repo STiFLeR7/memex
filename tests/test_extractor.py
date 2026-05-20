@@ -1,5 +1,44 @@
 import pytest
-from memex.extractor.treesitter import extract_symbol_delta
+from memex.extractor.treesitter import extract_symbol_delta, extract_calls
+
+
+def test_extract_calls_resolves_caller_and_callee():
+    """v0.3.7 Layer 2 — map each call-site to the function that contains it
+    (caller) and the called name (callee). Feeds CALLS edges for
+    predict_impact."""
+    src = """def foo(x):
+    return bar(x) + baz()
+
+class A:
+    def m(self):
+        foo(1)
+        self.helper()
+"""
+    calls = extract_calls("mod.py", src, language="python")
+    pairs = {(c.caller, c.callee) for c in calls}
+
+    # foo() calls bar and baz
+    assert ("foo", "bar") in pairs
+    assert ("foo", "baz") in pairs
+    # A.m() calls foo and helper (self.helper -> attribute name)
+    assert ("m", "foo") in pairs
+    assert ("m", "helper") in pairs
+    # every call carries the file
+    assert all(c.file == "mod.py" for c in calls)
+
+
+def test_extract_calls_skips_module_level_calls():
+    """Calls at module scope have no enclosing function symbol — we don't
+    invent a caller for them in v1."""
+    src = "import os\nprint('hi')\nos.getcwd()\n"
+    calls = extract_calls("mod.py", src, language="python")
+    assert calls == []
+
+
+def test_extract_calls_unsupported_language_returns_empty():
+    calls = extract_calls("mod.rb", "puts 'hi'", language="ruby")
+    assert calls == []
+
 
 @pytest.mark.asyncio
 async def test_extract_symbol_delta_new_file():

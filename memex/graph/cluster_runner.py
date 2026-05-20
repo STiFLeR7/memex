@@ -24,7 +24,7 @@ from datetime import datetime, UTC
 from pathlib import Path
 from typing import Any, Optional
 
-from memex.extractor.lockfile import _python_files, _path_to_module
+from memex.extractor.lockfile import _python_files
 from memex.graph.cluster import ClusterAssignment, run_cluster_pass
 from memex.graph.schema import Cluster, check_write_policy
 

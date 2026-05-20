@@ -3,14 +3,12 @@ import logging
 import os
 import sys
 from importlib.metadata import version as get_version, PackageNotFoundError
-from pathlib import Path
-from typing import List, Dict, Any
 
 from mcp.server import Server
 from mcp.server.stdio import stdio_server
 from mcp.types import Tool, TextContent, ImageContent, EmbeddedResource
 
-from memex.config import get_config
+from memex.config import get_config, canonical_repo_path
 from memex.graph.client import get_graph_client
 from memex.mcp_server.tools_read import (
     get_project_context,
@@ -423,7 +421,9 @@ async def create_server(repo_root: str) -> Server:
     # 1. Validate config
     try:
         config = get_config()
-        config.repo_root = os.path.abspath(repo_root)
+        # Canonical form so the server's read-side repo_path join key matches
+        # the watcher's write-side key regardless of --repo spelling (B1).
+        config.repo_root = canonical_repo_path(repo_root)
     except ValueError as e:
         logger.error("Configuration error: %s", e)
         raise ConfigError(str(e))
@@ -446,7 +446,7 @@ async def create_server(repo_root: str) -> Server:
 
     return server
 
-async def run_server(repo_root: str, transport: str = "stdio", host: str = "0.0.0.0", port: int = 8000):
+async def run_server(repo_root: str, transport: str = "stdio", host: str = "127.0.0.1", port: int = 8000):
     """
     Starts the MCP server using the specified transport(s).
     """
@@ -497,7 +497,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="memex MCP server")
     parser.add_argument("--repo", default=".", help="Path to the repository root")
     parser.add_argument("--transport", choices=["stdio", "http", "both"], default="stdio", help="Transport to use")
-    parser.add_argument("--host", default="0.0.0.0", help="HTTP host")
+    parser.add_argument("--host", default="127.0.0.1", help="HTTP host (use 0.0.0.0 to expose on all interfaces)")
     parser.add_argument("--port", type=int, default=8000, help="HTTP port")
     
     args = parser.parse_args()

@@ -22,9 +22,7 @@ import pytest
 
 from memex.mcp_server.reranker import (
     CONF_FLOOR,
-    RECENCY_TAU_DAYS,
     REHEARSAL_WEIGHT,
-    RRF_K,
     ScoredResult,
     composite_score,
     merge_modalities,

@@ -79,7 +79,14 @@ def validate_memory_path(path: str, root: str = _MEMORY_ROOT) -> str:
             f"Path contains URL-encoded parent-directory segment: {path}"
         )
 
-    return decoded
+    # Canonicalize trailing slashes (audit B4). Without this, `/memories/scratch/`
+    # would NOT match the protected-root check for `/memories/scratch` in
+    # server._route and would fall through to the deletable 'scratch' zone — a
+    # protection bypass. Never strip below the root itself.
+    canonical = decoded.rstrip("/")
+    if not canonical:
+        canonical = root
+    return canonical
 
 
 def validate_no_symlink_escape(target_path: Path, memory_root: Path) -> None:

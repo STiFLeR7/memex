@@ -23,84 +23,100 @@ def _truncate(text: str, char_budget: int = CHAR_BUDGET) -> str:
     return text[: char_budget - 60] + "\n[truncated — too many coupled modules]"
 
 
+MAX_COUPLED_MODULES = 25
+
+# Each dimension is its own focused query returning DISTINCT coupled module
+# names. They were previously fused into one query that re-`UNWIND`'d the source
+# set per stage even though the import/decision stages didn't correlate to it —
+# wasteful and hard to verify. Split + aggregated in Python (audit Q3). Each
+# kind contributes at most 1 to a module's score (DISTINCT), preserving the
+# original scoring semantics.
+
+# Symbols in `file` that call / are called by symbols in OTHER files.
+_CALL_COUPLING_QUERY = """
+MATCH (src:Entity)
+WHERE (src.file = $file OR src.name = $file)
+  AND ($repo IS NULL OR src.repo_path = $repo)
+MATCH (src)-[r:CALLS|RELATES_TO]-(coupled:Entity)
+WHERE r.expired_at IS NULL
+  AND (coupled.type = 'Symbol' OR coupled.type IS NULL)
+  AND coalesce(coupled.file, '') <> ''
+  AND coalesce(coupled.file, '') <> $file
+RETURN DISTINCT coalesce(coupled.file, coupled.name) AS module
+"""
+
+# Module-level import/dependency/export edges from `file`. Not repo-scoped —
+# matches the prior behaviour (module names are globally unique by path).
+_IMPORT_COUPLING_QUERY = """
+MATCH (m_src:Entity)-[r:IMPORTS|DEPENDS_ON|EXPORTS]-(m_other:Entity)
+WHERE r.expired_at IS NULL
+  AND (coalesce(m_src.name, '') = $file OR coalesce(m_src.path, '') = $file)
+  AND coalesce(m_other.name, m_other.path, '') <> ''
+  AND coalesce(m_other.name, m_other.path, '') <> $file
+RETURN DISTINCT coalesce(m_other.name, m_other.path) AS module
+"""
+
+# Modules whose Decisions also mention the file's symbols.
+_DECISION_COUPLING_QUERY = """
+MATCH (src:Entity)
+WHERE (src.file = $file OR src.name = $file)
+  AND ($repo IS NULL OR src.repo_path = $repo)
+MATCH (src)-[r3:MOTIVATES|RELATES_TO|MENTIONS]-(d:Entity)
+WHERE r3.expired_at IS NULL
+  AND (d.type = 'Decision' OR d.name CONTAINS 'Decision')
+MATCH (d)-[r4:MOTIVATES|RELATES_TO|MENTIONS]-(other_mod:Entity)
+WHERE r4.expired_at IS NULL
+  AND (coalesce(other_mod.type, '') = 'Module'
+       OR other_mod.name ENDS WITH '.py'
+       OR other_mod.name ENDS WITH '.js'
+       OR other_mod.name ENDS WITH '.ts')
+  AND coalesce(other_mod.name, '') <> $file
+RETURN DISTINCT other_mod.name AS module
+"""
+
+
+async def _coupled_modules_for(client, query: str, file_path: str, repo: Optional[str]) -> List[str]:
+    """Run one dimension query and return its DISTINCT coupled module names."""
+    res = await client.driver.execute_query(query, params={"file": file_path, "repo": repo})
+    return [r["module"] for r in res.records if r.get("module")]
+
+
 async def _query_coupled_modules(file_path: str, repo: Optional[str]) -> List[Dict[str, Any]]:
-    """For every symbol in `file_path`, find symbols that call it / are
-    called by it (n-hop=1 for now), then aggregate the owning files /
-    modules and count edges per coupled module.
+    """Find modules coupled to `file_path` via calls, imports, or decision
+    links, and rank them by how many of those dimensions couple.
 
     Returns rows with: `module`, `call_count`, `import_count`,
-    `decision_count`, `total_score`.
+    `decision_count`, `total_score` — ranked by `total_score` desc, then
+    module name asc, capped at ``MAX_COUPLED_MODULES``.
     """
     client = await get_graph_client()
-    # We treat the file_path itself as both a Module name (Graphiti's
-    # convention: module nodes are stored with their relative path as `name`)
-    # and a `file` property on Symbol nodes.
-    query = """
-    // Find the source symbols living in the file
-    MATCH (src:Entity)
-    WHERE (src.file = $file OR src.name = $file)
-      AND ($repo IS NULL OR src.repo_path = $repo)
-    WITH collect(src) AS sources
-
-    // Coupled symbols — symbols that call or are called by anything in sources
-    UNWIND sources AS s
-    OPTIONAL MATCH (s)-[r1:CALLS|RELATES_TO]-(coupled:Entity)
-    WHERE r1.expired_at IS NULL
-      AND (coupled.type = 'Symbol' OR coupled.type IS NULL)
-      AND coalesce(coupled.file, '') <> ''
-      AND coalesce(coupled.file, '') <> $file
-    WITH sources, collect(DISTINCT {
-        file: coalesce(coupled.file, coupled.name),
-        kind: 'call'
-    }) AS call_edges
-
-    // Module-level import edges
-    UNWIND sources AS s2
-    OPTIONAL MATCH (m_src:Entity)-[r2:IMPORTS|DEPENDS_ON|EXPORTS]-(m_other:Entity)
-    WHERE r2.expired_at IS NULL
-      AND (coalesce(m_src.name, '') = $file OR coalesce(m_src.path, '') = $file)
-      AND coalesce(m_other.name, m_other.path, '') <> ''
-      AND coalesce(m_other.name, m_other.path, '') <> $file
-    WITH sources, call_edges, collect(DISTINCT {
-        file: coalesce(m_other.name, m_other.path),
-        kind: 'import'
-    }) AS import_edges
-
-    // Decision linkage — modules whose Decisions mention the file's symbols
-    UNWIND sources AS s3
-    OPTIONAL MATCH (s3)-[r3:MOTIVATES|RELATES_TO|MENTIONS]-(d:Entity)
-    WHERE r3.expired_at IS NULL
-      AND (d.type = 'Decision' OR d.name CONTAINS 'Decision')
-    OPTIONAL MATCH (d)-[r4:MOTIVATES|RELATES_TO|MENTIONS]-(other_mod:Entity)
-    WHERE r4.expired_at IS NULL
-      AND (coalesce(other_mod.type, '') = 'Module'
-           OR other_mod.name ENDS WITH '.py'
-           OR other_mod.name ENDS WITH '.js'
-           OR other_mod.name ENDS WITH '.ts')
-      AND coalesce(other_mod.name, '') <> $file
-    WITH call_edges, import_edges, collect(DISTINCT {
-        file: other_mod.name,
-        kind: 'decision'
-    }) AS decision_edges
-
-    WITH call_edges + import_edges + decision_edges AS all_edges
-    UNWIND all_edges AS edge
-    WITH edge.file AS module, edge.kind AS kind
-    WHERE module IS NOT NULL
-    RETURN module,
-           sum(CASE kind WHEN 'call' THEN 1 ELSE 0 END) AS call_count,
-           sum(CASE kind WHEN 'import' THEN 1 ELSE 0 END) AS import_count,
-           sum(CASE kind WHEN 'decision' THEN 1 ELSE 0 END) AS decision_count,
-           count(*) AS total_score
-    ORDER BY total_score DESC, module ASC
-    LIMIT 25
-    """
     try:
-        res = await client.driver.execute_query(query, params={"file": file_path, "repo": repo})
-        return [r.data() for r in res.records]
+        calls = await _coupled_modules_for(client, _CALL_COUPLING_QUERY, file_path, repo)
+        imports = await _coupled_modules_for(client, _IMPORT_COUPLING_QUERY, file_path, repo)
+        decisions = await _coupled_modules_for(client, _DECISION_COUPLING_QUERY, file_path, repo)
     except Exception:
         logger.error("predict_impact graph query failed", exc_info=True)
         return []
+
+    rows: Dict[str, Dict[str, Any]] = {}
+
+    def _bump(modules: List[str], key: str) -> None:
+        for module in modules:
+            row = rows.setdefault(
+                module,
+                {"module": module, "call_count": 0, "import_count": 0, "decision_count": 0},
+            )
+            row[key] += 1  # DISTINCT per dimension → at most 1 (preserves prior scoring)
+
+    _bump(calls, "call_count")
+    _bump(imports, "import_count")
+    _bump(decisions, "decision_count")
+
+    for row in rows.values():
+        row["total_score"] = row["call_count"] + row["import_count"] + row["decision_count"]
+
+    ranked = sorted(rows.values(), key=lambda r: (-r["total_score"], r["module"]))
+    return ranked[:MAX_COUPLED_MODULES]
 
 
 def _format_impact_report(file_path: str, rows: List[Dict[str, Any]]) -> str:
@@ -153,6 +169,14 @@ async def predict_impact(file_path: str, repo: Optional[str] = None) -> str:
             repo = config.repo_root
         except Exception:
             repo = None
+    else:
+        # Canonicalize an agent-supplied repo so it matches the stored
+        # write-side join key regardless of spelling (B1).
+        try:
+            from memex.config import canonical_repo_path
+            repo = canonical_repo_path(repo)
+        except Exception:
+            pass
 
     try:
         rows = await _query_coupled_modules(file_path, repo=repo)

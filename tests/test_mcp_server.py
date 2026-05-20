@@ -1,7 +1,5 @@
 import pytest
-import asyncio
-import sys
-from unittest.mock import AsyncMock, patch, MagicMock
+from unittest.mock import AsyncMock, patch
 from memex.mcp_server import server
 from memex.mcp_server.server import create_server, ConfigError, MemexStartupError, handle_list_tools, handle_call_tool
 

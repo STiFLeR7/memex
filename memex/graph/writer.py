@@ -2,7 +2,7 @@ import logging
 from datetime import datetime, UTC
 from pydantic import ValidationError
 from memex.graph.client import get_graph_client
-from memex.graph.schema import SymbolNode, DecisionNode, ModuleNode, Dependency
+from memex.graph.schema import SymbolNode, DecisionNode, Dependency
 from memex.extractor.treesitter import SymbolDelta
 
 logger = logging.getLogger(__name__)
@@ -14,12 +14,80 @@ class MemexSchemaError(Exception):
         self.errors = errors
         super().__init__(f"Validation failed for {model_name}: {errors}")
 
-async def write_symbol_delta(delta: SymbolDelta, source_commit: str | None = None) -> None:
+#: Structured-symbol MERGE. Mirrors the post-hoc Cypher pattern already used
+#: by write_decision / write_lockfile_delta (ARCHITECTURE-v0.3.0 §4 Q1): the
+#: NL add_episode call gives Graphiti a search surface, but the *structured*
+#: fields predict_impact relies on (`file`, `kind`, `line`, `type='Symbol'`,
+#: `repo_path`) are never parsed out of NL prose, so we write them inline.
+#: Without this, `predict_impact`'s `MATCH (src:Entity) WHERE src.file=$file`
+#: matches nothing and the tool returns empty for every file (BUG_0.3.6.md).
+_SYMBOL_MERGE_QUERY = """
+MERGE (s:Entity {name: $name, file: $file, repo_path: $repo})
+  ON CREATE SET s.type = 'Symbol',
+                s.kind = $kind,
+                s.signature = $signature,
+                s.line = $line,
+                s.valid_from = $now,
+                s.valid_until = NULL,
+                s.source_commit = $source_commit,
+                s.write_policy = 'locked',
+                s.access_count = 0,
+                s.last_reinforced_at = $now
+  ON MATCH SET  s.type = 'Symbol',
+                s.kind = $kind,
+                s.signature = $signature,
+                s.line = $line,
+                s.valid_until = NULL,
+                s.source_commit = coalesce($source_commit, s.source_commit),
+                s.last_reinforced_at = $now
+"""
+
+
+async def _merge_structured_symbol(
+    client, sym, repo_root: str | None, now, source_commit: str | None
+) -> None:
+    """Materialize a queryable Symbol node alongside its NL episode."""
+    try:
+        await client.driver.execute_query(
+            _SYMBOL_MERGE_QUERY,
+            params={
+                "name": sym.name,
+                "file": sym.file,
+                "repo": repo_root,
+                "kind": sym.kind,
+                "signature": sym.signature,
+                "line": sym.line,
+                "now": now,
+                "source_commit": source_commit,
+            },
+        )
+    except Exception:
+        logger.warning(
+            "structured Symbol MERGE failed for %s in %s; predict_impact may "
+            "not see this symbol until the next index pass",
+            sym.name,
+            sym.file,
+            exc_info=True,
+        )
+
+
+async def write_symbol_delta(
+    delta: SymbolDelta,
+    source_commit: str | None = None,
+    repo_root: str | None = None,
+) -> None:
     """
     Writes a SymbolDelta to Graphiti.
+
+    Each added/modified symbol is written twice, by design:
+      1. ``add_episode`` — NL prose so Graphiti's search/embeddings see it.
+      2. a post-hoc structured MERGE (:Entity {type:'Symbol'}) carrying the
+         queryable ``file``/``kind``/``line``/``repo_path`` props that
+         ``predict_impact`` traverses. (v0.3.7 Layer 1)
     """
     client = await get_graph_client()
     now = datetime.now(UTC)
+    episodes_skipped = 0
 
     # 1. Added symbols
     for sym in delta.added:
@@ -37,12 +105,35 @@ async def write_symbol_delta(delta: SymbolDelta, source_commit: str | None = Non
         except ValidationError as e:
             raise MemexSchemaError("SymbolNode", e.errors())
 
-        await client.add_episode(
-            name=sym.name,
-            episode_body=f"Symbol {sym.name} ({sym.kind}) added to {sym.file}. Signature: {sym.signature}. Line: {sym.line}",
-            source_description=f"tree-sitter parse{' (commit ' + source_commit + ')' if source_commit else ''}",
-            reference_time=now
-        )
+        # Deterministic, LLM-free structured node FIRST — predict_impact depends
+        # on it and must not be blocked by Gemini quota / rate limits.
+        await _merge_structured_symbol(client, sym, repo_root, now, source_commit)
+
+        # NL episode is a best-effort search surface. If the LLM extraction
+        # fails (e.g. 429 spend cap) we log and move on — the structured node
+        # above is already persisted.
+        try:
+            await client.add_episode(
+                name=sym.name,
+                episode_body=f"Symbol {sym.name} ({sym.kind}) added to {sym.file}. Signature: {sym.signature}. Line: {sym.line}",
+                source_description=f"tree-sitter parse{' (commit ' + source_commit + ')' if source_commit else ''}",
+                reference_time=now
+            )
+        except Exception:
+            episodes_skipped += 1
+            logger.warning(
+                "add_episode failed for symbol %s (%s); structured node was "
+                "still written, NL search surface skipped",
+                sym.name,
+                sym.file,
+                exc_info=True,
+            )
+
+    # 1b. Modified symbols — refresh the structured node's signature/line so
+    # predict_impact sees current shape. No new episode (the symbol already
+    # has one); just keep the queryable node accurate.
+    for sym in delta.modified:
+        await _merge_structured_symbol(client, sym, repo_root, now, source_commit)
 
     # 2. Removed symbols
     for sym in delta.removed:
@@ -57,6 +148,82 @@ async def write_symbol_delta(delta: SymbolDelta, source_commit: str | None = Non
             "file": sym.file,
             "now": now
         })
+
+    return {
+        "symbols": len(delta.added) + len(delta.modified),
+        "episodes_skipped": episodes_skipped,
+    }
+
+#: CALLS-edge MERGE. Resolution is deliberately CONSERVATIVE: a call-site's
+#: callee name is linked only when it resolves to exactly ONE structured Symbol
+#: node in the repo (``size(cs)=1``). Ambiguous names (e.g. a `run` defined in
+#: five files) produce no edge in v1 rather than fan-out false coupling. Calls
+#: to stdlib/builtins (no Symbol node) naturally produce no edge. This is what
+#: predict_impact traverses, so precision beats recall here. (v0.3.7 Layer 2)
+_CALL_EDGE_QUERY = """
+MATCH (caller:Entity {name: $caller, file: $file, repo_path: $repo})
+WHERE caller.type = 'Symbol'
+MATCH (callee:Entity {name: $callee, repo_path: $repo})
+WHERE callee.type = 'Symbol'
+WITH caller, collect(DISTINCT callee) AS cs
+WHERE size(cs) = 1
+UNWIND cs AS callee
+MERGE (caller)-[r:CALLS]->(callee)
+  ON CREATE SET r.created_at = $now,
+                r.expired_at = NULL,
+                r.line = $line,
+                r.last_reinforced_at = $now
+  ON MATCH SET  r.expired_at = NULL,
+                r.line = $line,
+                r.last_reinforced_at = $now
+RETURN count(r) AS n
+"""
+
+
+async def write_call_edges(calls, repo_root: str | None = None) -> int:
+    """Persist CALLS edges for a file's resolved call-sites.
+
+    Expects :class:`memex.extractor.treesitter.CallEdge` items. Returns the
+    number of edges written/refreshed. Best-effort per edge — a failure on one
+    call-site is logged and does not abort the rest.
+    """
+    if not calls:
+        return 0
+
+    client = await get_graph_client()
+    now = datetime.now(UTC)
+    written = 0
+
+    for edge in calls:
+        # Skip self-recursion: a function calling itself isn't cross-symbol
+        # coupling and would just be noise.
+        if edge.caller == edge.callee:
+            continue
+        try:
+            res = await client.driver.execute_query(
+                _CALL_EDGE_QUERY,
+                params={
+                    "caller": edge.caller,
+                    "callee": edge.callee,
+                    "file": edge.file,
+                    "repo": repo_root,
+                    "now": now,
+                    "line": edge.line,
+                },
+            )
+            if res.records:
+                written += int(res.records[0].get("n") or 0)
+        except Exception:
+            logger.warning(
+                "CALLS edge write failed for %s -> %s in %s",
+                edge.caller,
+                edge.callee,
+                edge.file,
+                exc_info=True,
+            )
+
+    return written
+
 
 async def write_decision(decision, modules: list[str], commit_sha: str, confidence: float = 1.0, source: str = "watcher") -> None:
     """

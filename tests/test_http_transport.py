@@ -13,10 +13,22 @@ def client(mock_server):
     app = create_app(mock_server, "/fake/repo")
     return TestClient(app)
 
-def test_health_check(client):
+def test_health_check_does_not_leak_repo(client):
+    """Audit B5 — /health is unauthenticated; it must not echo the absolute
+    repo path."""
     response = client.get("/health")
     assert response.status_code == 200
-    assert response.json() == {"status": "ok", "repo": "/fake/repo"}
+    assert response.json() == {"status": "ok"}
+    assert "repo" not in response.json()
+
+
+@patch("memex.mcp_server.http.validate_key")
+def test_mcp_auth_strips_only_bearer_prefix(mock_validate, client):
+    """Audit B6 — only the leading 'Bearer ' scheme is stripped; a token that
+    contains the substring must survive intact (str.replace would corrupt it)."""
+    mock_validate.return_value = False
+    client.get("/mcp/sse", headers={"Authorization": "Bearer Bearer x"})
+    mock_validate.assert_called_once_with("Bearer x")
 
 @patch("memex.mcp_server.http.validate_key")
 def test_mcp_auth_missing(mock_validate, client):

@@ -7,7 +7,6 @@ from datetime import datetime, UTC
 from typing import Optional, Dict
 from memex.graph.client import get_graph_client
 from memex.graph.schema import (
-    WRITE_POLICIES,
     MemexWritePolicyError,
     check_write_policy as _schema_check_write_policy,
 )

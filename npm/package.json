@@ -1,6 +1,6 @@
 {
   "name": "stifler-memex-mcp",
-  "version": "0.3.6",
+  "version": "0.3.7",
   "description": "Developer context continuity system — temporal knowledge graph for AI coding agents via MCP. Inspired by Vannevar Bush's 1945 concept of a machine that remembers everything.",
   "bin": {
     "stifler-memex-mcp": "./bin/memex-mcp.js",

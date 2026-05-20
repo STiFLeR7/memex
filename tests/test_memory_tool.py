@@ -13,9 +13,7 @@ so we mirror them on purpose.
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
 from typing import Any, Optional
-from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -548,6 +546,24 @@ async def test_delete_protected_path_returns_error(tmp_path):
                 command="delete", path="/memories/repos/myrepo"
             )
         )
+
+
+async def test_delete_protected_path_trailing_slash_still_protected(tmp_path):
+    """Audit B4 — a trailing slash must not flip a protected root into a
+    deletable zone (e.g. `/memories/scratch/` previously routed to 'scratch')."""
+    tool = _make_tool(tmp_path)
+    for protected in [
+        "/memories/",
+        "/memories/repos/",
+        "/memories/scratch/",
+    ]:
+        with pytest.raises(ToolError) as exc:
+            await tool.delete(
+                BetaMemoryTool20250818DeleteCommand.model_construct(
+                    command="delete", path=protected
+                )
+            )
+        assert "Cannot delete the protected directory" in str(exc.value)
 
 
 async def test_rename_within_scratch_succeeds(tmp_path):

@@ -44,9 +44,7 @@ from memex.memory_tool.projection import GraphProjection
 from memex.memory_tool.safety import PathTraversalError, validate_memory_path
 from memex.memory_tool.scratch import (
     LINE_NUMBER_WIDTH,
-    MAX_FILE_BYTES,
     ScratchStore,
-    _format_file_size,
 )
 
 logger = logging.getLogger(__name__)
@@ -288,8 +286,9 @@ class MemexAsyncMemoryTool(BetaAsyncAbstractMemoryTool):
         self, command: BetaMemoryTool20250818DeleteCommand
     ) -> str:
         # First: the four hard-protected roots, regardless of zone.
+        # _route canonicalizes the path (incl. trailing-slash normalization,
+        # audit B4), so a trailing slash can't dodge the protected-root check.
         canonical = self._route(command.path)
-        path = command.path.rstrip("/") or command.path
 
         if canonical == "root":
             raise ToolError(

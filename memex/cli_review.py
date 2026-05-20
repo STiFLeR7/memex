@@ -21,7 +21,6 @@ import asyncio
 import logging
 import os
 import subprocess
-import sys
 import tempfile
 from datetime import datetime, timezone
 from typing import Any
@@ -175,7 +174,7 @@ def _render_panel(console: Console, idx: int, total: int, decision: dict[str, An
     corroborated = bool(decision.get("corroborated"))
 
     body_lines = [
-        f"[bold]Synthesised decision:[/bold]",
+        "[bold]Synthesised decision:[/bold]",
         f"  {text}",
         "",
         f"[dim]Module:[/dim]       {module_line}",

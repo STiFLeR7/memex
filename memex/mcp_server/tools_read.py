@@ -22,7 +22,6 @@ from memex.mcp_server.formatter import (
     format_symbol_context,
     format_decisions,
     format_problems,
-    format_search_results,
     format_search_results_with_breakdown,  # Phase 7
     format_stale_edges
 )

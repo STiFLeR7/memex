@@ -1,8 +1,6 @@
 import logging
-import secrets
-from typing import Optional, List, Dict
 
-from fastapi import FastAPI, Request, Depends, HTTPException, status
+from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from mcp.server import Server
 from mcp.server.sse import SseServerTransport
@@ -34,7 +32,8 @@ def create_app(server: Server, repo_root: str):
 
     @app.get("/health")
     async def health_check():
-        return {"status": "ok", "repo": repo_root}
+        # /health is unauthenticated — don't leak the absolute repo path (B5).
+        return {"status": "ok"}
 
     # Custom ASGI app for MCP to handle raw send/receive
     async def mcp_asgi_app(scope, receive, send):
@@ -46,7 +45,9 @@ def create_app(server: Server, repo_root: str):
         auth_header = request.headers.get("Authorization")
         token = None
         if auth_header and auth_header.startswith("Bearer "):
-            token = auth_header.replace("Bearer ", "")
+            # Strip only the leading scheme — a token containing 'Bearer '
+            # as a substring must survive intact (B6).
+            token = auth_header.removeprefix("Bearer ")
         
         if not await verify_auth_token(token):
             response = JSONResponse(
@@ -79,7 +80,7 @@ def create_app(server: Server, repo_root: str):
 
     return app
 
-async def run_http_server(server: Server, repo_root: str, host: str = "0.0.0.0", port: int = 8000):
+async def run_http_server(server: Server, repo_root: str, host: str = "127.0.0.1", port: int = 8000):
     """
     Runs the FastAPI app using uvicorn.
     """

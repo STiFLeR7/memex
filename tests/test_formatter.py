@@ -1,5 +1,3 @@
-import pytest
-from memex.mcp_server import formatter
 from memex.mcp_server.formatter import (
     format_project_context,
     format_symbol_context,
@@ -122,7 +120,7 @@ def test_format_search_results():
         MockResult("Decision", None, None, 1.0, False, 0.75)
     ]
     # For Decision, set 'fact' attribute as fallback for name
-    setattr(results[1], "fact", "Use OAuth")
+    results[1].fact = "Use OAuth"
     
     result = format_search_results("auth", results)
     assert "search results for: 'auth'" in result

@@ -13,7 +13,6 @@ from __future__ import annotations
 
 from typing import Any
 
-import pytest
 from fastapi.testclient import TestClient
 
 from memex.memory_tool.http import create_app
@@ -21,7 +20,6 @@ from memex.memory_tool.scratch import ScratchStore
 from memex.memory_tool.server import MemexAsyncMemoryTool
 from memex.memory_tool.projection import GraphProjection
 from anthropic.types.beta import (
-    BetaMemoryTool20250818CreateCommand,
     BetaMemoryTool20250818ViewCommand,
 )
 

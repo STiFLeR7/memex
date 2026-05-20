@@ -8,7 +8,9 @@ from memex.graph.client import get_graph_client
 from memex.watcher.fs_observer import FSObserver
 from memex.watcher.commit_poller import CommitPoller
 from memex.watcher.event_router import EventRouter
-from memex.watcher.handlers import handle_file_change, handle_commit, handle_lockfile_change
+from memex.watcher.handlers import (
+    handle_file_change, handle_commit, handle_lockfile_change, initial_lockfile_index,
+)
 from memex.graph.decay import DecayScheduler
 from memex.watcher.registry import get_active_repositories, DEFAULT_REGISTRY_DIR
 from memex.watcher.git_hook import install_hooks
@@ -131,6 +133,11 @@ async def run_daemon(repo_root: str | None = None) -> None:
         tasks.append(poller_task)
         observer.start()
         logger.info("memex watching %s", repo)
+
+        # B3: build IMPORTS/Dependency edges once at startup (background, so a
+        # slow scan doesn't delay the watch loop). Without this a quiescent
+        # repo never gets import edges and predict_impact's import dim is 0.
+        tasks.append(asyncio.create_task(initial_lockfile_index(str(repo))))
 
     try:
         # Start shared router

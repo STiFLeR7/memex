@@ -22,9 +22,7 @@ model sees the same conformance signal regardless of backend.
 from __future__ import annotations
 
 import logging
-import os
 import sqlite3
-import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional

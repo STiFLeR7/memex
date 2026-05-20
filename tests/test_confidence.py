@@ -7,13 +7,11 @@ legacy nodes, and the ``is_cold`` archival eligibility rule.
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
-from math import exp, log
+from math import log
 
 import pytest
 
-from memex.graph import confidence as conf_mod
 from memex.graph.confidence import (
-    COLD_THRESHOLD,
     LAMBDA_UNVALIDATED,
     LAMBDA_VALIDATED,
     STALENESS_THRESHOLD,

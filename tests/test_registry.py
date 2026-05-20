@@ -11,6 +11,16 @@ def temp_registry(tmp_path):
     yield reg_path
     registry.REGISTRY_PATH = old_path
 
+def test_validate_key_accepts_real_rejects_bogus(temp_registry):
+    """Audit B6 — validate_key authorizes the HTTP transport. Must accept a
+    real key and reject empty/wrong ones (now via constant-time compare)."""
+    real = registry.add_key("ci")
+    assert registry.validate_key(real) is True
+    assert registry.validate_key("mx_deadbeef") is False
+    assert registry.validate_key("") is False
+    assert registry.validate_key(None) is False
+
+
 def test_add_repository(temp_registry):
     repo_path = Path("/tmp/fake-repo").absolute()
     # On Windows absolute path starts with drive letter

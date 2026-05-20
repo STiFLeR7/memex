@@ -1,6 +1,5 @@
 import os
 import pytest
-import asyncio
 from memex.graph.client import get_graph_client
 
 @pytest.mark.asyncio

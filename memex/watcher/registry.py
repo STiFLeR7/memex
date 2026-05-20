@@ -129,8 +129,18 @@ def revoke_key(name: str) -> bool:
 
 def validate_key(key: str) -> bool:
     """Checks if a key exists in the registry."""
+    if not key:
+        return False
+    import secrets
     keys = _load_registry().keys
-    return any(k.get("key") == key for k in keys)
+    # Constant-time compare against every stored key without short-circuiting,
+    # so validation time doesn't leak which (or how many) prefixes matched (B6).
+    found = False
+    for k in keys:
+        stored = k.get("key") or ""
+        if secrets.compare_digest(str(stored), str(key)):
+            found = True
+    return found
 
 def get_keys() -> List[dict]:
     """Returns all keys from the registry (full keys)."""

@@ -417,8 +417,6 @@ async def restore_archived_node(node_id: str, repo_root: str | Path) -> bool:
     just remove the label. Slow path: re-insert from ``archive.db`` with the
     original properties. Returns ``True`` on success.
     """
-    db_path = _archive_db_path(repo_root)
-
     def _read() -> dict[str, Any] | None:
         with _connect(repo_root) as conn:
             row = conn.execute(

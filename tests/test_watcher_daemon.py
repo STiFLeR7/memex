@@ -1,8 +1,6 @@
 import pytest
 import asyncio
 import os
-import psutil
-from pathlib import Path
 from unittest.mock import AsyncMock, patch, MagicMock
 from memex.watcher import daemon
 

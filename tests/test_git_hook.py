@@ -1,9 +1,7 @@
 import pytest
-import os
 import json
 import subprocess
-from pathlib import Path
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 from memex.watcher import git_hook
 
 def test_install_hooks_writes_post_commit_script(tmp_path):

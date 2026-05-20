@@ -1,11 +1,33 @@
 import os
 import yaml
+from pathlib import Path
 from pydantic import BaseModel, Field
 from typing import Optional, List, Dict
 from dotenv import load_dotenv
 
 # Load .env file if it exists
 load_dotenv()
+
+
+def canonical_repo_path(p: Optional[str]) -> Optional[str]:
+    """Canonicalize a repo path so the watcher (write) and MCP server (read)
+    always produce the byte-identical `repo_path` join key (audit B1).
+
+    Collapses `.`/`..`/trailing separators and symlinks via ``resolve()``,
+    emits POSIX separators, and case-folds on Windows (case-insensitive FS).
+    Idempotent. Passes through ``None``/empty unchanged so callers don't have
+    to special-case them.
+    """
+    if not p:
+        return p
+    try:
+        resolved = Path(p).resolve()
+    except Exception:
+        resolved = Path(p)
+    s = resolved.as_posix()
+    if os.name == "nt":
+        s = s.lower()
+    return s
 
 class HarnessConfig(BaseModel):
     initial_decision_confidence: float = 0.6
@@ -62,9 +84,15 @@ class Config(BaseModel):
     # Phase 7 — composite-reranker / RRF / conflict-detection knobs.
     retrieval: RetrievalConfig = Field(default_factory=RetrievalConfig)
 
-def load_config() -> Config:
+def load_config(repo_root: Optional[str] = None) -> Config:
     """
     Loads configuration from environment variables and optionally config.yaml.
+
+    ``config.yaml`` is resolved relative to ``repo_root`` when provided (audit
+    B2) — the MCP server is spawned from the *client's* CWD, not the project
+    root, so a CWD-relative lookup would silently miss ``<repo>/config.yaml``
+    (or load a stray one). Falls back to CWD for backwards compatibility when
+    no repo is given.
     """
     # Base configuration from environment variables
     env_config = {
@@ -97,8 +125,9 @@ def load_config() -> Config:
     if "decay_minute" in config_dict: config_dict["decay_minute"] = int(config_dict["decay_minute"])
     if "decay_hours_threshold" in config_dict: config_dict["decay_hours_threshold"] = int(config_dict["decay_hours_threshold"])
 
-    # Load from config.yaml if it exists
-    config_yaml_path = os.path.join(os.getcwd(), "config.yaml")
+    # Load from config.yaml if it exists (relative to repo_root when known).
+    config_base = repo_root if repo_root else os.getcwd()
+    config_yaml_path = os.path.join(config_base, "config.yaml")
     if os.path.exists(config_yaml_path):
         with open(config_yaml_path, "r") as f:
             yaml_data = yaml.safe_load(f)

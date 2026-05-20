@@ -1,5 +1,4 @@
 import pytest
-import os
 from memex.extractor.treesitter import extract_symbol_delta
 from memex.synthesizer.commit import extract_decisions
 from memex.graph.writer import write_symbol_delta, write_decision

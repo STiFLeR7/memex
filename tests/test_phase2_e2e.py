@@ -1,5 +1,4 @@
 import asyncio
-import os
 import pytest
 import shutil
 import tempfile
@@ -14,7 +13,6 @@ load_dotenv(dotenv_path=project_root / ".env")
 
 from memex.watcher.daemon import run_daemon
 from memex.graph.client import get_graph_client, reset_graph_client
-from memex.config import get_config
 
 logger = logging.getLogger(__name__)
 

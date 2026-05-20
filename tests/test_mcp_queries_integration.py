@@ -1,5 +1,4 @@
 import pytest
-import os
 import asyncio
 from datetime import datetime, UTC
 from memex.mcp_server.queries import (

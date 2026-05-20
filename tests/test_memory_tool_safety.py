@@ -13,7 +13,6 @@ from __future__ import annotations
 
 import os
 import platform
-from pathlib import Path
 
 import pytest
 
@@ -27,6 +26,20 @@ from memex.memory_tool.safety import (
 # ---------------------------------------------------------------------------
 # validate_memory_path
 # ---------------------------------------------------------------------------
+
+
+def test_validate_memory_path_strips_trailing_slash():
+    """Audit B4 — the docstring promises 'no trailing slash unless root', and
+    `_route` depends on it: `/memories/scratch` is a protected root, but
+    `/memories/scratch/` (trailing slash) must NOT slip past as a deletable
+    `scratch` zone. Canonicalize at the source."""
+    assert validate_memory_path("/memories/scratch/") == "/memories/scratch"
+    assert validate_memory_path("/memories/repos/") == "/memories/repos"
+    assert validate_memory_path("/memories/") == "/memories"
+    # No-trailing-slash inputs are unchanged.
+    assert validate_memory_path("/memories/scratch") == "/memories/scratch"
+    # Interior content is preserved.
+    assert validate_memory_path("/memories/scratch/sess/f.txt") == "/memories/scratch/sess/f.txt"
 
 
 def test_path_traversal_dotdot_is_rejected():

@@ -5,16 +5,19 @@ import subprocess
 from pathlib import Path
 from datetime import datetime, UTC
 from memex.watcher.events import FileChangeEvent, CommitEvent
-from memex.extractor.treesitter import extract_symbol_delta
+from memex.extractor.treesitter import extract_symbol_delta, extract_calls
 from memex.extractor.lockfile import (
     extract_dependencies,
     extract_module_imports,
     is_lockfile_path,
 )
-from memex.graph.writer import write_symbol_delta, write_decision, write_lockfile_delta
+from memex.graph.writer import (
+    write_symbol_delta, write_decision, write_lockfile_delta, write_call_edges,
+)
 from memex.synthesizer.commit import extract_decisions
 from memex.graph.client import get_graph_client
-from memex.config import get_config
+from memex.config import canonical_repo_path
+from memex.watcher import health
 
 logger = logging.getLogger(__name__)
 
@@ -139,6 +142,9 @@ async def handle_file_change(event: FileChangeEvent) -> None:
     try:
         path = Path(event.path)
         repo_root = Path(event.repo_root)
+        # Canonical join key — must match the MCP server's read-side
+        # config.repo_root so predict_impact can find these nodes (B1).
+        repo_canon = canonical_repo_path(str(repo_root))
 
         rel_path = os.path.relpath(event.path, repo_root)
         # Git requires forward slashes for paths regardless of OS
@@ -175,16 +181,41 @@ async def handle_file_change(event: FileChangeEvent) -> None:
             return
 
         # 4. Call write_symbol_delta
-        await write_symbol_delta(delta, source_commit=None)
+        summary = await write_symbol_delta(delta, source_commit=None, repo_root=repo_canon)
         logger.info(
-            "symbols updated for %s: +%d -%d ~%d", 
+            "symbols updated for %s: +%d -%d ~%d",
             rel_path, len(delta.added), len(delta.removed), len(delta.modified)
         )
+        # Health: record a successful index pass + any NL episodes skipped
+        # (e.g. Gemini quota) so `memex status`/`doctor` can surface it (Q1/B7).
+        skipped = (summary or {}).get("episodes_skipped", 0)
+        health.record(repo_canon, indexed_ok=True, episodes_skipped=skipped)
+
+        # 5. Build CALLS edges from the current file content (v0.3.7 Layer 2).
+        # Deterministic / LLM-free. Runs after the symbol MERGE so caller nodes
+        # exist; callees resolve against whatever is already indexed.
+        if event.kind != "deleted":
+            ext = rel_path.rsplit(".", 1)[-1].lower()
+            lang_map = {"py": "python"}
+            language = lang_map.get(ext)
+            if language:
+                try:
+                    calls = extract_calls(rel_path, new_content, language=language)
+                    if calls:
+                        written = await write_call_edges(calls, repo_root=repo_canon)
+                        logger.info(
+                            "call edges for %s: %d sites, %d edges written",
+                            rel_path, len(calls), written,
+                        )
+                except Exception:
+                    logger.error("call-edge extraction failed for %s", rel_path, exc_info=True)
     except Exception:
         logger.error(
             "unhandled error in handle_file_change — skipping event",
             exc_info=True
         )
+        health.record(canonical_repo_path(event.repo_root),
+                      handler="handle_file_change", errors=1)
 
 async def handle_commit(event: CommitEvent) -> None:
     """
@@ -225,6 +256,45 @@ async def handle_commit(event: CommitEvent) -> None:
             "unhandled error in handle_commit — skipping event",
             exc_info=True
         )
+        health.record(canonical_repo_path(event.repo_root),
+                      handler="handle_commit", errors=1)
+
+
+async def initial_lockfile_index(repo_root: str) -> dict:
+    """One-shot dependency + IMPORTS-edge scan, run at watcher startup.
+
+    Audit B3: `handle_lockfile_change` only fires on a lockfile *change* event,
+    so a freshly cloned repo whose lockfile never changes during a session
+    never gets `IMPORTS` edges — `predict_impact`'s import dimension stays 0.
+    This builds them once up front. Idempotent (the writer MERGEs), so re-runs
+    on each daemon start are safe. repo_path is canonicalized to match the
+    read-side join key (B1).
+    """
+    repo_canon = canonical_repo_path(repo_root)
+    try:
+        deps = await extract_dependencies(repo_canon)
+    except Exception:
+        logger.error("initial index: dependency extraction failed", exc_info=True)
+        deps = []
+    try:
+        edges = await extract_module_imports(repo_canon)
+    except Exception:
+        logger.error("initial index: module-import extraction failed", exc_info=True)
+        edges = []
+
+    if not deps and not edges:
+        return {"deps_written": 0, "edges_written": 0}
+
+    try:
+        summary = await write_lockfile_delta(repo_canon, deps, edges)
+        logger.info(
+            "initial lockfile index for %s: %d deps, %d import edges written",
+            repo_canon, summary["deps_written"], summary["edges_written"],
+        )
+        return summary
+    except Exception:
+        logger.error("initial index: write_lockfile_delta failed", exc_info=True)
+        return {"deps_written": 0, "edges_written": 0}
 
 
 async def handle_lockfile_change(event: FileChangeEvent) -> None:
@@ -239,7 +309,9 @@ async def handle_lockfile_change(event: FileChangeEvent) -> None:
         if not is_lockfile_path(event.path):
             return
 
-        repo_root = event.repo_root
+        # Canonical join key so IMPORTS/Dependency repo_path matches the
+        # read-side (B1).
+        repo_root = canonical_repo_path(event.repo_root)
         try:
             deps = await extract_dependencies(repo_root)
         except Exception:
@@ -279,3 +351,5 @@ async def handle_lockfile_change(event: FileChangeEvent) -> None:
             "unhandled error in handle_lockfile_change — skipping event",
             exc_info=True,
         )
+        health.record(canonical_repo_path(event.repo_root),
+                      handler="handle_lockfile_change", errors=1)

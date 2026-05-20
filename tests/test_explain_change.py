@@ -134,7 +134,7 @@ async def test_explain_change_rejects_argument_injection_via_commit_sha():
 async def test_explain_change_accepts_valid_short_and_long_sha():
     """Counterpart to the rejection test: real SHAs (short + full) pass
     the regex and proceed to graph lookup."""
-    from unittest.mock import patch, AsyncMock, MagicMock
+    from unittest.mock import patch, AsyncMock
     from memex.mcp_server.tools_explain import explain_change
 
     # Mock both git and the graph/LLM path so we only verify the gate.

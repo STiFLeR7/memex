@@ -130,3 +130,133 @@ def test_format_impact_report_truncates_at_budget():
     huge_rows = [_row(f"module_{i}.py", call=i) for i in range(500)]
     out = _format_impact_report("source.py", huge_rows)
     assert len(out) <= 2000 * 4  # CHAR_BUDGET
+
+
+# ---------------------------------------------------------------------------
+# Integration — exercises the REAL cypher (audit T1).
+#
+# Every unit test above mocks `_query_coupled_modules`, so the cypher — the
+# component that returned empty for every file in the v0.3.6 dead-tool bug —
+# had ZERO execution coverage. These tests write structured Symbol + CALLS
+# nodes (LLM-free) under an isolated repo_path, run the real predict_impact,
+# and clean up. Requires a live Neo4j (`-m integration`).
+# ---------------------------------------------------------------------------
+
+_TEST_REPO = "__memex_predict_impact_it__"
+
+
+@pytest.fixture
+async def fresh_client():
+    """A graph client reset around each integration test. Without this the
+    cached Neo4j driver is reused across tests on a stale event loop and the
+    bolt write-future goes None ('NoneType has no attribute send'). Mirrors the
+    autouse cleanup in test_corroboration.py / test_mcp_queries_integration.py."""
+    from memex.graph.client import get_graph_client, reset_graph_client
+    await reset_graph_client()
+    client = await get_graph_client()
+    yield client
+    await reset_graph_client()
+
+
+async def _seed_two_files_with_call(client, repo):
+    """foo() in a.py calls bar() in b.py — one cross-file CALLS edge."""
+    from datetime import datetime, UTC
+    from memex.graph.schema import Symbol
+    from memex.extractor.treesitter import CallEdge
+    from memex.graph.writer import _merge_structured_symbol, write_call_edges
+
+    now = datetime.now(UTC)
+    foo = Symbol(name="foo", kind="fn", signature="def foo()", file="a.py", line=1)
+    bar = Symbol(name="bar", kind="fn", signature="def bar()", file="b.py", line=1)
+    await _merge_structured_symbol(client, foo, repo, now, None)
+    await _merge_structured_symbol(client, bar, repo, now, None)
+    return await write_call_edges(
+        [CallEdge(caller="foo", callee="bar", file="a.py", line=2)],
+        repo_root=repo,
+    )
+
+
+async def _purge(client, repo):
+    await client.driver.execute_query(
+        "MATCH (n:Entity {repo_path: $r}) DETACH DELETE n", params={"r": repo}
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.integration
+async def test_predict_impact_real_cypher_returns_coupling(fresh_client):
+    """Real cypher returns coupling AND the repo_path join survives a
+    write/read spelling mismatch (audit T1 + B1): we seed under the canonical
+    repo_path but query with the raw spelling, which predict_impact
+    canonicalizes — they must still match."""
+    from memex.config import canonical_repo_path
+
+    repo_canon = canonical_repo_path(_TEST_REPO)
+    client = fresh_client
+    await _purge(client, repo_canon)
+    try:
+        written = await _seed_two_files_with_call(client, repo_canon)
+        assert written == 1, "expected one resolved CALLS edge"
+
+        # Query with the RAW spelling — predict_impact must canonicalize it.
+        out = await predict_impact("a.py", repo=_TEST_REPO)
+
+        assert "b.py" in out, f"predict_impact should surface b.py, got:\n{out}"
+        assert "no historically-coupled" not in out.lower()
+        assert "1 calls" in out  # the basis explanation
+    finally:
+        await _purge(client, repo_canon)
+
+
+@pytest.mark.asyncio
+@pytest.mark.integration
+async def test_predict_impact_import_dimension(fresh_client):
+    """Audit Q3 — pin the IMPORTS coupling dimension. `__mxit_a.py` IMPORTS
+    `__mxit_b.py`, so predict_impact('__mxit_a.py') must surface b via imports."""
+    from memex.config import canonical_repo_path
+
+    repo_canon = canonical_repo_path(_TEST_REPO)
+    client = fresh_client
+    await _purge(client, repo_canon)
+    try:
+        await client.driver.execute_query(
+            """
+            CREATE (a:Entity {name:'__mxit_a.py', type:'Module', repo_path:$r})
+            CREATE (b:Entity {name:'__mxit_b.py', type:'Module', repo_path:$r})
+            CREATE (a)-[:IMPORTS]->(b)
+            """,
+            params={"r": repo_canon},
+        )
+        out = await predict_impact("__mxit_a.py", repo=_TEST_REPO)
+        assert "__mxit_b.py" in out, out
+        assert "imports" in out
+    finally:
+        await _purge(client, repo_canon)
+
+
+@pytest.mark.asyncio
+@pytest.mark.integration
+async def test_predict_impact_decision_dimension(fresh_client):
+    """Audit Q3 — pin the decision-linkage dimension. A symbol in `__mxit_d.py`
+    is MENTIONED by a Decision that also MENTIONS module `__mxit_e.py`."""
+    from memex.config import canonical_repo_path
+
+    repo_canon = canonical_repo_path(_TEST_REPO)
+    client = fresh_client
+    await _purge(client, repo_canon)
+    try:
+        await client.driver.execute_query(
+            """
+            CREATE (s:Entity {name:'fn', type:'Symbol', file:'__mxit_d.py', repo_path:$r})
+            CREATE (dec:Entity {name:'Decision X', type:'Decision', repo_path:$r})
+            CREATE (mod:Entity {name:'__mxit_e.py', type:'Module', repo_path:$r})
+            CREATE (s)-[:MENTIONS]->(dec)
+            CREATE (dec)-[:MENTIONS]->(mod)
+            """,
+            params={"r": repo_canon},
+        )
+        out = await predict_impact("__mxit_d.py", repo=_TEST_REPO)
+        assert "__mxit_e.py" in out, out
+        assert "decision links" in out
+    finally:
+        await _purge(client, repo_canon)

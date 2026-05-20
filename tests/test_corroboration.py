@@ -1,8 +1,7 @@
 import pytest
-import asyncio
 from datetime import datetime, UTC
-from unittest.mock import patch, MagicMock
-from memex.watcher.handlers import handle_commit, corroborate_decisions
+from unittest.mock import patch
+from memex.watcher.handlers import handle_commit
 from memex.watcher.events import CommitEvent
 from memex.graph.client import get_graph_client, reset_graph_client
 
@@ -48,9 +47,7 @@ async def test_decision_corroboration_by_message():
     
     # 4. Call handle_commit (mocking extraction to avoid Gemini calls)
     with patch("memex.watcher.handlers.extract_decisions", return_value=[]):
-        with patch("memex.watcher.handlers.get_config") as mock_config:
-            mock_config.return_value.repo_root = "."
-            await handle_commit(event)
+        await handle_commit(event)
     
     # 5. Verify in Neo4j
     # v0.3.0: corroboration is evidence, not validation. It lifts
@@ -112,9 +109,7 @@ async def test_decision_corroboration_by_file():
 
     # 4. Call handle_commit
     with patch("memex.watcher.handlers.extract_decisions", return_value=[]):
-        with patch("memex.watcher.handlers.get_config") as mock_config:
-            mock_config.return_value.repo_root = "."
-            await handle_commit(event)
+        await handle_commit(event)
 
     # 5. Verify — v0.3.0: confidence is no longer mutated by corroboration.
     res = await client.driver.execute_query(
@@ -155,9 +150,7 @@ async def test_decision_no_corroboration_no_match():
         timestamp=datetime.now(UTC)
     )    
     with patch("memex.watcher.handlers.extract_decisions", return_value=[]):
-        with patch("memex.watcher.handlers.get_config") as mock_config:
-            mock_config.return_value.repo_root = "."
-            await handle_commit(event)
+        await handle_commit(event)
             
     res = await client.driver.execute_query(
         "MATCH (d:Entity {uuid: 'test-uuid-no-match'}) RETURN d.corroborated as corroborated"

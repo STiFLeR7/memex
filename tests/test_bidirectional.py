@@ -1,8 +1,7 @@
 import pytest
 import re
-import asyncio
 from datetime import datetime, UTC
-from memex.mcp_server.tools_write import record_decision, record_problem, resolve_problem
+from memex.mcp_server.tools_write import record_decision, resolve_problem
 from memex.mcp_server.tools_read import get_open_problems, get_recent_decisions
 from memex.graph.client import get_graph_client, reset_graph_client
 

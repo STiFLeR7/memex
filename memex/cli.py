@@ -15,8 +15,6 @@ from memex.watcher.registry import (
     add_repository,
     remove_repository,
     get_repositories,
-    get_active_repositories,
-    toggle_repository_active,
     add_key,
     list_keys,
     revoke_key,
@@ -54,6 +52,22 @@ async def print_status(repo_root: str | None):
                   f"{counts.get('decisions', 0)} decisions, {counts.get('problems', 0)} open problems")
         else:
             print("Graph: Could not connect to Neo4j to retrieve node counts.")
+
+        # 3. Watcher health — surface swallowed indexing errors / skipped NL
+        # episodes so degradation isn't invisible (audit Q1/B7).
+        from memex.watcher.health import read_health
+        h = read_health(str(repo_path))
+        if h:
+            errs = h.get("handler_errors", 0)
+            skips = h.get("episodes_skipped", 0)
+            if errs:
+                print(f"Health: {errs} indexing error(s) — last at {h.get('last_error_at', '?')} "
+                      f"({h.get('handler_errors_by', {})})")
+            if skips:
+                print(f"Health: {skips} NL episode(s) skipped (structured graph still written; "
+                      "likely Gemini quota — check https://ai.studio/spend)")
+            if not errs and not skips:
+                print(f"Health: OK — last indexed {h.get('last_indexed_at', 'n/a')}")
     else:
         print("\nmemex status summary (Global)")
         repos = get_repositories()
@@ -118,15 +132,16 @@ async def run_doctor(repo_root: str):
         elapsed = int((time.time() - start_time) * 1000)
         print(f"[PASS] Neo4j reachable         bolt://localhost:7687 responded in {elapsed}ms")
     except Exception:
-        print(f"[FAIL] Neo4j reachable         Could not connect. Ensure 'docker-compose up -d' is running.")
+        print("[FAIL] Neo4j reachable         Could not connect. Ensure 'docker-compose up -d' is running.")
         all_pass = False
 
     # 5. Gemini API key
     gemini_key = os.getenv("GEMINI_API_KEY")
     if gemini_key:
         try:
-            from google import genai
-            print(f"[PASS] Gemini API key          GEMINI_API_KEY set")
+            # The import IS the check — fails if the SDK isn't installed.
+            from google import genai  # noqa: F401
+            print("[PASS] Gemini API key          GEMINI_API_KEY set")
         except Exception:
             print("[FAIL] Gemini API key          GEMINI_API_KEY set but SDK missing")
             all_pass = False
@@ -137,26 +152,41 @@ async def run_doctor(repo_root: str):
     # 6. Git hooks
     hook_path = repo_path / ".git" / "hooks" / "post-commit"
     if hook_path.exists() and "memex" in hook_path.read_text():
-        print(f"[PASS] git hooks installed     post-commit hook found in .git/hooks/")
+        print("[PASS] git hooks installed     post-commit hook found in .git/hooks/")
     else:
-        print(f"[FAIL] git hooks installed     not found. Run 'memex init' to install.")
+        print("[FAIL] git hooks installed     not found. Run 'memex init' to install.")
         all_pass = False
 
     # 7. Watchdog running (daemon pid)
     pid_file = repo_path / ".memex" / "daemon.pid"
     if pid_file.exists():
-        print(f"[PASS] watchdog running        .memex/daemon.pid exists")
+        print("[PASS] watchdog running        .memex/daemon.pid exists")
     else:
-        print(f"[FAIL] watchdog running        no pid file. Run 'memex watch' to start.")
+        print("[FAIL] watchdog running        no pid file. Run 'memex watch' to start.")
         all_pass = False
 
     # 8. Stale edges check
     try:
         stale = await get_stale_edges(threshold=0.5, limit=1)
         if stale:
-            print(f"[WARN] Stale edges found       run `get_stale_context()` in your agent for details")
+            print("[WARN] Stale edges found       run `get_stale_context()` in your agent for details")
     except Exception:
         pass
+
+    # 8b. Watcher health — swallowed indexing errors / skipped NL episodes (Q1/B7)
+    try:
+        from memex.watcher.health import read_health
+        h = read_health(str(repo_path))
+        errs = h.get("handler_errors", 0)
+        skips = h.get("episodes_skipped", 0)
+        if errs:
+            print(f"[WARN] watcher health          {errs} indexing error(s); last {h.get('last_error_at', '?')}")
+        elif skips:
+            print(f"[WARN] watcher health          {skips} NL episode(s) skipped (Gemini quota?); structured graph intact")
+        else:
+            print("[PASS] watcher health          no swallowed indexing errors recorded")
+    except Exception:
+        logger.debug("doctor: health summary failed", exc_info=True)
 
     # 9. Retrieval tracing weekly summary (Phase 10)
     try:
@@ -206,7 +236,7 @@ def main(args=None):
     # serve
     serve_parser = subparsers.add_parser("serve", help="Start MCP server", parents=[parent_parser])
     serve_parser.add_argument("--transport", choices=["stdio", "http", "both"], default="stdio", help="Transport to use")
-    serve_parser.add_argument("--host", default="0.0.0.0", help="HTTP host")
+    serve_parser.add_argument("--host", default="127.0.0.1", help="HTTP host (use 0.0.0.0 to expose on all interfaces)")
     serve_parser.add_argument("--port", type=int, default=8000, help="HTTP port")
     serve_parser.add_argument("--env-file", dest="env_file", help="Path to an .env file to load before startup (in addition to <repo>/.env)")
 
@@ -343,9 +373,15 @@ def main(args=None):
             _load_dotenv(repo_env, override=True)
         if parsed_args.env_file:
             _load_dotenv(parsed_args.env_file, override=True)
-        # Reset cached config so values loaded above are picked up.
+        # Re-init cached config so values loaded above are picked up, and so
+        # config.yaml resolves against the repo (not the client's CWD). B2.
         from memex import config as _config_mod
-        _config_mod._config = None
+        try:
+            _config_mod._config = _config_mod.load_config(path)
+        except Exception:
+            # Defer surfacing the error to run_server/create_server, which
+            # already raises a clear ConfigError. Keep prior reset behaviour.
+            _config_mod._config = None
         asyncio.run(run_server(path, parsed_args.transport, parsed_args.host, parsed_args.port))
 
     elif parsed_args.command == "doctor":

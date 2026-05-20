@@ -1,6 +1,6 @@
 [project]
 name = "memex-mcp"
-version = "0.3.6"
+version = "0.3.7"
 description = "Developer context continuity system — builds and maintains a temporal knowledge graph of your codebase, served to AI coding agents via MCP. Inspired by Vannevar Bush's 1945 concept of a machine that remembers everything."
 readme = "README.md"
 license = { text = "MIT" }
@@ -93,6 +93,27 @@ markers = [
 
 [project.scripts]
 memex = "memex.cli:main"
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+# Correctness (pyflakes) + bugbear. Style rules (E/W) are intentionally NOT
+# selected yet — there is a large existing E501 backlog (audit Q3/style); enable
+# them in a dedicated formatting pass. These keep NEW correctness regressions out.
+select = ["F", "B"]
+ignore = [
+    "B904",  # raise ... from: 15 pre-existing sites (audit Q1) — track separately
+    "B007",  # unused loop control var: 1 pre-existing
+    "B905",  # zip() without strict=: 1 pre-existing
+    "B008",  # function call in arg default — idiomatic for FastAPI Depends()
+]
+
+[tool.ruff.lint.per-file-ignores]
+# Tests legitimately redefine fixtures, import-for-side-effect, and bind
+# context-manager mocks they don't directly assert on.
+"tests/**" = ["F811", "F841"]
 
 [build-system]
 requires = ["hatchling"]

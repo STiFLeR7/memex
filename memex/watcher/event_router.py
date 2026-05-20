@@ -1,6 +1,6 @@
 import asyncio
 import logging
-from typing import Callable, Awaitable, Dict, Optional
+from typing import Callable, Awaitable, Dict
 from memex.watcher.events import FileChangeEvent, CommitEvent
 from memex.config import get_config
 

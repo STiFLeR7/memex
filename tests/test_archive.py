@@ -10,7 +10,6 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from memex.graph import archive as archive_mod
 from memex.graph.archive import (
     ARCHIVE_DB_PATH,
     archive_cold_nodes,

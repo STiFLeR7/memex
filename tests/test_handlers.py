@@ -1,8 +1,25 @@
 import pytest
 from unittest.mock import AsyncMock, patch, MagicMock
 from datetime import datetime, UTC
-from memex.watcher.handlers import handle_file_change, corroborate_decisions
+from memex.watcher.handlers import (
+    handle_file_change, corroborate_decisions, initial_lockfile_index,
+)
 from memex.watcher.events import FileChangeEvent
+
+
+@pytest.mark.asyncio
+async def test_initial_lockfile_index_scans_once_with_canonical_repo():
+    """Audit B3 — IMPORTS/Dependency edges must be built at startup, not only
+    on a lockfile *change* event. And the stored repo_path must be canonical
+    so predict_impact's import dimension can find them (B1)."""
+    with patch("memex.watcher.handlers.extract_dependencies", new=AsyncMock(return_value=["dep"])), \
+         patch("memex.watcher.handlers.extract_module_imports", new=AsyncMock(return_value=[("a", "b", {})])), \
+         patch("memex.watcher.handlers.write_lockfile_delta", new=AsyncMock(return_value={"deps_written": 1, "edges_written": 1})) as mock_write, \
+         patch("memex.watcher.handlers.canonical_repo_path", return_value="/canon/repo"):
+        await initial_lockfile_index("D:/Canon/Repo")
+
+    mock_write.assert_awaited_once()
+    assert mock_write.call_args.args[0] == "/canon/repo"
 
 @pytest.mark.asyncio
 async def test_handler_error_logs_traceback_not_crashes():
@@ -29,15 +46,19 @@ async def test_handler_error_logs_traceback_not_crashes():
             # Mock extract_symbol_delta to raise
             with patch("memex.watcher.handlers.extract_symbol_delta", side_effect=Exception("Simulated error")):
                 # Patch the logger in the handler module
-                with patch("memex.watcher.handlers.logger") as mock_logger:
+                with patch("memex.watcher.handlers.logger") as mock_logger, \
+                     patch("memex.watcher.handlers.health") as mock_health:
                     # This should not raise
                     await handle_file_change(event)
-                    
+
                     # Verify error was logged
                     assert mock_logger.error.called
                     args, kwargs = mock_logger.error.call_args
                     assert "unhandled error in handle_file_change" in args[0]
                     assert kwargs.get("exc_info") is True
+                    # And the error was recorded to watcher health (Q1).
+                    mock_health.record.assert_called_once()
+                    assert mock_health.record.call_args.kwargs.get("errors") == 1
 
 
 # ---------------------------------------------------------------------------
