@@ -13,12 +13,25 @@ maintainers = [
 ]
 keywords = [
   "mcp",
+  "mcp-server",
+  "model-context-protocol",
   "ai-agents",
+  "ai-coding-assistant",
   "knowledge-graph",
   "developer-tools",
+  "code-intelligence",
   "context",
+  "context-engineering",
+  "agent-memory",
+  "persistent-memory",
+  "rag",
   "gemini",
+  "gemini-cli",
   "claude-code",
+  "codex",
+  "cursor",
+  "anthropic",
+  "tree-sitter",
   "temporal-graph",
   "neo4j",
   "graphiti"
@@ -73,9 +86,11 @@ cluster = [
 [project.urls]
 Homepage = "https://github.com/STiFLeR7/memex"
 Repository = "https://github.com/STiFLeR7/memex"
-Documentation = "https://github.com/STiFLeR7/memex/blob/main/README.md"
+Documentation = "https://github.com/STiFLeR7/memex/blob/master/README.md"
 "Bug Tracker" = "https://github.com/STiFLeR7/memex/issues"
 Changelog = "https://github.com/STiFLeR7/memex/releases"
+"PyPI" = "https://pypi.org/project/memex-mcp/"
+"npm" = "https://www.npmjs.com/package/stifler-memex-mcp"
 
 [tool.uv]
 managed = true
