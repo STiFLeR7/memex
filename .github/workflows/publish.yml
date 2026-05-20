@@ -91,3 +91,37 @@ jobs:
         run: npm publish --access public
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_API }}
+
+  # Lists the server on the official MCP Registry
+  # (registry.modelcontextprotocol.io). Gated on both package jobs because
+  # the registry validates each server.json package's ownership marker
+  # (npm: package.json `mcpName`; PyPI: README `mcp-name:` comment) against
+  # the just-published artifact. Auth is GitHub OIDC — no stored secret; the
+  # workflow's OIDC identity (STiFLeR7/memex) authorizes the
+  # io.github.stifler7/* namespace.
+  publish-registry:
+    needs: [publish-pypi, publish-npm]
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write   # required for `mcp-publisher login github-oidc`
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Sync server.json versions to the release tag
+        run: |
+          VERSION=${GITHUB_REF#refs/tags/v}
+          jq --arg v "$VERSION" '.version = $v | (.packages[].version) = $v' \
+            server.json > server.tmp && mv server.tmp server.json
+          cat server.json
+
+      - name: Install mcp-publisher
+        run: |
+          curl -L "https://github.com/modelcontextprotocol/registry/releases/latest/download/mcp-publisher_$(uname -s | tr '[:upper:]' '[:lower:]')_$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/').tar.gz" | tar xz mcp-publisher
+
+      - name: Authenticate to MCP Registry (GitHub OIDC)
+        run: ./mcp-publisher login github-oidc
+
+      - name: Publish to MCP Registry
+        run: ./mcp-publisher publish
