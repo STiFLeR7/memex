@@ -1,0 +1,90 @@
+{
+  "name": "memex-mcp",
+  "displayName": "memex — codebase knowledge graph",
+  "description": "Visualise your codebase as an interactive temporal knowledge graph in VS Code.",
+  "version": "0.3.9",
+  "publisher": "STiFLeR7",
+  "engines": {
+    "vscode": "^1.75.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "keywords": [
+    "mcp",
+    "knowledge-graph",
+    "ai",
+    "context",
+    "neo4j"
+  ],
+  "activationEvents": [],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "configuration": {
+      "title": "memex",
+      "properties": {
+        "memex.serverPort": {
+          "type": "integer",
+          "default": 7463,
+          "description": "Port for the local memex HTTP/SSE server."
+        }
+      }
+    },
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "memex-container",
+          "title": "memex",
+          "icon": "media/icon.svg"
+        }
+      ]
+    },
+    "views": {
+      "memex-container": [
+        {
+          "type": "webview",
+          "id": "memex-graph",
+          "name": "Knowledge Graph"
+        }
+      ]
+    },
+    "commands": [
+      {
+        "command": "memex.openGraph",
+        "title": "memex: Open Graph Panel",
+        "category": "memex"
+      },
+      {
+        "command": "memex.refreshGraph",
+        "title": "memex: Refresh Knowledge Graph",
+        "category": "memex"
+      },
+      {
+        "command": "memex.showFileContext",
+        "title": "memex: Show Active File Context",
+        "category": "memex"
+      },
+      {
+        "command": "memex.startServer",
+        "title": "memex: Start local server",
+        "category": "memex"
+      },
+      {
+        "command": "memex.stopServer",
+        "title": "memex: Stop local server",
+        "category": "memex"
+      }
+    ]
+  },
+  "scripts": {
+    "vscode:prepublish": "node esbuild.js --minify",
+    "compile": "node esbuild.js",
+    "watch": "node esbuild.js --watch"
+  },
+  "devDependencies": {
+    "@types/vscode": "^1.75.0",
+    "@types/node": "^18.11.18",
+    "typescript": "^4.9.4",
+    "esbuild": "^0.17.5"
+  }
+}

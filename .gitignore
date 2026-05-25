@@ -66,3 +66,11 @@ TRASH/
 # Claude Code local settings
 .claude/ruvector.db
 ruvector.db
+
+# VS Code Extension build & dependencies
+memex-vscode/node_modules/
+memex-vscode/dist/
+
+# Local agent caches & configurations
+.claude/
+.antigravitycli/

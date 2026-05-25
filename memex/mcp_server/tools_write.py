@@ -13,6 +13,8 @@ from memex.graph.schema import (
 from memex.config import get_config
 from memex.watcher.registry import get_active_repositories
 
+from memex.watcher.handlers import notify_local_server
+
 logger = logging.getLogger(__name__)
 
 _current_session_name = None
@@ -302,7 +304,9 @@ async def record_decision(
     # ------------------------------------------------------------------
     if corroborates:
         async with _get_decision_lock(module, repo_path):
-            return await _corroborate_decision(client, corroborates, repo_path, now)
+            res = await _corroborate_decision(client, corroborates, repo_path, now)
+            notify_local_server()
+            return res
 
     # ------------------------------------------------------------------
     # Branch: write a new node (default, supersede, or force)
@@ -373,7 +377,9 @@ async def record_decision(
             prefix = "decision recorded"
             if supersedes:
                 prefix = f"decision recorded (supersedes {supersedes})"
-            return f"{prefix}: {display_text} [id: {node_id}] in {repo_path}"
+            res = f"{prefix}: {display_text} [id: {node_id}] in {repo_path}"
+            notify_local_server()
+            return res
 
         except Exception as e:
             logger.error("Failed to record decision", exc_info=True)
@@ -476,7 +482,9 @@ async def record_problem(
             res_msg = f"problem recorded [{severity}]: {text[:80]}"
             if coerced:
                 res_msg += " (severity coerced to medium)"
-            return f"{res_msg} [id: {node_id}] in {repo_path}"
+            res = f"{res_msg} [id: {node_id}] in {repo_path}"
+            notify_local_server()
+            return res
 
         except Exception as e:
             logger.error("Failed to record problem", exc_info=True)
@@ -563,7 +571,9 @@ async def resolve_problem(
             "resolution": resolution_text
         })
 
-        return f"problem resolved: {rec['text'][:50]}..."
+        res = f"problem resolved: {rec['text'][:50]}..."
+        notify_local_server()
+        return res
 
     except Exception as e:
         logger.error("Failed to resolve problem", exc_info=True)
@@ -621,7 +631,9 @@ async def invalidate_edge(
             "reason": reason
         })
 
-        return f"edge invalidated: {rec['source']} —[{rec['edge_type']}]→ {rec['target']} — reason: {reason}"
+        res = f"edge invalidated: {rec['source']} —[{rec['edge_type']}]→ {rec['target']} — reason: {reason}"
+        notify_local_server()
+        return res
 
     except Exception as e:
         logger.error("Failed to invalidate edge", exc_info=True)

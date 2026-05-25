@@ -2,6 +2,8 @@ import logging
 import asyncio
 import os
 import subprocess
+import threading
+from typing import Optional
 from pathlib import Path
 from datetime import datetime, UTC
 from memex.watcher.events import FileChangeEvent, CommitEvent
@@ -20,6 +22,57 @@ from memex.config import canonical_repo_path
 from memex.watcher import health
 
 logger = logging.getLogger(__name__)
+
+_notify_timer: Optional[threading.Timer] = None
+_notify_lock = threading.Lock()
+
+def notify_local_server() -> None:
+    """
+    Sends a POST notification request to http://127.0.0.1:<port>/notify in a background daemon thread
+    to alert the local memex server/VS Code extension that the graph has been updated.
+    Does not block execution and ignores all connection errors.
+    """
+    global _notify_timer
+    
+    with _notify_lock:
+        if _notify_timer is not None:
+            _notify_timer.cancel()
+            
+        def send_notification():
+            global _notify_timer
+            with _notify_lock:
+                _notify_timer = None
+                
+            import urllib.request
+            from pathlib import Path
+            from memex.config import get_config
+            
+            port = 7463
+            try:
+                cfg = get_config()
+                port_file = Path(cfg.repo_root) / ".memex" / "port"
+                if port_file.exists():
+                    content = port_file.read_text().strip()
+                    if content.isdigit():
+                        port = int(content)
+            except Exception:
+                pass
+                
+            try:
+                req = urllib.request.Request(
+                    f"http://127.0.0.1:{port}/notify",
+                    method="POST"
+                )
+                # Add a short timeout of 1.0s to avoid hanging if server is busy/deadlocks
+                with urllib.request.urlopen(req, timeout=1.0) as response:
+                    response.read()
+            except Exception:
+                # Silently ignore connection refused or timeout errors (offline server)
+                pass
+
+        _notify_timer = threading.Timer(0.5, send_notification)
+        _notify_timer.start()
+
 
 async def corroborate_decisions(repo_root: str, sha: str, message: str, files_changed: list[str]) -> int:
     """
@@ -209,6 +262,7 @@ async def handle_file_change(event: FileChangeEvent) -> None:
                         )
                 except Exception:
                     logger.error("call-edge extraction failed for %s", rel_path, exc_info=True)
+        notify_local_server()
     except Exception:
         logger.error(
             "unhandled error in handle_file_change — skipping event",
@@ -251,6 +305,7 @@ async def handle_commit(event: CommitEvent) -> None:
         # 4. Log
         if count > 0:
             logger.info("decisions written for %s: %d", event.sha, count)
+        notify_local_server()
     except Exception:
         logger.error(
             "unhandled error in handle_commit — skipping event",
@@ -340,6 +395,7 @@ async def handle_lockfile_change(event: FileChangeEvent) -> None:
                 summary["deps_written"],
                 summary["edges_written"],
             )
+            notify_local_server()
         except Exception:
             logger.error(
                 "lockfile: write_lockfile_delta failed for %s",

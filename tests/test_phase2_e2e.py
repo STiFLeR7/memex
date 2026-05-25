@@ -23,6 +23,7 @@ async def cleanup_client():
     yield
     await reset_graph_client()
 
+@pytest.mark.integration
 @pytest.mark.asyncio
 async def test_watcher_reacts_to_file_change():
     """
@@ -69,6 +70,7 @@ async def test_watcher_reacts_to_file_change():
         except Exception:
             pass
 
+@pytest.mark.integration
 @pytest.mark.asyncio
 async def test_watcher_reacts_to_commit():
     """

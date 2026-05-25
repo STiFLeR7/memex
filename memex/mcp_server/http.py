@@ -1,14 +1,30 @@
 import logging
+import asyncio
+import json
 
 from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from mcp.server import Server
 from mcp.server.sse import SseServerTransport
 import uvicorn
 
 from memex.watcher.registry import validate_key
+from memex.graph.client import get_graph_client
+from memex.config import canonical_repo_path
 
 logger = logging.getLogger(__name__)
+
+_subscribers: list[asyncio.Queue] = []
+
+async def broadcast_event(event_type: str, data: dict):
+    """
+    Broadcasts an event to all connected SSE clients.
+    """
+    for queue in list(_subscribers):
+        try:
+            await queue.put({"event": event_type, "data": data})
+        except Exception as e:
+            logger.warning(f"Failed to push to subscriber queue: {e}")
 
 async def verify_auth_token(token: str) -> bool:
     """
@@ -33,6 +49,143 @@ def create_app(server: Server, repo_root: str):
     @app.get("/health")
     async def health_check():
         # /health is unauthenticated — don't leak the absolute repo path (B5).
+        try:
+            client = await get_graph_client()
+            await client.driver.execute_query("RETURN 1")
+            return {"status": "ok"}
+        except Exception as e:
+            logger.warning(f"Health check failed (Neo4j connection issue): {e}")
+            return JSONResponse(
+                status_code=503,
+                content={"status": "error", "detail": "Neo4j connection failed"}
+            )
+
+    @app.get("/graph")
+    async def get_graph():
+        client = await get_graph_client()
+        canonical_repo = canonical_repo_path(repo_root)
+        
+        # Query nodes
+        nodes_query = """
+        MATCH (n:Entity)
+        WHERE n.repo_path = $repo
+        RETURN 
+          elementId(n) as id,
+          n.name as name,
+          coalesce(n.type, '') as raw_type,
+          coalesce(n.summary, n.description, '') as summary,
+          coalesce(n.created_at, '') as created_at,
+          coalesce(n.status, '') as status,
+          coalesce(n.scope, '') as scope,
+          coalesce(n.source_commit, '') as source_commit
+        """
+        
+        # Query relationships
+        edges_query = """
+        MATCH (n1:Entity)-[r]->(n2:Entity)
+        WHERE n1.repo_path = $repo 
+          AND n2.repo_path = $repo
+          AND r.expired_at IS NULL
+          AND r.valid_until IS NULL
+        RETURN 
+          elementId(n1) as source,
+          elementId(n2) as target,
+          type(r) as type,
+          coalesce(r.created_at, '') as created_at
+        """
+        
+        try:
+            nodes_res = await client.driver.execute_query(nodes_query, params={"repo": canonical_repo})
+            edges_res = await client.driver.execute_query(edges_query, params={"repo": canonical_repo})
+            
+            nodes = []
+            for record in nodes_res.records:
+                data = record.data()
+                name = data["name"]
+                raw_type = data["raw_type"]
+                
+                # Determine classification
+                if raw_type == 'Decision' or 'Decision' in name:
+                    node_type = 'Decision'
+                elif raw_type == 'Problem':
+                    node_type = 'Problem'
+                elif raw_type == 'Module' or any(name.endswith(ext) for ext in ['.py', '.js', '.ts', '.tsx', '.jsx', '.html', '.css', '.json']):
+                    node_type = 'Module'
+                else:
+                    node_type = 'Symbol'
+                    
+                # Format timestamps/datetimes to string if they are datetime objects
+                created_at_val = data["created_at"]
+                if hasattr(created_at_val, "isoformat"):
+                    created_at_val = created_at_val.isoformat()
+                elif created_at_val and not isinstance(created_at_val, str):
+                    created_at_val = str(created_at_val)
+                    
+                nodes.append({
+                    "id": data["id"],
+                    "name": name,
+                    "type": node_type,
+                    "summary": data["summary"],
+                    "created_at": created_at_val,
+                    "status": data["status"],
+                    "scope": data["scope"],
+                    "source_commit": data["source_commit"]
+                })
+                
+            edges = []
+            for record in edges_res.records:
+                data = record.data()
+                created_at_val = data["created_at"]
+                if hasattr(created_at_val, "isoformat"):
+                    created_at_val = created_at_val.isoformat()
+                elif created_at_val and not isinstance(created_at_val, str):
+                    created_at_val = str(created_at_val)
+                    
+                edges.append({
+                    "source": data["source"],
+                    "target": data["target"],
+                    "type": data["type"],
+                    "created_at": created_at_val
+                })
+                
+            return {"nodes": nodes, "edges": edges}
+        except Exception as e:
+            logger.error(f"Failed to fetch graph data: {e}", exc_info=True)
+            return JSONResponse(
+                status_code=500,
+                content={"detail": f"Failed to fetch graph data: {str(e)}"}
+            )
+
+    @app.get("/events")
+    async def sse_endpoint(request: Request):
+        async def event_generator():
+            queue = asyncio.Queue()
+            _subscribers.append(queue)
+            try:
+                # Yield initial connect ping
+                yield "event: ping\ndata: {\"status\": \"connected\"}\n\n"
+                
+                while True:
+                    try:
+                        # Wait for a message with a 15.0s timeout
+                        msg = await asyncio.wait_for(queue.get(), timeout=15.0)
+                        event_type = msg.get("event", "message")
+                        data_str = json.dumps(msg.get("data", {}))
+                        yield f"event: {event_type}\ndata: {data_str}\n\n"
+                    except asyncio.TimeoutError:
+                        # Keep-alive
+                        yield "event: ping\ndata: {\"status\": \"keep-alive\"}\n\n"
+            except asyncio.CancelledError:
+                pass
+            finally:
+                if queue in _subscribers:
+                    _subscribers.remove(queue)
+                    
+        return StreamingResponse(event_generator(), media_type="text/event-stream")
+
+    @app.post("/notify")
+    async def post_notify():
+        await broadcast_event("graph_updated", {})
         return {"status": "ok"}
 
     # Custom ASGI app for MCP to handle raw send/receive
@@ -87,6 +240,29 @@ async def run_http_server(server: Server, repo_root: str, host: str = "127.0.0.1
     app = create_app(server, repo_root)
     config = uvicorn.Config(app, host=host, port=port, log_level="info")
     server_uvicorn = uvicorn.Server(config)
-    logger.info("Starting memex MCP HTTP server on %s:%s", host, port)
-    logger.info("MCP SSE endpoint: http://%s:%s/mcp/sse", host, port)
-    await server_uvicorn.serve()
+
+    from pathlib import Path
+    from memex.config import canonical_repo_path
+
+    repo_canon = canonical_repo_path(repo_root)
+    port_dir = Path(repo_canon) / ".memex"
+    port_file = port_dir / "port"
+
+    try:
+        port_dir.mkdir(parents=True, exist_ok=True)
+        port_file.write_text(str(port))
+        logger.info("Saved active server port %d to %s", port, port_file)
+    except Exception as e:
+        logger.warning("Failed to save active server port to file: %s", e)
+
+    try:
+        logger.info("Starting memex MCP HTTP server on %s:%s", host, port)
+        logger.info("MCP SSE endpoint: http://%s:%s/mcp/sse", host, port)
+        await server_uvicorn.serve()
+    finally:
+        try:
+            if port_file.exists():
+                port_file.unlink()
+                logger.info("Cleaned up active server port file: %s", port_file)
+        except Exception as e:
+            logger.warning("Failed to clean up active server port file: %s", e)
