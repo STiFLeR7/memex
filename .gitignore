@@ -70,6 +70,7 @@ ruvector.db
 # VS Code Extension build & dependencies
 memex-vscode/node_modules/
 memex-vscode/dist/
+memex-vscode/*.vsix
 
 # Local agent caches & configurations
 .claude/
