@@ -11,6 +11,7 @@ A daemon and MCP server that turns every commit and every file change into struc
 [![npm](https://img.shields.io/npm/v/stifler-memex-mcp?v=0.3.3)](https://www.npmjs.com/package/stifler-memex-mcp)
 [![npm downloads](https://img.shields.io/npm/dm/stifler-memex-mcp)](https://www.npmjs.com/package/stifler-memex-mcp)
 [![Claude Code marketplace](https://img.shields.io/badge/Claude%20Code-marketplace-7c3aed)](https://github.com/STiFLeR7/claude-plugins)
+[![memex MCP server](https://glama.ai/mcp/servers/STiFLeR7/memex/badges/score.svg)](https://glama.ai/mcp/servers/STiFLeR7/memex)
 [![GitHub stars](https://img.shields.io/github/stars/STiFLeR7/memex?style=flat)](https://github.com/STiFLeR7/memex/stargazers)
 [![Tests](https://img.shields.io/github/actions/workflow/status/STiFLeR7/memex/publish.yml?branch=master&label=tests)](https://github.com/STiFLeR7/memex/actions)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
