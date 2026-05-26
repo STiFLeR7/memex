@@ -14,6 +14,11 @@ class MemexSchemaError(Exception):
         self.errors = errors
         super().__init__(f"Validation failed for {model_name}: {errors}")
 
+
+class MemexWriteError(Exception):
+    """Raised when node creation fails or cannot be verified."""
+
+
 #: Structured-symbol MERGE. Mirrors the post-hoc Cypher pattern already used
 #: by write_decision / write_lockfile_delta (ARCHITECTURE-v0.3.0 §4 Q1): the
 #: NL add_episode call gives Graphiti a search surface, but the *structured*
@@ -225,6 +230,25 @@ async def write_call_edges(calls, repo_root: str | None = None) -> int:
     return written
 
 
+async def _get_episode_uuid(client, episode_name: str, episode_uuid: str | None) -> str | None:
+    """
+    Returns episode_uuid if already known.
+    If None, attempts a fallback Cypher lookup by episode name:
+        MATCH (n:Entity) WHERE n.name = $name RETURN coalesce(n.uuid, elementId(n)) as uuid LIMIT 1
+    Returns None if still not found.
+    """
+    if episode_uuid is not None:
+        return episode_uuid
+    query = "MATCH (n:Entity) WHERE n.name = $name RETURN coalesce(n.uuid, elementId(n)) as uuid LIMIT 1"
+    try:
+        res = await client.driver.execute_query(query, params={"name": episode_name})
+        if res.records:
+            return res.records[0]["uuid"]
+    except Exception:
+        pass
+    return None
+
+
 async def write_decision(decision, modules: list[str], commit_sha: str, confidence: float = 1.0, source: str = "watcher") -> None:
     """
     Writes a technical decision to Graphiti.
@@ -289,19 +313,13 @@ async def write_decision(decision, modules: list[str], commit_sha: str, confiden
     # NL (ARCHITECTURE-v0.3.0 §4, Q1). Without this the v0.3.0 fields are
     # validated by Pydantic but never reach Neo4j as queryable properties, so
     # `memex review` ordering, count_unvalidated_decisions, and TempValid
-    # computed-confidence all silently fall back to defaults. Best-effort —
-    # if the post-hoc SET fails we log but don't fail the write (the episode
-    # is already in the graph; missing flags can be backfilled later).
+    # computed-confidence all silently fall back to defaults.
     episode_uuid = getattr(getattr(result, "episode", None), "uuid", None)
+    episode_uuid = await _get_episode_uuid(client, episode_name, episode_uuid)
     if episode_uuid is None:
-        # Without a uuid the SET would have to fall back to a name match,
-        # which is brittle (collisions across commits with the same short
-        # SHA, or across repos). Better to log and skip than to mis-target
-        # the wrong node. Reviewer non-blocker finding from review pass 2.
-        logger.warning(
-            "decision %s written but Graphiti returned no episode.uuid; "
-            "v0.3.0 property SET skipped to avoid mis-targeting a sibling node",
-            episode_name,
+        raise MemexWriteError(
+            f"write_decision: episode '{episode_name}' not found after add_episode "
+            f"and fallback query. Graphiti may be in an inconsistent state."
         )
     else:
         set_query = """

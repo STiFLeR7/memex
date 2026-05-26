@@ -180,8 +180,14 @@ async def predict_impact(file_path: str, repo: Optional[str] = None) -> str:
 
     try:
         rows = await _query_coupled_modules(file_path, repo=repo)
+        result = _format_impact_report(file_path, rows)
     except Exception as e:
         logger.error("predict_impact failed", exc_info=True)
-        return f"Error: predict_impact graph query failed. {e}"
+        result = f"Error: predict_impact graph query failed. {e}"
 
-    return _format_impact_report(file_path, rows)
+    try:
+        from memex.graph.telemetry import record_tool_call
+        await record_tool_call("predict_impact", len(result) // 4, repo)
+    except Exception:
+        pass
+    return result

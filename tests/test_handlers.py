@@ -111,12 +111,14 @@ async def test_corroboration_lifts_last_reinforced_at():
             "id": "uuid-1",
             "eid": "elem-1",
             "text": "Switched authentication tokens to EdDSA signing",
-            "related_entities": [],
+            "related_entities": ["auth.py"],
         }
     ]
     mock_client, update_calls = _make_mock_client_with_decisions(decisions)
 
-    with patch("memex.watcher.handlers.get_graph_client", return_value=mock_client):
+    with patch("memex.watcher.handlers.get_graph_client", return_value=mock_client), \
+         patch("memex.graph.cluster_summary._embed_text", new_callable=AsyncMock) as mock_embed:
+        mock_embed.return_value = [1.0, 0.0]
         count = await corroborate_decisions(
             repo_root=".",
             sha="deadbeefcafebabe",
@@ -141,12 +143,14 @@ async def test_corroboration_does_not_set_validated_true():
             "id": "uuid-2",
             "eid": "elem-2",
             "text": "Switched authentication tokens to EdDSA signing",
-            "related_entities": [],
+            "related_entities": ["auth.py"],
         }
     ]
     mock_client, update_calls = _make_mock_client_with_decisions(decisions)
 
-    with patch("memex.watcher.handlers.get_graph_client", return_value=mock_client):
+    with patch("memex.watcher.handlers.get_graph_client", return_value=mock_client), \
+         patch("memex.graph.cluster_summary._embed_text", new_callable=AsyncMock) as mock_embed:
+        mock_embed.return_value = [1.0, 0.0]
         await corroborate_decisions(
             repo_root=".",
             sha="abcdef0123456789",
@@ -170,12 +174,14 @@ async def test_corroboration_does_not_overwrite_confidence_field():
             "id": "uuid-3",
             "eid": "elem-3",
             "text": "Switched authentication tokens to EdDSA signing",
-            "related_entities": [],
+            "related_entities": ["auth.py"],
         }
     ]
     mock_client, update_calls = _make_mock_client_with_decisions(decisions)
 
-    with patch("memex.watcher.handlers.get_graph_client", return_value=mock_client):
+    with patch("memex.watcher.handlers.get_graph_client", return_value=mock_client), \
+         patch("memex.graph.cluster_summary._embed_text", new_callable=AsyncMock) as mock_embed:
+        mock_embed.return_value = [1.0, 0.0]
         await corroborate_decisions(
             repo_root=".",
             sha="abcdef0123456789",

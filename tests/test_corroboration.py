@@ -22,7 +22,7 @@ async def test_decision_corroboration_by_message():
     # 1. Clean up existing test decisions
     await client.driver.execute_query("MATCH (d:Entity) WHERE d.source = 'agent' OR d.name = 'Implement JWT auth' DETACH DELETE d")
     
-    # 2. Record a decision manually with agent source and low confidence
+    # 2. Record a decision manually with agent source and low confidence, and link to Module
     decision_text = "Implement JWT auth for the API"
     await client.driver.execute_query("""
     CREATE (d:Entity {
@@ -33,6 +33,11 @@ async def test_decision_corroboration_by_message():
         corroborated: false,
         uuid: 'test-uuid-msg'
     })
+    CREATE (m:Entity {
+        name: 'auth.py',
+        type: 'Module'
+    })
+    CREATE (d)-[:MOTIVATES]->(m)
     """, params={"text": decision_text})
     
     # 3. Simulate a CommitEvent that matches keywords
@@ -45,15 +50,17 @@ async def test_decision_corroboration_by_message():
         timestamp=datetime.now(UTC)
     )
     
-    # 4. Call handle_commit (mocking extraction to avoid Gemini calls)
-    with patch("memex.watcher.handlers.extract_decisions", return_value=[]):
+    # 4. Call handle_commit (mocking extraction to avoid Gemini calls, and mocking _embed_text for similarity)
+    with patch("memex.watcher.handlers.extract_decisions", return_value=[]), \
+         patch("memex.graph.cluster_summary._embed_text") as mock_embed:
+        # Mock matching embeddings to yield cosine similarity of 1.0 (>= 0.6)
+        mock_embed.side_effect = [
+            [1.0, 0.0],  # commit
+            [1.0, 0.0]   # decision
+        ]
         await handle_commit(event)
     
     # 5. Verify in Neo4j
-    # v0.3.0: corroboration is evidence, not validation. It lifts
-    # last_reinforced_at and flips corroborated/corroboration_commit; it does
-    # NOT overwrite the stored confidence field (which is computed at query
-    # time now — see memex/graph/confidence.py).
     res = await client.driver.execute_query(
         "MATCH (d:Entity {uuid: 'test-uuid-msg'}) RETURN d.corroborated as corroborated, d.confidence as confidence, d.corroboration_commit as sha, d.last_reinforced_at as lra, d.validated as validated"
     )
@@ -108,7 +115,13 @@ async def test_decision_corroboration_by_file():
     )
 
     # 4. Call handle_commit
-    with patch("memex.watcher.handlers.extract_decisions", return_value=[]):
+    with patch("memex.watcher.handlers.extract_decisions", return_value=[]), \
+         patch("memex.graph.cluster_summary._embed_text") as mock_embed:
+        # Mock matching embeddings to yield cosine similarity of 1.0 (>= 0.6)
+        mock_embed.side_effect = [
+            [1.0, 0.0],  # commit
+            [1.0, 0.0]   # decision
+        ]
         await handle_commit(event)
 
     # 5. Verify — v0.3.0: confidence is no longer mutated by corroboration.

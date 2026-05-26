@@ -96,6 +96,7 @@ def test_composite_score_uses_confidence_floor_at_0_5():
         valid_at=now,              # zero age → recency = 1.0
         base_confidence=0.0,
         last_reinforced_at=now,
+        validated=False,
         access_count=0,
     )
     scored = composite_score(r, now=now)

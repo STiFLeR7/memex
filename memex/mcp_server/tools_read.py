@@ -59,7 +59,7 @@ async def get_project_context(scope: Optional[str] = None, repo: Optional[str] =
             except Exception:
                 logger.debug("cluster-level context fetch failed", exc_info=True)
 
-        return format_project_context(
+        result = format_project_context(
             repo_root=repo or config.repo_root,
             counts=counts,
             modules=modules,
@@ -69,6 +69,13 @@ async def get_project_context(scope: Optional[str] = None, repo: Optional[str] =
             unvalidated_count=unvalidated_count,
             clusters=clusters,
         )
+        try:
+            module_files = [m['path'] for m in modules if m.get('path')]
+            from memex.graph.telemetry import record_tool_call
+            await record_tool_call("get_project_context", len(result) // 4, repo or config.repo_root, module_files)
+        except Exception:
+            pass
+        return result
 
     except Exception as e:
         logger.error("Failed to generate project context", exc_info=True)
@@ -92,26 +99,39 @@ async def get_symbol_context(symbol_name: str, file: Optional[str] = None, repo:
             if search_results:
                 best = search_results[0]
                 suggestion = f"\n\nDid you mean '{getattr(best, 'name', 'unknown')}'?"
-            return f"Symbol '{symbol_name}' not found.{suggestion}"
+            result = f"Symbol '{symbol_name}' not found.{suggestion}"
+            try:
+                from memex.graph.telemetry import record_tool_call
+                await record_tool_call("get_symbol_context", len(result) // 4, repo)
+            except Exception:
+                pass
+            return result
 
         callers = await get_symbol_callers(symbol_name, repo=repo)
         callees = await get_symbol_callees(symbol_name, repo=repo)
         decisions = await get_symbol_decisions(symbol_name, repo=repo)
         problems = await get_symbol_problems(symbol_name, repo=repo)
 
-        return format_symbol_context(
+        result = format_symbol_context(
             symbol=symbol,
             callers=callers,
             callees=callees,
             decisions=decisions,
             problems=problems
         )
+        try:
+            module_files = [symbol['file']] if symbol.get('file') and symbol.get('file') != 'unknown' else None
+            from memex.graph.telemetry import record_tool_call
+            await record_tool_call("get_symbol_context", len(result) // 4, repo, module_files)
+        except Exception:
+            pass
+        return result
 
     except Exception as e:
         logger.error("Failed to fetch symbol context", exc_info=True)
         return f"Error: Failed to retrieve symbol context for '{symbol_name}'. {e}"
 
-async def get_recent_decisions(days: int = 30, module: Optional[str] = None, repo: Optional[str] = None) -> str:
+async def get_recent_decisions(days: int = 30, module: Optional[str] = None, repo: Optional[str] = None, corroborated_only: bool = False) -> str:
     """
     Returns Decision nodes created within the last days days, newest first.
     Phase 7: runs `detect_decision_conflicts` so contradictory Decisions with
@@ -119,7 +139,7 @@ async def get_recent_decisions(days: int = 30, module: Optional[str] = None, rep
     surfaces to the agent.
     """
     try:
-        decisions = await get_recent_decisions_raw(since_days=days, module=module, limit=21, repo=repo)
+        decisions = await get_recent_decisions_raw(since_days=days, module=module, limit=21, repo=repo, corroborated_only=corroborated_only)
         # Phase 7 conflict detection — opportunistic. Falls back silently if
         # the graph client / similarity function isn't usable so an LLM
         # hiccup doesn't break the read tool.
@@ -130,12 +150,18 @@ async def get_recent_decisions(days: int = 30, module: Optional[str] = None, rep
         except Exception:
             logger.debug("conflict detection skipped this run", exc_info=True)
 
-        return format_decisions(
+        result = format_decisions(
             decisions=decisions,
             days=days,
             module=module,
             total_count=len(decisions)
         )
+        try:
+            from memex.graph.telemetry import record_tool_call
+            await record_tool_call("get_recent_decisions", len(result) // 4, repo)
+        except Exception:
+            pass
+        return result
 
     except Exception as e:
         logger.error("Failed to fetch recent decisions", exc_info=True)
@@ -148,7 +174,13 @@ async def get_open_problems(module: Optional[str] = None, repo: Optional[str] = 
     try:
         problems = await get_open_problems_raw(module=module, repo=repo)
         if not problems:
-            return "no open problems recorded"
+            result = "no open problems recorded"
+            try:
+                from memex.graph.telemetry import record_tool_call
+                await record_tool_call("get_open_problems", len(result) // 4, repo, [module] if module else None)
+            except Exception:
+                pass
+            return result
             
         # Sort in Python as well for mock consistency
         def sev_to_score(s):
@@ -156,7 +188,13 @@ async def get_open_problems(module: Optional[str] = None, repo: Optional[str] = 
         
         problems.sort(key=lambda x: sev_to_score(x.get('severity', 'medium')), reverse=True)
             
-        return format_problems(problems=problems, module=module)
+        result = format_problems(problems=problems, module=module)
+        try:
+            from memex.graph.telemetry import record_tool_call
+            await record_tool_call("get_open_problems", len(result) // 4, repo, [module] if module else None)
+        except Exception:
+            pass
+        return result
 
     except Exception as e:
         logger.error("Failed to fetch open problems", exc_info=True)
@@ -193,7 +231,13 @@ async def search_context(query: str, top_k: int = 8, repo: Optional[str] = None)
         if not merged:
             return f"no relevant context found for query: '{query}'"
 
-        return format_search_results_with_breakdown(query=query, results=merged)
+        result = format_search_results_with_breakdown(query=query, results=merged)
+        try:
+            from memex.graph.telemetry import record_tool_call
+            await record_tool_call("search_context", len(result) // 4, repo)
+        except Exception:
+            pass
+        return result
 
     except Exception:
         logger.error("Graphiti search failed", exc_info=True)
@@ -207,11 +251,17 @@ async def get_stale_context(threshold: float = 0.5, repo: Optional[str] = None) 
     
     try:
         edges = await get_stale_edges(threshold=threshold, limit=51, repo=repo)
-        return format_stale_edges(
+        result = format_stale_edges(
             edges=edges,
             threshold=threshold,
             total_found=len(edges)
         )
+        try:
+            from memex.graph.telemetry import record_tool_call
+            await record_tool_call("get_stale_context", len(result) // 4, repo)
+        except Exception:
+            pass
+        return result
 
     except Exception as e:
         logger.error("Failed to fetch stale context", exc_info=True)

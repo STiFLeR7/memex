@@ -17,13 +17,19 @@ export class MemexStatusBarItem {
     this.item.color = undefined;
   }
 
-  public setConnected(staleRatio: number = 0) {
+  public setConnected(staleRatio: number = 0, savedTokens?: number) {
+    let suffix = '';
+    if (savedTokens !== undefined && savedTokens > 0) {
+      const formatted = savedTokens.toLocaleString();
+      suffix = `  |  saved ~${formatted} tokens today`;
+    }
+
     if (staleRatio > 0.1) {
-      this.item.text = '$(warning) memex';
+      this.item.text = `$(warning) memex${suffix}`;
       this.item.tooltip = `memex connected — stale nodes: ${(staleRatio * 100).toFixed(0)}%`;
       this.item.color = new vscode.ThemeColor('statusBarItem.warningForeground');
     } else {
-      this.item.text = '$(database) memex';
+      this.item.text = `$(database) memex${suffix}`;
       this.item.tooltip = 'memex connected — graph is up to date';
       this.item.color = undefined;
     }

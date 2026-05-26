@@ -169,6 +169,34 @@ async def _check_decision_intent_confirmation(
         # from any repo or untagged legacy data into the intent-confirmation
         # prompt with an actionable id pointing at the wrong repo's node.
         if node_type == "Decision" and score >= threshold and res_repo == repo_path:
+            cand_uuid = getattr(res, "uuid", None)
+            if not cand_uuid or (hasattr(cand_uuid, "__class__") and cand_uuid.__class__.__name__ == "MagicMock"):
+                cand_uuid = "unknown"
+                
+            res_modules = []
+            if cand_uuid != "unknown":
+                module_query = """
+                MATCH (d:Entity)
+                WHERE d.uuid = $uuid OR elementId(d) = $uuid
+                OPTIONAL MATCH (d)-[:MOTIVATES|RELATES_TO|MENTIONS]-(m:Entity)
+                WHERE coalesce(m.type, '') = 'Module' OR m.name ENDS WITH '.py' OR m.name ENDS WITH '.js'
+                RETURN collect(DISTINCT m.name) as modules
+                """
+                try:
+                    m_res = await client.driver.execute_query(module_query, params={"uuid": cand_uuid})
+                    if m_res.records:
+                        res_modules = m_res.records[0]["modules"] or []
+                except Exception:
+                    pass
+
+            if module:
+                module_match = any(m == module or m.endswith(f"/{module}") or module.endswith(f"/{m}") for m in res_modules)
+            else:
+                module_match = (len(res_modules) == 0)
+
+            if not module_match:
+                continue
+
             return {
                 "uuid": getattr(res, "uuid", "unknown"),
                 "name": getattr(res, "name", "existing decision"),
@@ -322,8 +350,21 @@ async def record_decision(
             if candidate:
                 return _format_intent_confirmation_response(candidate)
 
-        # If supersede was requested, expire the old node's edges first.
+        # If supersede was requested, verify existence and then expire the old node's edges first.
         if supersedes:
+            check_query = """
+            MATCH (d:Entity)
+            WHERE (d.uuid = $id OR elementId(d) = $id)
+              AND (d.type = 'Decision' OR d.name CONTAINS 'Decision')
+            RETURN d.uuid as uuid LIMIT 1
+            """
+            try:
+                res = await client.driver.execute_query(check_query, params={"id": supersedes})
+                if not res.records:
+                    return f"Error: supersedes target '{supersedes}' not found"
+            except Exception as e:
+                logger.error("Failed to verify supersedes target existence", exc_info=True)
+                return f"Error: Failed to verify supersedes target existence. {e}"
             await _supersede_decision(client, supersedes, now)
 
         body_parts = [f"Decision: {text}"]

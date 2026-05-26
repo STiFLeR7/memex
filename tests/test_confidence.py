@@ -10,6 +10,8 @@ from datetime import datetime, timedelta, timezone
 from math import log
 
 import pytest
+from hypothesis import given, settings
+from hypothesis import strategies as st
 
 from memex.graph.confidence import (
     LAMBDA_UNVALIDATED,
@@ -66,13 +68,12 @@ def test_unvalidated_decision_crosses_0_3_at_day_30():
     assert computed == pytest.approx(0.3, abs=1e-3)
 
 
-def test_validated_decision_crosses_0_3_at_day_139():
-    """Validated regime takes 139 days to cross the staleness threshold."""
-    anchor = datetime.now(timezone.utc) - timedelta(days=139)
+def test_validated_decision_never_crosses_validated_floor():
+    """Validated decisions never decay below the 0.7 floor."""
+    anchor = datetime.now(timezone.utc) - timedelta(days=1000)
     node = _make_node(validated=True, last_reinforced_at=anchor)
     computed = current_confidence(node)
-    # 0.6 * exp(-0.005 * 139) ≈ 0.6 * exp(-0.695) ≈ 0.2997
-    assert computed == pytest.approx(0.3, abs=0.01)
+    assert computed == pytest.approx(0.7, abs=1e-6)
 
 
 def test_validated_decision_is_not_stale_at_day_30():
@@ -204,14 +205,75 @@ def test_is_cold_false_without_any_timestamp():
     assert not is_cold(node)
 
 
-def test_is_cold_respects_005_threshold():
-    """Boundary: just above 0.05 → not cold; below → cold (when quiet)."""
-    # Pick a quiet-enough anchor (>90d) and tune base so computed is just above 0.05.
-    anchor = datetime.now(timezone.utc) - timedelta(days=120)
-    # 0.6 * exp(-ln(2)/30 * 120) = 0.6 * 1/16 = 0.0375 < 0.05 → cold
-    cold = _make_node(last_reinforced_at=anchor, base_confidence=0.6)
-    assert is_cold(cold)
-    # At d=120 we'd need base s.t. base * 1/16 = 0.10 → base ≈ 1.6 (clamped 1.0)
-    # → computed=1.0/16=0.0625 > COLD_THRESHOLD (0.05) → NOT cold.
-    not_cold = _make_node(last_reinforced_at=anchor, base_confidence=1.0)
-    assert not is_cold(not_cold)
+def test_is_cold_respects_90_day_quiet_window_boundary():
+    """Under Regime 3 (half-life 20 days), unvalidated nodes older than 90 days
+    are always < 0.05, so quiet window (90 days) is the main gating factor.
+    """
+    # At d=89, computed is < 0.05 but age is <= 90 days -> not cold.
+    anchor_89 = datetime.now(timezone.utc) - timedelta(days=89)
+    node_89 = _make_node(last_reinforced_at=anchor_89, base_confidence=0.6)
+    assert not is_cold(node_89)
+
+    # At d=91, computed is < 0.05 and age > 90 days -> cold.
+    anchor_91 = datetime.now(timezone.utc) - timedelta(days=91)
+    node_91 = _make_node(last_reinforced_at=anchor_91, base_confidence=0.6)
+    assert is_cold(node_91)
+
+
+@given(
+    base_confidence=st.floats(min_value=0.0, max_value=2.0),
+    days_since_reinforced=st.floats(min_value=0.0, max_value=3650.0),
+    validated=st.booleans(),
+)
+@settings(max_examples=200)
+def test_confidence_invariants(base_confidence, days_since_reinforced, validated):
+    anchor = datetime.now(timezone.utc) - timedelta(days=days_since_reinforced)
+    node = {
+        "base_confidence": base_confidence,
+        "validated": validated,
+        "last_reinforced_at": anchor,
+    }
+    conf = current_confidence(node)
+    
+    # Invariant 1: confidence always in [0.0, 1.0]
+    assert 0.0 <= conf <= 1.0
+
+    # Invariant 2: validated floor 0.7 never breached for validated=True nodes
+    if validated:
+        assert conf >= 0.7
+
+    # Invariant 3: unvalidated old nodes cap at 0.5 when days > 30
+    if not validated and days_since_reinforced > 30.0:
+        assert conf <= 0.5
+
+
+@given(
+    base_confidence=st.floats(min_value=0.0, max_value=1.0),
+    days1=st.floats(min_value=0.0, max_value=3000.0),
+    days2=st.floats(min_value=0.0, max_value=3000.0),
+    validated=st.booleans(),
+)
+@settings(max_examples=200)
+def test_confidence_monotonicity(base_confidence, days1, days2, validated):
+    # Sort them to know which is earlier/later
+    d_early, d_late = min(days1, days2), max(days1, days2)
+    
+    anchor_early = datetime.now(timezone.utc) - timedelta(days=d_early)
+    anchor_late = datetime.now(timezone.utc) - timedelta(days=d_late)
+    
+    node_early = {
+        "base_confidence": base_confidence,
+        "validated": validated,
+        "last_reinforced_at": anchor_early,
+    }
+    node_late = {
+        "base_confidence": base_confidence,
+        "validated": validated,
+        "last_reinforced_at": anchor_late,
+    }
+    
+    conf_early = current_confidence(node_early)
+    conf_late = current_confidence(node_late)
+    
+    # Early reinforced should have >= confidence than late reinforced
+    assert conf_early >= conf_late - 1e-9

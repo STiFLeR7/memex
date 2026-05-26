@@ -61,13 +61,16 @@ def test_is_cold_predicate_matches_architecture_spec() -> None:
     cold = _record("cold", base_confidence=0.6, validated=False, days_old=400)
     fresh = _record("fresh", base_confidence=0.6, validated=False, days_old=5)
     validated = _record("val", base_confidence=0.6, validated=True, days_old=400)
-    high_conf = _record("hi", base_confidence=1.0, validated=False, days_old=120)
+    not_old_enough = _record("not_old_enough", base_confidence=1.0, validated=False, days_old=80)
 
     assert is_cold(cold["props"]) is True
     assert is_cold(fresh["props"]) is False
     assert is_cold(validated["props"]) is False
-    # 1.0 * exp(-0.0231 * 120) ≈ 0.062 → still above 0.05
-    assert is_cold(high_conf["props"]) is False
+    # Under the new 3-regime decay math, any unvalidated node older than 90 days
+    # decays to < 0.05 (even with base_confidence = 1.0) and is thus cold.
+    # An unvalidated node with age <= 90 days is never cold because of the age threshold.
+    assert is_cold(not_old_enough["props"]) is False
+
 
 
 # ---------------------------------------------------------------------------

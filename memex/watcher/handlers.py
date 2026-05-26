@@ -74,26 +74,39 @@ def notify_local_server() -> None:
         _notify_timer.start()
 
 
+def cosine_similarity(v1: list[float], v2: list[float]) -> float:
+    if not v1 or not v2 or len(v1) != len(v2):
+        return 0.0
+    dot = sum(a * b for a, b in zip(v1, v2))
+    norm1 = sum(a * a for a in v1) ** 0.5
+    norm2 = sum(b * b for b in v2) ** 0.5
+    if norm1 == 0.0 or norm2 == 0.0:
+        return 0.0
+    return dot / (norm1 * norm2)
+
+
 async def corroborate_decisions(repo_root: str, sha: str, message: str, files_changed: list[str]) -> int:
     """
-    Scans the graph for uncorroborated agent decisions and matches them against the current commit.
+    Scans the graph for uncorroborated, unvalidated decisions and matches them against the current commit.
+    Uses two-pass corroboration: first matching module paths, then matching text semantic similarity.
     """
     client = await get_graph_client()
     
-    # 1. Fetch uncorroborated agent decisions
+    # 1. Fetch uncorroborated, unvalidated decisions
     query = """
     MATCH (d:Entity)
     WHERE (d.type = 'Decision' OR d.source = 'agent')
       AND (d.corroborated IS NULL OR d.corroborated = false)
-      AND d.source = 'agent'
+      AND (d.validated IS NULL OR d.validated = false)
     OPTIONAL MATCH (d)-[:MOTIVATES|RELATES_TO|MENTIONS]-(m:Entity)
+    WHERE coalesce(m.type, '') = 'Module' OR m.name ENDS WITH '.py' OR m.name ENDS WITH '.js'
     RETURN d.uuid as id, elementId(d) as eid, d.name as text, collect(m.name) as related_entities
     """
     
     try:
         res = await client.driver.execute_query(query)
         decisions = res.records
-        logger.debug("Found %d uncorroborated agent decisions", len(decisions))
+        logger.debug("Found %d uncorroborated, unvalidated decisions", len(decisions))
     except Exception:
         logger.error("Failed to query uncorroborated decisions", exc_info=True)
         return 0
@@ -101,79 +114,76 @@ async def corroborate_decisions(repo_root: str, sha: str, message: str, files_ch
     if not decisions:
         return 0
 
+    # Get the embedding for the commit message. If it fails, fail open (log warning, skip corroboration).
+    try:
+        from memex.graph.cluster_summary import _embed_text
+        commit_emb = await _embed_text(message)
+        if not commit_emb:
+            logger.warning("Embedding API returned empty embedding for commit message during corroboration.")
+            return 0
+    except Exception as e:
+        logger.warning("Failed to compute embedding for commit message during corroboration (failing open): %s", e)
+        return 0
+
     corroborated_count = 0
     now = datetime.now(UTC)
-    
-    # Simple stop words and word tokenizer
-    STOP_WORDS = {
-        "this", "that", "with", "from", "here", "there", "what", "when", 
-        "where", "which", "while", "decision", "rationale", "scope",
-        "about", "been", "being", "does", "done", "each", "have", "into",
-        "just", "more", "most", "only", "some", "such", "than", "then",
-        "they", "very", "were", "your", "should"
-    }
-
-    def get_significant_words(text: str) -> set[str]:
-        if not text:
-            return set()
-        # Clean and split
-        words = text.lower().replace('.', ' ').replace(',', ' ').replace(':', ' ').replace('"', ' ').replace("'", " ").split()
-        res = {w for w in words if len(w) > 3 and w not in STOP_WORDS}
-        logger.debug("Significant words for '%s': %s", text, res)
-        return res
-
-    commit_words = get_significant_words(message)
+    CORROBORATION_SIMILARITY_THRESHOLD = 0.6
     
     for record in decisions:
         decision_id = record["id"] or record["eid"]
         decision_text = record["text"]
         related_entities = record["related_entities"] or []
         
-        match_found = False
-        
-        # Check words match
-        decision_words = get_significant_words(decision_text)
-        if decision_words & commit_words:
-            match_found = True
-            logger.info("Decision %s corroborated by message match: %s", decision_id, decision_words & commit_words)
-        
-        # Check files match related entities (symbols or modules)
-        if not match_found and related_entities:
-            for entity_name in related_entities:
-                if any(entity_name == f or f.endswith(f"/{entity_name}") or entity_name.endswith(f"/{f}") for f in files_changed):
-                    match_found = True
-                    logger.info("Decision %s corroborated by file match: %s", decision_id, entity_name)
-                    break
-                    
-        if match_found:
-            # v0.3.0 (Phase 8): corroboration is *evidence*, not validation.
-            # - ALWAYS update last_reinforced_at — this lifts computed_confidence
-            #   in the TempValid two-regime model (see memex/graph/confidence.py).
-            # - Do NOT set validated=True. Only `memex review` can do that.
-            # - Do NOT overwrite the stored `confidence` field — confidence is
-            #   computed at query time in v0.3.0, not stored-and-mutated.
-            # This is a deliberate departure from v0.2.0's handlers.py:91 which
-            # unconditionally bumped corroborated decisions to confidence=1.0.
-            update_query = """
-            MATCH (d:Entity)
-            WHERE d.uuid = $id OR elementId(d) = $id
-            SET d.last_reinforced_at = $now,
-                d.corroborated = true,
-                d.corroboration_commit = $sha,
-                d.updated_at = $now
-            """
-            try:
-                await client.driver.execute_query(update_query, params={
-                    "id": decision_id,
-                    "sha": sha,
-                    "now": now
-                })
-                corroborated_count += 1
-                logger.info("Decision corroborated: '%s' (commit %s)", decision_text[:50], sha[:8])
-            except Exception:
-                logger.error("Failed to update corroborated decision %s", decision_id, exc_info=True)
+        # Pass 1: File match (linked module must match at least one file changed)
+        if not related_entities:
+            continue
+            
+        file_matched = False
+        for entity_name in related_entities:
+            if any(entity_name == f or f.endswith(f"/{entity_name}") or entity_name.endswith(f"/{f}") for f in files_changed):
+                file_matched = True
+                break
+                
+        if not file_matched:
+            continue
+
+        # Pass 2: Semantic similarity check
+        try:
+            decision_emb = await _embed_text(decision_text)
+            if not decision_emb:
+                continue
+        except Exception as e:
+            logger.warning("Failed to compute embedding for decision text '%s' (skipping candidate): %s", decision_text, e)
+            continue
+
+        sim = cosine_similarity(commit_emb, decision_emb)
+        if sim < CORROBORATION_SIMILARITY_THRESHOLD:
+            logger.debug("Decision %s similarity %f below threshold %f", decision_id, sim, CORROBORATION_SIMILARITY_THRESHOLD)
+            continue
+
+        logger.info("Decision %s corroborated (similarity: %f)", decision_id, sim)
+
+        update_query = """
+        MATCH (d:Entity)
+        WHERE d.uuid = $id OR elementId(d) = $id
+        SET d.last_reinforced_at = $now,
+            d.corroborated = true,
+            d.corroboration_commit = $sha,
+            d.updated_at = $now
+        """
+        try:
+            await client.driver.execute_query(update_query, params={
+                "id": decision_id,
+                "sha": sha,
+                "now": now
+            })
+            corroborated_count += 1
+            logger.info("Decision corroborated: '%s' (commit %s)", decision_text[:50], sha[:8])
+        except Exception:
+            logger.error("Failed to update corroborated decision %s", decision_id, exc_info=True)
 
     return corroborated_count
+
 
 async def run_git_command(args: list[str], cwd: str) -> str:
     """Run git command asynchronously to avoid blocking the event loop."""

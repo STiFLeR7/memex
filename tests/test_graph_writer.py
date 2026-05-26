@@ -1,7 +1,7 @@
 import pytest
 from unittest.mock import MagicMock, AsyncMock, patch
 from memex.graph.writer import (
-    write_symbol_delta, write_decision, write_call_edges, MemexSchemaError,
+    write_symbol_delta, write_decision, write_call_edges, MemexSchemaError, MemexWriteError,
 )
 from memex.extractor.treesitter import SymbolDelta, Symbol as ExtractedSymbol, CallEdge
 
@@ -231,26 +231,26 @@ async def test_write_decision_persists_v030_fields_via_post_hoc_cypher(mock_clie
 
 
 @pytest.mark.asyncio
-async def test_write_decision_skips_post_hoc_set_when_uuid_missing(mock_client):
-    """When Graphiti returns no episode.uuid, the post-hoc SET must NOT fire —
-    skipping is safer than name-matching, which can hit sibling nodes with
-    colliding short-SHA names (e.g. another `decision_deadbeef` from another
-    repo)."""
+async def test_write_decision_raises_memex_write_error_when_uuid_missing(mock_client):
+    """When Graphiti returns no episode.uuid and fallback name lookup also fails,
+    write_decision must raise MemexWriteError."""
     # Episode object with NO uuid attribute.
     mock_episode = MagicMock(spec=[])
     mock_result = MagicMock(episode=mock_episode)
     mock_client.add_episode.return_value = mock_result
+    
+    # Mock fallback query to return empty records
+    mock_client.driver.execute_query.return_value = MagicMock(records=[])
 
     decision = MagicMock()
     decision.text = "any decision"
     decision.rationale = "any"
     decision.scope = "local"
 
-    await write_decision(decision, modules=["x.py"], commit_sha="abcd1234")
+    with pytest.raises(MemexWriteError, match="not found after add_episode"):
+        await write_decision(decision, modules=["x.py"], commit_sha="abcd1234")
 
     mock_client.add_episode.assert_awaited_once()
-    # The post-hoc SET must NOT have been called when uuid is missing.
-    mock_client.driver.execute_query.assert_not_called()
 
 
 @pytest.mark.asyncio

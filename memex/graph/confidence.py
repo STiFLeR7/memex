@@ -36,6 +36,10 @@ from typing import Any
 # crossings from base 0.6.
 LAMBDA_VALIDATED = 0.005  # per day; time-to-0.3 from base 0.6 ≈ 139 days
 LAMBDA_UNVALIDATED = log(2) / 30  # per day; time-to-0.3 from base 0.6 = exactly 30 days
+LAMBDA_UNVALIDATED_OLD = log(2) / 20  # Regime 3 decay rate; 20-day half-life
+UNVALIDATED_OLD_THRESHOLD_DAYS = 30
+UNVALIDATED_OLD_CAP = 0.5
+VALIDATED_FLOOR = 0.7
 STALENESS_THRESHOLD = 0.3
 COLD_THRESHOLD = 0.05
 COLD_MIN_QUIET_DAYS = 90
@@ -95,6 +99,19 @@ def current_confidence(node: Any) -> float:
     Accepts either a dict (from a Cypher result row) or a Pydantic-model /
     attribute-style object.
 
+    Three-regime TempValid confidence:
+
+    Regime 1 — validated=True:
+        conf = base_confidence * exp(-LAMBDA_VALIDATED * days)
+        floor: VALIDATED_FLOOR (0.7)
+
+    Regime 2 — not validated, age <= UNVALIDATED_OLD_THRESHOLD_DAYS:
+        conf = base_confidence * exp(-LAMBDA_UNVALIDATED * days)
+
+    Regime 3 — not validated, age > UNVALIDATED_OLD_THRESHOLD_DAYS:
+        conf = base_confidence * exp(-LAMBDA_UNVALIDATED_OLD * days)
+        cap: UNVALIDATED_OLD_CAP (0.5)
+
     Fallbacks (legacy / pre-v0.3.0 nodes):
         - missing ``base_confidence`` → defaults to 1.0 (matches v0.2.0)
         - missing ``last_reinforced_at`` → falls back to ``created_at``
@@ -116,9 +133,15 @@ def current_confidence(node: Any) -> float:
         days = 0.0
 
     validated = bool(_get(node, "validated", False))
-    lam = LAMBDA_VALIDATED if validated else LAMBDA_UNVALIDATED
+    if validated:
+        computed = base * exp(-LAMBDA_VALIDATED * days)
+        computed = max(VALIDATED_FLOOR, computed)
+    elif days <= UNVALIDATED_OLD_THRESHOLD_DAYS:
+        computed = base * exp(-LAMBDA_UNVALIDATED * days)
+    else:
+        computed = base * exp(-LAMBDA_UNVALIDATED_OLD * days)
+        computed = min(UNVALIDATED_OLD_CAP, computed)
 
-    computed = base * exp(-lam * days)
     if computed < 0.0:
         return 0.0
     if computed > 1.0:

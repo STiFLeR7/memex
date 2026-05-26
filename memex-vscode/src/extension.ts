@@ -9,7 +9,10 @@ let client: MemexClient | null = null;
 let panelProvider: MemexGraphPanel | null = null;
 let statusBar: MemexStatusBarItem | null = null;
 let healthCheckInterval: NodeJS.Timeout | null = null;
+let statsPollInterval: NodeJS.Timeout | null = null;
 let isConnected = false;
+let lastStaleRatio = 0;
+let lastSavedTokens: number | undefined = undefined;
 
 export function activate(context: vscode.ExtensionContext) {
   const workspaceFolders = vscode.workspace.workspaceFolders;
@@ -25,8 +28,9 @@ export function activate(context: vscode.ExtensionContext) {
     context.extensionUri,
     client,
     (staleRatio) => {
+      lastStaleRatio = staleRatio;
       if (statusBar && isConnected) {
-        statusBar.setConnected(staleRatio);
+        statusBar.setConnected(staleRatio, lastSavedTokens);
       }
     }
   );
@@ -145,6 +149,29 @@ export function activate(context: vscode.ExtensionContext) {
     })
   );
 
+  const pollStats = async () => {
+    if (!client || !statusBar || !isConnected) {
+      return;
+    }
+    const currentConfig = vscode.workspace.getConfiguration('memex');
+    const token = currentConfig.get<string>('authToken') || '';
+    if (!token) {
+      lastSavedTokens = undefined;
+      statusBar.setConnected(lastStaleRatio, undefined);
+      return;
+    }
+    try {
+      const stats = await client.fetchStats(token);
+      if (stats && typeof stats.tokens_saved === 'number') {
+        lastSavedTokens = stats.tokens_saved;
+        statusBar.setConnected(lastStaleRatio, lastSavedTokens);
+      }
+    } catch (err) {
+      // Degrade gracefully, do not show error toast
+      console.warn('Failed to fetch stats:', err);
+    }
+  };
+
   const checkHealth = async () => {
     if (!client || !statusBar || !panelProvider) {
       return;
@@ -157,6 +184,9 @@ export function activate(context: vscode.ExtensionContext) {
     if (currentlyHealthy && !isConnected) {
       isConnected = true;
       statusBar.setConnected(0);
+
+      // Fetch stats immediately on connection
+      pollStats();
       
       client.subscribeToEvents(
         () => {
@@ -181,11 +211,15 @@ export function activate(context: vscode.ExtensionContext) {
 
   checkHealth();
   healthCheckInterval = setInterval(checkHealth, 5000);
+  statsPollInterval = setInterval(pollStats, 15 * 60 * 1000); // 15 minutes
 }
 
 export function deactivate() {
   if (healthCheckInterval) {
     clearInterval(healthCheckInterval);
+  }
+  if (statsPollInterval) {
+    clearInterval(statsPollInterval);
   }
   if (serverProcess) {
     serverProcess.kill();

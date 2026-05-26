@@ -109,6 +109,40 @@ export class MemexClient {
     });
   }
 
+  public async fetchStats(token: string): Promise<any> {
+    return new Promise((resolve, reject) => {
+      const url = `${this.getBaseUrl()}/stats?days=1`;
+      const options = {
+        headers: {
+          'Authorization': `Bearer ${token}`
+        },
+        timeout: 2000
+      };
+      const req = http.get(url, options, (res) => {
+        let data = '';
+        res.on('data', (chunk) => {
+          data += chunk;
+        });
+        res.on('end', () => {
+          if (res.statusCode === 200) {
+            try {
+              resolve(JSON.parse(data));
+            } catch (err) {
+              reject(new Error(`Failed to parse stats JSON: ${(err as Error).message}`));
+            }
+          } else {
+            reject(new Error(`Server returned status code ${res.statusCode}: ${data}`));
+          }
+        });
+      });
+      req.on('error', (err) => reject(err));
+      req.on('timeout', () => {
+        req.destroy();
+        reject(new Error('Request timed out'));
+      });
+    });
+  }
+
   public unsubscribe() {
     if (this.sseRequest) {
       this.sseRequest.destroy();

@@ -25,6 +25,10 @@ from memex.graph.client import get_graph_client
 from memex.graph.confidence import (
     LAMBDA_UNVALIDATED,
     LAMBDA_VALIDATED,
+    LAMBDA_UNVALIDATED_OLD,
+    UNVALIDATED_OLD_THRESHOLD_DAYS,
+    UNVALIDATED_OLD_CAP,
+    VALIDATED_FLOOR,
     STALENESS_THRESHOLD,
 )
 
@@ -44,11 +48,20 @@ WITH n,
 WHERE anchor IS NOT NULL
 WITH n, base, validated,
      duration.inSeconds(anchor, datetime()).seconds / 86400.0 AS days
+WITH n, base, validated, days,
+     CASE
+       WHEN validated THEN {LAMBDA_VALIDATED}
+       WHEN days > {UNVALIDATED_OLD_THRESHOLD_DAYS} THEN {LAMBDA_UNVALIDATED_OLD}
+       ELSE {LAMBDA_UNVALIDATED}
+     END AS lam
 WITH n,
-     base * exp(
-       -CASE WHEN validated THEN {LAMBDA_VALIDATED} ELSE {LAMBDA_UNVALIDATED} END
-       * days
-     ) AS computed
+     CASE
+       WHEN validated THEN
+         CASE WHEN base * exp(-lam * days) < {VALIDATED_FLOOR} THEN {VALIDATED_FLOOR} ELSE base * exp(-lam * days) END
+       WHEN days > {UNVALIDATED_OLD_THRESHOLD_DAYS} THEN
+         CASE WHEN base * exp(-lam * days) > {UNVALIDATED_OLD_CAP} THEN {UNVALIDATED_OLD_CAP} ELSE base * exp(-lam * days) END
+       ELSE base * exp(-lam * days)
+     END AS computed
 SET n.stale = computed < {STALENESS_THRESHOLD}
 RETURN count(n) AS updated_count
 """

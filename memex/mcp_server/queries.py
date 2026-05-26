@@ -51,7 +51,7 @@ async def get_active_modules(since_days: int, scope: Optional[str], repo: Option
     except Exception as e:
         raise MemexQueryError("Failed to get active modules", query, e)
 
-async def get_recent_decisions_raw(since_days: int, module: Optional[str], limit: int, repo: Optional[str] = None) -> List[Dict[str, Any]]:
+async def get_recent_decisions_raw(since_days: int, module: Optional[str], limit: int, repo: Optional[str] = None, corroborated_only: bool = False) -> List[Dict[str, Any]]:
     """Returns recent decision nodes and their affected modules."""
     client = await get_graph_client()
     query = """
@@ -59,11 +59,12 @@ async def get_recent_decisions_raw(since_days: int, module: Optional[str], limit
     WHERE (d.type = 'Decision' OR d.name CONTAINS 'Decision')
       AND ($repo IS NULL OR d.repo_path = $repo)
       AND coalesce(d.created_at, datetime()) >= datetime() - duration({days: $days})
+      AND ($corroborated_only = false OR d.corroborated = true OR d.validated = true)
     
     OPTIONAL MATCH (d)-[r:MOTIVATES|RELATES_TO|MENTIONS]-(m:Entity)
     WHERE (r.expired_at IS NULL)
       AND (coalesce(m.type, '') = 'Module' OR m.name ENDS WITH '.py' OR m.name ENDS WITH '.js')
-
+ 
     WITH d, collect(DISTINCT m.name) as module_paths
     WHERE ($module IS NULL OR any(path IN module_paths WHERE path STARTS WITH $module))
     
@@ -87,7 +88,7 @@ async def get_recent_decisions_raw(since_days: int, module: Optional[str], limit
     LIMIT $limit
     """
     try:
-        res = await client.driver.execute_query(query, params={"days": since_days, "module": module, "limit": limit, "repo": repo})
+        res = await client.driver.execute_query(query, params={"days": since_days, "module": module, "limit": limit, "repo": repo, "corroborated_only": corroborated_only})
         return [r.data() for r in res.records]
     except Exception as e:
         raise MemexQueryError("Failed to get recent decisions", query, e)

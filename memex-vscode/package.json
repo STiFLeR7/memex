@@ -27,6 +27,11 @@
           "type": "integer",
           "default": 7463,
           "description": "Port for the local memex HTTP/SSE server."
+        },
+        "memex.authToken": {
+          "type": "string",
+          "default": "",
+          "description": "Auth token/key for accessing the memex local server endpoints."
         }
       }
     },

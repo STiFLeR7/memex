@@ -34,6 +34,106 @@ async def get_node_counts_safe():
     except Exception:
         return None
 
+async def run_stats_command(repo_root: str | None, days: int) -> None:
+    try:
+        from memex.graph.telemetry import TelemetryDB
+        db = TelemetryDB()
+        path = repo_root or "."
+        abs_path = os.path.abspath(path)
+        
+        stats = db.get_stats(abs_path, days)
+        
+        # Fetch validation health from Neo4j
+        validation_health = {
+            "validated": 0,
+            "unvalidated": 0,
+            "corroborated": 0,
+            "last_review_days_ago": None
+        }
+        try:
+            client = await get_graph_client()
+            query = """
+            MATCH (d:Entity)
+            WHERE (d.type = 'Decision' OR d.name CONTAINS 'Decision')
+              AND ($repo IS NULL OR d.repo_path = $repo)
+            RETURN
+              sum(case when coalesce(d.validated, false) = true then 1 else 0 end) as validated,
+              sum(case when coalesce(d.validated, false) = false and coalesce(d.excluded, false) = false then 1 else 0 end) as unvalidated,
+              sum(case when coalesce(d.corroborated, false) = true then 1 else 0 end) as corroborated,
+              max(coalesce(d.validated_at, d.updated_at)) as last_validated_at
+            """
+            res = await client.driver.execute_query(query, params={"repo": abs_path})
+            if res.records:
+                rec = res.records[0].data()
+                validation_health["validated"] = rec.get("validated") or 0
+                validation_health["unvalidated"] = rec.get("unvalidated") or 0
+                validation_health["corroborated"] = rec.get("corroborated") or 0
+                
+                last_validated_at = rec.get("last_validated_at")
+                if last_validated_at:
+                    from datetime import datetime, timezone
+                    if isinstance(last_validated_at, str):
+                        try:
+                            s = last_validated_at.replace("Z", "+00:00")
+                            dt = datetime.fromisoformat(s)
+                        except Exception:
+                            dt = None
+                    else:
+                        dt = last_validated_at
+                    if dt:
+                        if dt.tzinfo is None:
+                            dt = dt.replace(tzinfo=timezone.utc)
+                        now = datetime.now(timezone.utc)
+                        validation_health["last_review_days_ago"] = (now - dt).days
+        except Exception as e:
+            logger.warning(f"Failed to fetch validation health from Neo4j: {e}")
+            
+        from rich.console import Console
+        from rich.text import Text
+        
+        console = Console()
+        
+        console.print(f"\n[bold]memex token savings — last {days} days[/bold]")
+        console.print("─" * 44)
+        console.print(f"total calls:        {stats['total_calls']}")
+        console.print(f"tokens returned:    {stats['tokens_returned']:,}")
+        console.print(f"tokens naive:       {stats['tokens_naive']:,}")
+        reduction_text = f"({stats['reduction_pct']}% reduction)"
+        console.print(Text.assemble("tokens saved:       ", (f"{stats['tokens_saved']:,}", "green"), "   ", (reduction_text, "cyan")))
+        
+        inr_val = int(stats['cost_saved_usd'] * 83)
+        console.print(f"cost saved (est.):  ₹{inr_val}  (${stats['cost_saved_usd']:.2f} at $0.24/1M input)")
+        console.print()
+        
+        if stats["by_tool"]:
+            console.print("[bold]top tools by savings:[/bold]")
+            for tool in stats["by_tool"][:5]:
+                saved = tool["tokens_saved"]
+                saved_str = f"{saved:,}" if saved is not None else "n/a"
+                console.print(f"  {tool['tool_name']:<22} {saved_str:>10} tokens saved across {tool['calls']} calls")
+            console.print()
+            
+        if stats["by_agent"]:
+            console.print("[bold]by agent harness:[/bold]")
+            total_calls = stats["total_calls"]
+            for agent in stats["by_agent"][:5]:
+                pct = (agent["calls"] / total_calls * 100) if total_calls > 0 else 0.0
+                console.print(f"  {agent['agent']:<15} {pct:.0f}% of calls")
+            console.print()
+            
+        console.print("[bold]validation health:[/bold]")
+        console.print(f"  validated:       {validation_health['validated']}")
+        console.print(f"  unvalidated:     {validation_health['unvalidated']}")
+        console.print(f"  corroborated:   {validation_health['corroborated']}")
+        last_review = validation_health['last_review_days_ago']
+        last_review_str = f"{last_review} day(s) ago" if last_review is not None else "never"
+        console.print(f"  last review:     {last_review_str}")
+        console.print()
+        
+    except Exception as e:
+        print(f"Error printing stats: {e}", file=sys.stderr)
+        sys.exit(1)
+
 async def print_status(repo_root: str | None):
     if repo_root:
         repo_path = Path(repo_root).resolve()
@@ -268,6 +368,10 @@ def main(args=None):
     archive_parser.add_argument("--restore", metavar="NODE_ID", help="Restore a specific archived node")
     archive_parser.add_argument("--stats", action="store_true", help="Show archive size and oldest entry")
 
+    # stats (Phase 11)
+    stats_parser = subparsers.add_parser("stats", help="Show context token savings and telemetry stats", parents=[parent_parser])
+    stats_parser.add_argument("--days", type=int, default=30, help="Show stats for the last N days")
+
     # review (Phase 8)
     subparsers.add_parser("review", help="Validate synthesised decisions (lowest-confidence-first)", parents=[parent_parser])
 
@@ -427,6 +531,9 @@ def main(args=None):
         except ImportError:
             print("memex archive: not yet implemented in v0.3.0-alpha (Phase 6 in progress)", file=sys.stderr)
             sys.exit(2)
+
+    elif parsed_args.command == "stats":
+        asyncio.run(run_stats_command(repo_root, parsed_args.days))
 
     elif parsed_args.command == "review":
         try:

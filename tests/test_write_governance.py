@@ -171,8 +171,8 @@ async def test_record_decision_supersede_invalidates_old_node():
     with patch("memex.mcp_server.tools_write.get_graph_client") as mock_get_client:
         mock_client = AsyncMock()
         mock_client.add_episode.return_value = mock_result
-        # All driver queries succeed with empty records
-        mock_client.driver.execute_query.return_value = MagicMock(records=[])
+        # All driver queries succeed with non-empty records to satisfy the existence check
+        mock_client.driver.execute_query.return_value = MagicMock(records=[{"uuid": "abc123"}])
         mock_get_client.return_value = mock_client
 
         result = await record_decision(

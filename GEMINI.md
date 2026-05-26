@@ -59,7 +59,7 @@ memex/
 ```
 
 ### Current phase
-**v0.3.0 — research-locked, Phase 5.9 scaffolding shipped.** See `TRASH/PLAN-v0.3.0.md` and `TRASH/ARCHITECTURE-v0.3.0.md` (locally gitignored — not on main) for the full plan. Build environment: graspologic requires MSVC Build Tools; cluster-engine portions of Phase 6 are assigned to dev2 (Hill Patel).
+**v0.4.0 — Pillar 1 (Context Cost Telemetry) complete.** See `docs/PLAN-v0.4.0.md` and `docs/superpowers/specs/2026-05-26-v0.4.0-design.md` for details.
 
 Update this section as phases complete:
 - [x] Phase 1 — Graph Writes
@@ -74,8 +74,10 @@ Update this section as phases complete:
 - [x] Phase 9 — Write governance ACL + intent confirmation + explain_change/predict_impact (Wave 2)
 - [x] Move 1 — Anthropic memory-tool backend adapter (Wave 2)
 - [x] Phase 10 — memex graph viz + audit + release (Wave 3)
+- [x] Phase 11 — Context Cost Telemetry (Wave 1 of v0.4.0)
+- [x] Phase 12 — Confidence-Weighted Write Discipline (Wave 1 of v0.4.0)
 
-Current status: v0.3.0 — implementation complete pending dev2's cluster engine; release prep in progress
+Current status: v0.4.0 — Phase 11 and 12 complete and verified with unit/integration tests
 
 ### v0.3.0 additions to non-negotiables
 - Two new optional Gemini calls: cluster topic summarisation (Gemini Flash) and `explain_change` (Gemini Pro for synthesis quality).

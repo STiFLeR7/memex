@@ -241,13 +241,20 @@ async def explain_change(commit_sha: str, repo: Optional[str] = None) -> str:
 
     try:
         synthesis = await _call_gemini_pro(prompt)
+        if not synthesis.strip():
+            result = _truncate(
+                f"# explain_change\n\ncommit: {commit_sha}\n"
+                f"synthesis returned empty response — check Gemini Pro availability"
+            )
+        else:
+            result = _truncate(synthesis)
     except Exception as e:
         logger.error("Gemini Pro call failed in explain_change", exc_info=True)
         # Graceful fallback: surface the raw context so the agent still gets value
         ctx_text = "\n".join(
             f"- [{n.get('node_type','Node')}] {n.get('text','')}" for n in context_nodes
         ) or "- no linked context"
-        return _truncate(
+        result = _truncate(
             f"# explain_change [synthesis unavailable]\n\n"
             f"commit: {commit_sha}\n"
             f"changed files: {len(files)}\n\n"
@@ -255,10 +262,9 @@ async def explain_change(commit_sha: str, repo: Optional[str] = None) -> str:
             f"_synthesis failed: {e}_"
         )
 
-    if not synthesis.strip():
-        return _truncate(
-            f"# explain_change\n\ncommit: {commit_sha}\n"
-            f"synthesis returned empty response — check Gemini Pro availability"
-        )
-
-    return _truncate(synthesis)
+    try:
+        from memex.graph.telemetry import record_tool_call
+        await record_tool_call("explain_change", len(result) // 4, repo)
+    except Exception:
+        pass
+    return result
