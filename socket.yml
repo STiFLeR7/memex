@@ -1,0 +1,17 @@
+version: 2
+
+# Configure Socket GitHub App behavior for supply-chain security
+githubApp:
+  enabled: true
+  dependencyOverviewEnabled: true
+  pullRequestAlertsEnabled: true
+
+# Folders to ignore from Socket analysis
+projectIgnorePaths:
+  - "**/node_modules/**"
+  - "**/dist/**"
+  - "**/build/**"
+  - "**/.venv/**"
+  - "**/venv/**"
+  - "**/__pycache__/**"
+  - "**/.pytest_cache/**"

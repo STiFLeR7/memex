@@ -13,7 +13,9 @@ A daemon and MCP server that turns every commit and every file change into struc
 [![Claude Code marketplace](https://img.shields.io/badge/Claude%20Code-marketplace-7c3aed)](https://github.com/STiFLeR7/claude-plugins)
 [![memex MCP server](https://glama.ai/mcp/servers/STiFLeR7/memex/badges/score.svg)](https://glama.ai/mcp/servers/STiFLeR7/memex)
 [![GitHub stars](https://img.shields.io/github/stars/STiFLeR7/memex?style=flat)](https://github.com/STiFLeR7/memex/stargazers)
-[![Tests](https://img.shields.io/github/actions/workflow/status/STiFLeR7/memex/publish.yml?branch=master&label=tests)](https://github.com/STiFLeR7/memex/actions)
+[![Tests](https://github.com/STiFLeR7/memex/actions/workflows/ci.yml/badge.svg?branch=master)](https://github.com/STiFLeR7/memex/actions/workflows/ci.yml)
+[![CodeQL](https://github.com/STiFLeR7/memex/actions/workflows/codeql.yml/badge.svg?branch=master)](https://github.com/STiFLeR7/memex/actions/workflows/codeql.yml)
+[![OpenSSF Scorecard](https://api.securityscorecards.dev/projects/github.com/STiFLeR7/memex/badge)](https://securityscorecards.dev/viewer/?uri=github.com/STiFLeR7/memex)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
 ![memex — temporal knowledge graph MCP server for AI coding agents, built on Graphiti and Neo4j](https://raw.githubusercontent.com/STiFLeR7/memex/master/assets/memex.png)
