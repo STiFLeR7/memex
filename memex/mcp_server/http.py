@@ -153,7 +153,7 @@ def create_app(server: Server, repo_root: str):
             logger.error(f"Failed to fetch graph data: {e}", exc_info=True)
             return JSONResponse(
                 status_code=500,
-                content={"detail": f"Failed to fetch graph data: {str(e)}"}
+                content={"detail": "Failed to fetch graph data"}
             )
 
     @app.get("/events")
@@ -210,7 +210,7 @@ def create_app(server: Server, repo_root: str):
             logger.error(f"Failed to initialize TelemetryDB in /stats: {e}", exc_info=True)
             return JSONResponse(
                 status_code=500,
-                content={"detail": f"Telemetry DB initialization failed: {str(e)}"}
+                content={"detail": "Telemetry DB initialization failed"}
             )
         
         actual_repo = repo or repo_root
