@@ -9,9 +9,17 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 from math import log
 
+from unittest.mock import patch
+
 import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
+
+@pytest.fixture
+def frozen_now():
+    now_val = datetime.now(timezone.utc)
+    with patch("memex.graph.confidence._utc_now", return_value=now_val):
+        yield now_val
 
 from memex.graph.confidence import (
     LAMBDA_UNVALIDATED,
@@ -59,9 +67,9 @@ def _make_node(**kwargs):
     return base
 
 
-def test_unvalidated_decision_crosses_0_3_at_day_30():
+def test_unvalidated_decision_crosses_0_3_at_day_30(frozen_now):
     """The headline guarantee: unvalidated base=0.6 → stale at exactly d=30."""
-    anchor = datetime.now(timezone.utc) - timedelta(days=30)
+    anchor = frozen_now - timedelta(days=30)
     node = _make_node(last_reinforced_at=anchor)
     computed = current_confidence(node)
     # ln(2)/30 * 30 = ln(2) → 0.6 * exp(-ln2) = 0.3 exactly
@@ -76,9 +84,9 @@ def test_validated_decision_never_crosses_validated_floor():
     assert computed == pytest.approx(0.7, abs=1e-6)
 
 
-def test_validated_decision_is_not_stale_at_day_30():
+def test_validated_decision_is_not_stale_at_day_30(frozen_now):
     """The whole point of validation: 30 days in, validated decisions are fine."""
-    anchor = datetime.now(timezone.utc) - timedelta(days=30)
+    anchor = frozen_now - timedelta(days=30)
     node = _make_node(validated=True, last_reinforced_at=anchor)
     assert current_confidence(node) > STALENESS_THRESHOLD
     assert not is_stale(node)
@@ -122,8 +130,8 @@ def test_missing_base_confidence_defaults_to_one():
     assert current_confidence(node) == pytest.approx(1.0, abs=1e-6)
 
 
-def test_missing_last_reinforced_falls_back_to_created_at():
-    created = datetime.now(timezone.utc) - timedelta(days=30)
+def test_missing_last_reinforced_falls_back_to_created_at(frozen_now):
+    created = frozen_now - timedelta(days=30)
     node = {"base_confidence": 0.6, "created_at": created, "validated": False}
     # Should behave the same as if last_reinforced_at were set to created_at.
     assert current_confidence(node) == pytest.approx(0.3, abs=1e-3)
@@ -135,20 +143,20 @@ def test_missing_both_anchors_returns_base_unchanged():
     assert current_confidence(node) == pytest.approx(0.7, abs=1e-6)
 
 
-def test_accepts_pydantic_like_attribute_object():
+def test_accepts_pydantic_like_attribute_object(frozen_now):
     """The helper must work on both dicts and attribute-style objects."""
     class Stub:
         base_confidence = 0.6
         validated = False
-        last_reinforced_at = datetime.now(timezone.utc) - timedelta(days=30)
+        last_reinforced_at = frozen_now - timedelta(days=30)
         created_at = None
 
     assert current_confidence(Stub()) == pytest.approx(0.3, abs=1e-3)
 
 
-def test_handles_naive_datetime_by_assuming_utc():
+def test_handles_naive_datetime_by_assuming_utc(frozen_now):
     """Some Cypher results come back naive — don't crash."""
-    anchor_naive = (datetime.now(timezone.utc) - timedelta(days=30)).replace(tzinfo=None)
+    anchor_naive = (frozen_now - timedelta(days=30)).replace(tzinfo=None)
     node = {
         "base_confidence": 0.6,
         "validated": False,
