@@ -75,3 +75,4 @@ memex-vscode/*.vsix
 # Local agent caches & configurations
 .claude/
 .antigravitycli/
+temp_repo/
