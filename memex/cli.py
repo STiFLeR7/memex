@@ -396,6 +396,11 @@ def main(args=None):
         action="store_true",
         help="Print the clustering result without writing to Neo4j",
     )
+    cluster_parser.add_argument(
+        "--refresh-summaries",
+        action="store_true",
+        help="Force-regenerate Gemini summaries for all clusters",
+    )
 
     # memory-tool (Move 1)
     mt_parser = subparsers.add_parser("memory-tool", help="Anthropic memory-tool backend adapter", parents=[parent_parser])
@@ -561,6 +566,7 @@ def main(args=None):
             repo_root=repo_root or ".",
             rerun=parsed_args.rerun,
             dry_run=parsed_args.dry_run,
+            refresh_summaries=parsed_args.refresh_summaries,
         ))
 
     elif parsed_args.command == "memory-tool":

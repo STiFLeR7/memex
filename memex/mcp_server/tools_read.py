@@ -276,3 +276,117 @@ async def get_stale_context(threshold: float = 0.5, repo: Optional[str] = None) 
 
 from memex.mcp_server.tools_explain import explain_change  # noqa: E402, F401
 from memex.mcp_server.tools_impact import predict_impact   # noqa: E402, F401
+
+async def get_context_briefing(
+    max_tokens: int = 2000,
+    scope: Optional[str] = None,
+    repo: Optional[str] = None,
+) -> str:
+    """Token-budgeted context briefing for session priming.
+
+    Assembles context in priority order, stopping when the budget is hit:
+    1. Cluster summaries (if available)
+    2. High-confidence recent decisions (last 7 days, conf > 0.5)
+    3. Open problems
+    4. Stale edges needing attention
+
+    Each section is added only if budget remains.
+    """
+    sections: list[str] = []
+    used_tokens = 0
+
+    header = "# memex Context Briefing\n\n"
+    footer_template = "\n\n---\n*Budget: {used_tokens}/{max_tokens} tokens used*"
+
+    used_tokens += len(header) // 4
+
+    def _budget_remaining() -> int:
+        footer_est = len(footer_template.format(used_tokens=max_tokens, max_tokens=max_tokens)) // 4
+        return max_tokens - used_tokens - footer_est
+
+    def _add_section(title: str, content: str) -> bool:
+        nonlocal used_tokens
+        section = f"## {title}\n{content}\n\n"
+        section_tokens = len(section) // 4
+        rem = _budget_remaining()
+        if rem <= 0:
+            return False
+        if section_tokens > rem:
+            available_chars = rem * 4
+            if available_chars < 50:
+                return False
+            section = section[:available_chars] + "\n...(truncated)\n\n"
+            section_tokens = len(section) // 4
+        sections.append(section)
+        used_tokens += section_tokens
+        return True
+
+    # 1. Cluster summaries (cheapest, highest density)
+    try:
+        cluster_ctx = await get_cluster_level_context(repo=repo)
+        if scope:
+            cluster_ctx = [
+                c for c in cluster_ctx
+                if any(m.startswith(scope) or scope in m for m in c.get("members", []))
+            ]
+        if cluster_ctx:
+            lines = []
+            for c in cluster_ctx:
+                desc = c.get("summary") or c.get("description") or "no summary available"
+                lines.append(f"- **{c.get('name', 'unknown')}** ({c.get('module_count', 0)} modules): {desc}")
+            _add_section("Architecture Overview", "\n".join(lines))
+    except Exception as e:
+        logger.warning("Failed to include cluster summaries in briefing: %s", e)
+
+    # 2. High-confidence recent decisions
+    if _budget_remaining() > 50:
+        try:
+            # get decisions for the last 7 days.
+            decisions = await get_recent_decisions_raw(since_days=7, module=scope, limit=10, repo=repo)
+            from memex.graph.confidence import current_confidence
+            scored = [(d, current_confidence(d)) for d in decisions]
+            scored.sort(key=lambda x: x[1], reverse=True)
+            high_conf = [d for d, c in scored if c > 0.5]
+            if high_conf:
+                lines = []
+                for d in high_conf:
+                    conf = current_confidence(d)
+                    lines.append(f"- **{d.get('text', 'unnamed')}** (conf: {conf:.2f})")
+                _add_section("Key Decisions (last 7 days)", "\n".join(lines))
+        except Exception as e:
+            logger.warning("Failed to include recent decisions in briefing: %s", e)
+
+    # 3. Open problems
+    if _budget_remaining() > 50:
+        try:
+            problems = await get_open_problems_raw(module=scope, repo=repo)
+            if problems:
+                lines = [f"- **{p.get('text', 'unnamed')}** ({p.get('severity', 'medium')})" for p in problems[:5]]
+                _add_section("Open Problems", "\n".join(lines))
+        except Exception as e:
+            logger.warning("Failed to include open problems in briefing: %s", e)
+
+    # 4. Stale edges
+    if _budget_remaining() > 50:
+        try:
+            # stale edges threshold 0.3
+            stale = await get_stale_edges(threshold=0.3, limit=3, repo=repo)
+            if stale:
+                lines = [
+                    f"- ⚠️ **{s.get('source')}** -[{s.get('edge_type')}]-> **{s.get('target')}** (conf: {s.get('confidence'):.2f})"
+                    for s in stale
+                ]
+                _add_section("Needs Attention", "\n".join(lines))
+        except Exception as e:
+            logger.warning("Failed to include stale edges in briefing: %s", e)
+
+    briefing = header + "".join(sections) + footer_template.format(used_tokens=used_tokens, max_tokens=max_tokens)
+
+    # Telemetry
+    try:
+        from memex.graph.telemetry import record_tool_call
+        await record_tool_call("get_context_briefing", used_tokens, repo)
+    except Exception:
+        pass
+
+    return briefing

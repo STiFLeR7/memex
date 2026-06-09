@@ -1,6 +1,7 @@
 import logging
 import asyncio
 import json
+import os
 
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse, StreamingResponse
@@ -44,7 +45,35 @@ def create_app(server: Server, repo_root: str):
         version="0.2.0"
     )
     
-    sse = SseServerTransport("/mcp/messages")
+    transport_mode = os.environ.get("MEMEX_MCP_TRANSPORT", "streamable-http")
+
+    if transport_mode == "sse":
+        import warnings
+        warnings.warn(
+            "SSE transport is deprecated and will be removed in v0.6.0. "
+            "Migrate to Streamable HTTP by removing MEMEX_MCP_TRANSPORT env var.",
+            DeprecationWarning,
+            stacklevel=1,
+        )
+        sse = SseServerTransport("/mcp/messages")
+    else:
+        from mcp.server.streamable_http import StreamableHTTPServerTransport
+        transport = StreamableHTTPServerTransport(mcp_session_id=None)
+
+        async def run_transport():
+            try:
+                async with transport.connect() as (read_stream, write_stream):
+                    await server.run(
+                        read_stream,
+                        write_stream,
+                        server.create_initialization_options()
+                    )
+            except Exception as e:
+                logger.error(f"Error in Streamable HTTP transport run loop: {e}", exc_info=True)
+
+        @app.on_event("startup")
+        async def startup_event():
+            asyncio.create_task(run_transport())
 
     @app.get("/health")
     async def health_check():
@@ -293,24 +322,28 @@ def create_app(server: Server, repo_root: str):
             await response(scope, receive, send)
             return
 
-        if scope["path"].endswith("/sse") and scope["method"] == "GET":
-            try:
-                async with sse.connect_sse(scope, receive, send) as (read_stream, write_stream):
-                    await server.run(
-                        read_stream,
-                        write_stream,
-                        server.create_initialization_options()
-                    )
-            except Exception as e:
-                logger.error(f"SSE Error: {e}", exc_info=True)
-        elif scope["path"].endswith("/messages") and scope["method"] == "POST":
-            try:
-                await sse.handle_post_message(scope, receive, send)
-            except Exception as e:
-                logger.error(f"POST Message Error: {e}", exc_info=True)
+        if transport_mode == "sse":
+            if scope["path"].endswith("/sse") and scope["method"] == "GET":
+                try:
+                    async with sse.connect_sse(scope, receive, send) as (read_stream, write_stream):
+                        await server.run(
+                            read_stream,
+                            write_stream,
+                            server.create_initialization_options()
+                        )
+                except Exception as e:
+                    logger.error(f"SSE Error: {e}", exc_info=True)
+            elif scope["path"].endswith("/messages") and scope["method"] == "POST":
+                try:
+                    await sse.handle_post_message(scope, receive, send)
+                except Exception as e:
+                    logger.error(f"POST Message Error: {e}", exc_info=True)
+            else:
+                response = JSONResponse(status_code=404, content={"detail": "Not Found"})
+                await response(scope, receive, send)
         else:
-            response = JSONResponse(status_code=404, content={"detail": "Not Found"})
-            await response(scope, receive, send)
+            # Streamable HTTP transport
+            await transport.handle_request(scope, receive, send)
 
     app.mount("/mcp", mcp_asgi_app)
 
@@ -340,7 +373,10 @@ async def run_http_server(server: Server, repo_root: str, host: str = "127.0.0.1
 
     try:
         logger.info("Starting memex MCP HTTP server on %s:%s", host, port)
-        logger.info("MCP SSE endpoint: http://%s:%s/mcp/sse", host, port)
+        if os.environ.get("MEMEX_MCP_TRANSPORT") == "sse":
+            logger.info("MCP SSE endpoint: http://%s:%s/mcp/sse", host, port)
+        else:
+            logger.info("MCP Streamable HTTP endpoint: http://%s:%s/mcp", host, port)
         await server_uvicorn.serve()
     finally:
         try:

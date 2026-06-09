@@ -113,9 +113,25 @@ async def run_cluster_command(
     *,
     rerun: bool = False,
     dry_run: bool = False,
+    refresh_summaries: bool = False,
 ) -> None:
-    """Implementation behind ``memex cluster [--rerun] [--dry-run]``."""
+    """Implementation behind ``memex cluster [--rerun] [--dry-run] [--refresh-summaries]``."""
     repo = str(Path(repo_root).resolve())
+
+    if refresh_summaries:
+        if dry_run:
+            print("memex cluster: dry run for refresh-summaries is not supported")
+            return
+        try:
+            from memex.graph.client import get_graph_client
+            client = await get_graph_client()
+        except Exception as exc:
+            print(f"memex cluster: Neo4j not reachable — {exc}")
+            return
+        from memex.graph.cluster_summary import refresh_cluster_summaries
+        summaries = await refresh_cluster_summaries(repo, force=True)
+        print(f"memex cluster: generated {len(summaries)} cluster summaries")
+        return
 
     if dry_run:
         # Dry-run still wants prior-cluster pinning for an honest preview,
@@ -162,6 +178,16 @@ async def run_cluster_command(
         f"memex cluster: wrote {summary['clusters_written']} clusters "
         f"({summary['contains_edges_written']} CONTAINS edges)"
     )
+
+    # Synthesize summaries for new clusters
+    try:
+        from memex.graph.cluster_summary import refresh_cluster_summaries
+        summaries = await refresh_cluster_summaries(repo)
+        if summaries:
+            print(f"memex cluster: generated {len(summaries)} cluster summaries")
+    except Exception as e:
+        logger.error(f"Failed to generate cluster summaries: {e}", exc_info=True)
+
     _print_assignments(assignments)
 
 

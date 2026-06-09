@@ -83,6 +83,10 @@ async def get_recent_decisions_raw(since_days: int, module: Optional[str], limit
       // whether two same-module Decisions have overlapping windows.
       coalesce(d.valid_from, d.created_at) as valid_from,
       d.valid_until as valid_until,
+      coalesce(d.base_confidence, 0.6) as base_confidence,
+      d.last_reinforced_at as last_reinforced_at,
+      d.created_at as created_at,
+      d.validated as validated,
       coalesce(d.uuid, elementId(d)) as id
     ORDER BY d.created_at DESC
     LIMIT $limit
@@ -277,10 +281,14 @@ async def get_cluster_level_context(repo: Optional[str] = None) -> List[Dict[str
     query = """
     MATCH (c:Entity)
     WHERE c.type = 'Cluster'
+      AND c.expired_at IS NULL
       AND ($repo IS NULL OR c.repo_path = $repo)
     OPTIONAL MATCH (c)-[rc:CONTAINS]->(m:Entity)
     WHERE rc.expired_at IS NULL AND m.type = 'Module'
-    RETURN c.name as name, coalesce(c.description, '') as description,
+    RETURN c.name as name,
+           coalesce(c.summary, c.description, '') as description,
+           c.summary as summary,
+           collect(DISTINCT m.name) as members,
            count(DISTINCT m) as module_count
     ORDER BY c.name ASC
     """

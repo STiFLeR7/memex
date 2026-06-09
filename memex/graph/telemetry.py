@@ -338,6 +338,11 @@ async def record_tool_call(
 
         agent = detect_agent()
         tokens_naive = estimate_naive_tokens(tool_name, tokens_returned, actual_repo, module_files)
+        tokens_saved = (tokens_naive - tokens_returned) if tokens_naive is not None else None
+
+        # OTel metrics (no-op if SDK not installed)
+        from memex.graph.otel import record_token_metrics
+        record_token_metrics(tool_name, tokens_returned, tokens_naive, tokens_saved)
 
         db = TelemetryDB()
         await asyncio.to_thread(db.record_call, tool_name, actual_repo, agent, tokens_returned, tokens_naive)

@@ -20,6 +20,7 @@ from memex.mcp_server.tools_read import (
     # Phase 9
     explain_change,
     predict_impact,
+    get_context_briefing,
 )
 from memex.mcp_server.tools_write import record_decision, record_problem, resolve_problem, invalidate_edge
 
@@ -317,6 +318,34 @@ async def handle_list_tools() -> list[Tool]:
                 },
                 "required": ["file_path"]
             }
+        ),
+        Tool(
+            name="get_context_briefing",
+            description=(
+                "Returns a ranked, token-capped briefing of the most important "
+                "context for this codebase. Use this at the START of a session "
+                "to efficiently prime your understanding without overloading "
+                "your context window. The briefing includes cluster summaries, "
+                "recent high-confidence decisions, and active problems."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "max_tokens": {
+                        "type": "integer",
+                        "description": "Maximum token budget for the briefing (default: 2000)",
+                        "default": 2000,
+                    },
+                    "scope": {
+                        "type": "string",
+                        "description": "Optional module/directory scope to focus the briefing",
+                    },
+                    "repo": {
+                        "type": "string",
+                        "description": "Repository path (uses default if omitted)",
+                    },
+                },
+            },
         )
     ]
 
@@ -324,94 +353,126 @@ async def handle_call_tool(name: str, arguments: dict) -> list[TextContent | Ima
     """
     Handle tool calls with argument validation and type coercion.
     """
-    try:
-        repo = str(arguments.get("repo")) if arguments.get("repo") else None
-        
-        if name == "get_project_context":
-            scope = str(arguments.get("scope")) if arguments.get("scope") else None
-            result = await get_project_context(scope, repo=repo)
-            return [TextContent(type="text", text=result)]
-        elif name == "get_symbol_context":
-            symbol_name = str(arguments.get("symbol_name", ""))
-            file = str(arguments.get("file")) if arguments.get("file") else None
-            if not symbol_name:
-                return [TextContent(type="text", text="Error: 'symbol_name' is required.")]
-            result = await get_symbol_context(symbol_name, file, repo=repo)
-            return [TextContent(type="text", text=result)]
-        elif name == "get_recent_decisions":
-            try:
-                days = int(arguments.get("days", 30))
-            except (ValueError, TypeError):
-                days = 30
-            module = str(arguments.get("module")) if arguments.get("module") else None
-            result = await get_recent_decisions(days, module, repo=repo)
-            return [TextContent(type="text", text=result)]
-        elif name == "get_open_problems":
-            module = str(arguments.get("module")) if arguments.get("module") else None
-            result = await get_open_problems(module, repo=repo)
-            return [TextContent(type="text", text=result)]
-        elif name == "search_context":
-            query = str(arguments.get("query", ""))
-            try:
-                top_k = int(arguments.get("top_k", 8))
-            except (ValueError, TypeError):
-                top_k = 8
-            result = await search_context(query, top_k, repo=repo)
-            return [TextContent(type="text", text=result)]
-        elif name == "get_stale_context":
-            try:
-                threshold = float(arguments.get("threshold", 0.5))
-            except (ValueError, TypeError):
-                threshold = 0.5
-            result = await get_stale_context(threshold, repo=repo)
-            return [TextContent(type="text", text=result)]
-        elif name == "record_decision":
-            text = str(arguments.get("text", ""))
-            module = str(arguments.get("module")) if arguments.get("module") else None
-            symbol = str(arguments.get("symbol")) if arguments.get("symbol") else None
-            rationale = str(arguments.get("rationale")) if arguments.get("rationale") else None
-            # Phase 9 — governance kwargs
-            corroborates = str(arguments.get("corroborates")) if arguments.get("corroborates") else None
-            supersedes = str(arguments.get("supersedes")) if arguments.get("supersedes") else None
-            force = bool(arguments.get("force", False))
-            result = await record_decision(
-                text, module, symbol, rationale, repo=repo,
-                corroborates=corroborates, supersedes=supersedes, force=force,
-            )
-            return [TextContent(type="text", text=result)]
-        elif name == "record_problem":
-            text = str(arguments.get("text", ""))
-            module = str(arguments.get("module")) if arguments.get("module") else None
-            severity = str(arguments.get("severity", "medium"))
-            result = await record_problem(text, module, severity, repo=repo)
-            return [TextContent(type="text", text=result)]
-        elif name == "resolve_problem":
-            problem_id = str(arguments.get("problem_id", ""))
-            resolution_text = str(arguments.get("resolution_text", ""))
-            result = await resolve_problem(problem_id, resolution_text, repo=repo)
-            return [TextContent(type="text", text=result)]
-        elif name == "invalidate_edge":
-            edge_id = str(arguments.get("edge_id", ""))
-            reason = str(arguments.get("reason", ""))
-            result = await invalidate_edge(edge_id, reason, repo=repo)
-            return [TextContent(type="text", text=result)]
-        # Phase 9 — new tools
-        elif name == "explain_change":
-            commit_sha = str(arguments.get("commit_sha", ""))
-            if not commit_sha:
-                return [TextContent(type="text", text="Error: 'commit_sha' is required.")]
-            result = await explain_change(commit_sha, repo=repo)
-            return [TextContent(type="text", text=result)]
-        elif name == "predict_impact":
-            file_path = str(arguments.get("file_path", ""))
-            if not file_path:
-                return [TextContent(type="text", text="Error: 'file_path' is required.")]
-            result = await predict_impact(file_path, repo=repo)
-            return [TextContent(type="text", text=result)]
-        return [TextContent(type="text", text=f"Tool {name} not found")]
-    except Exception as e:
-        logger.error("Internal error calling tool %s", name, exc_info=True)
-        return [TextContent(type="text", text=f"Internal Server Error: {str(e)}")]
+    from memex.graph.otel import tool_span
+    from memex.graph.telemetry import detect_agent
+
+    repo = str(arguments.get("repo")) if arguments.get("repo") else None
+    agent = detect_agent()
+
+    with tool_span(name, repo or ".", agent) as span:
+        try:
+            result = None
+            if name == "get_project_context":
+                scope = str(arguments.get("scope")) if arguments.get("scope") else None
+                res = await get_project_context(scope, repo=repo)
+                result = [TextContent(type="text", text=res)]
+            elif name == "get_symbol_context":
+                symbol_name = str(arguments.get("symbol_name", ""))
+                file = str(arguments.get("file")) if arguments.get("file") else None
+                if not symbol_name:
+                    result = [TextContent(type="text", text="Error: 'symbol_name' is required.")]
+                else:
+                    res = await get_symbol_context(symbol_name, file, repo=repo)
+                    result = [TextContent(type="text", text=res)]
+            elif name == "get_recent_decisions":
+                try:
+                    days = int(arguments.get("days", 30))
+                except (ValueError, TypeError):
+                    days = 30
+                module = str(arguments.get("module")) if arguments.get("module") else None
+                res = await get_recent_decisions(days, module, repo=repo)
+                result = [TextContent(type="text", text=res)]
+            elif name == "get_open_problems":
+                module = str(arguments.get("module")) if arguments.get("module") else None
+                res = await get_open_problems(module, repo=repo)
+                result = [TextContent(type="text", text=res)]
+            elif name == "search_context":
+                query = str(arguments.get("query", ""))
+                try:
+                    top_k = int(arguments.get("top_k", 8))
+                except (ValueError, TypeError):
+                    top_k = 8
+                res = await search_context(query, top_k, repo=repo)
+                result = [TextContent(type="text", text=res)]
+            elif name == "get_stale_context":
+                try:
+                    threshold = float(arguments.get("threshold", 0.5))
+                except (ValueError, TypeError):
+                    threshold = 0.5
+                res = await get_stale_context(threshold, repo=repo)
+                result = [TextContent(type="text", text=res)]
+            elif name == "record_decision":
+                text = str(arguments.get("text", ""))
+                module = str(arguments.get("module")) if arguments.get("module") else None
+                symbol = str(arguments.get("symbol")) if arguments.get("symbol") else None
+                rationale = str(arguments.get("rationale")) if arguments.get("rationale") else None
+                # Phase 9 — governance kwargs
+                corroborates = str(arguments.get("corroborates")) if arguments.get("corroborates") else None
+                supersedes = str(arguments.get("supersedes")) if arguments.get("supersedes") else None
+                force = bool(arguments.get("force", False))
+                res = await record_decision(
+                    text, module, symbol, rationale, repo=repo,
+                    corroborates=corroborates, supersedes=supersedes, force=force,
+                )
+                result = [TextContent(type="text", text=res)]
+            elif name == "record_problem":
+                text = str(arguments.get("text", ""))
+                module = str(arguments.get("module")) if arguments.get("module") else None
+                severity = str(arguments.get("severity", "medium"))
+                res = await record_problem(text, module, severity, repo=repo)
+                result = [TextContent(type="text", text=res)]
+            elif name == "resolve_problem":
+                problem_id = str(arguments.get("problem_id", ""))
+                resolution_text = str(arguments.get("resolution_text", ""))
+                res = await resolve_problem(problem_id, resolution_text, repo=repo)
+                result = [TextContent(type="text", text=res)]
+            elif name == "invalidate_edge":
+                edge_id = str(arguments.get("edge_id", ""))
+                reason = str(arguments.get("reason", ""))
+                res = await invalidate_edge(edge_id, reason, repo=repo)
+                result = [TextContent(type="text", text=res)]
+            # Phase 9 — new tools
+            elif name == "explain_change":
+                commit_sha = str(arguments.get("commit_sha", ""))
+                if not commit_sha:
+                    result = [TextContent(type="text", text="Error: 'commit_sha' is required.")]
+                else:
+                    res = await explain_change(commit_sha, repo=repo)
+                    result = [TextContent(type="text", text=res)]
+            elif name == "predict_impact":
+                file_path = str(arguments.get("file_path", ""))
+                if not file_path:
+                    result = [TextContent(type="text", text="Error: 'file_path' is required.")]
+                else:
+                    res = await predict_impact(file_path, repo=repo)
+                    result = [TextContent(type="text", text=res)]
+            elif name == "get_context_briefing":
+                try:
+                    max_tokens = int(arguments.get("max_tokens", 2000))
+                except (ValueError, TypeError):
+                    max_tokens = 2000
+                scope = str(arguments.get("scope")) if arguments.get("scope") else None
+                res = await get_context_briefing(max_tokens, scope, repo=repo)
+                result = [TextContent(type="text", text=res)]
+            else:
+                result = [TextContent(type="text", text=f"Tool {name} not found")]
+
+            if span is not None:
+                from opentelemetry.trace import StatusCode
+                span.set_status(StatusCode.OK)
+                if result and hasattr(result[0], "text"):
+                    span.set_attribute("memex.result.tokens", len(result[0].text) // 4)
+                    span.set_attribute("memex.result.length", len(result[0].text))
+
+            return result
+
+        except Exception as e:
+            if span is not None:
+                from opentelemetry.trace import StatusCode
+                span.set_status(StatusCode.ERROR, str(e))
+                span.record_exception(e)
+            logger.error("Internal error calling tool %s", name, exc_info=True)
+            return [TextContent(type="text", text=f"Internal Server Error: {str(e)}")]
 
 async def create_server(repo_root: str) -> Server:
     """

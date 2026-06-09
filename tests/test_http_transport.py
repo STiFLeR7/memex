@@ -1,3 +1,4 @@
+import os
 import pytest
 from fastapi.testclient import TestClient
 from unittest.mock import MagicMock, patch
@@ -28,56 +29,75 @@ def test_health_check_does_not_leak_repo(mock_get_client, client):
     assert "repo" not in response.json()
 
 
+# --- Streamable HTTP Tests (Default) ---
+
 @patch("memex.mcp_server.http.validate_key")
 def test_mcp_auth_strips_only_bearer_prefix(mock_validate, client):
     """Audit B6 — only the leading 'Bearer ' scheme is stripped; a token that
-    contains the substring must survive intact (str.replace would corrupt it)."""
+    contains the substring must survive intact."""
     mock_validate.return_value = False
-    client.get("/mcp/sse", headers={"Authorization": "Bearer Bearer x"})
+    client.post("/mcp", headers={"Authorization": "Bearer Bearer x"})
     mock_validate.assert_called_once_with("Bearer x")
 
 @patch("memex.mcp_server.http.validate_key")
 def test_mcp_auth_missing(mock_validate, client):
-    response = client.get("/mcp/sse")
+    response = client.post("/mcp")
     assert response.status_code == 401
     assert response.json() == {"detail": "Missing or invalid Authorization header"}
 
 @patch("memex.mcp_server.http.validate_key")
 def test_mcp_auth_invalid(mock_validate, client):
     mock_validate.return_value = False
-    response = client.get("/mcp/sse", headers={"Authorization": "Bearer invalid"})
+    response = client.post("/mcp", headers={"Authorization": "Bearer invalid"})
     assert response.status_code == 401
     mock_validate.assert_called_once_with("invalid")
 
 @patch("memex.mcp_server.http.validate_key")
-def test_mcp_404(mock_validate, client):
+@patch("mcp.server.streamable_http.StreamableHTTPServerTransport")
+def test_mcp_streamable_http_success(mock_transport_class, mock_validate, mock_server):
     mock_validate.return_value = True
-    response = client.get("/mcp/nonexistent", headers={"Authorization": "Bearer valid"})
-    assert response.status_code == 404
+    mock_transport = MagicMock()
+    mock_transport_class.return_value = mock_transport
+
+    async def mock_handle_request(scope, receive, send):
+        from fastapi.responses import Response
+        res = Response(status_code=200, content=b"streamable http success")
+        await res(scope, receive, send)
+
+    mock_transport.handle_request = MagicMock(side_effect=mock_handle_request)
+
+    app = create_app(mock_server, "/fake/repo")
+    client = TestClient(app)
+
+    response = client.post("/mcp", headers={"Authorization": "Bearer valid"}, json={"test": "data"})
+    assert response.status_code == 200
+    assert response.text == "streamable http success"
+    mock_validate.assert_called_with("valid")
+
+
+# --- SSE Fallback Tests (MEMEX_MCP_TRANSPORT=sse) ---
 
 @patch("memex.mcp_server.http.validate_key")
 @patch("memex.mcp_server.http.SseServerTransport")
+@patch.dict(os.environ, {"MEMEX_MCP_TRANSPORT": "sse"})
 def test_mcp_sse_success(mock_sse_class, mock_validate, mock_server):
     mock_validate.return_value = True
     mock_sse = MagicMock()
     mock_sse_class.return_value = mock_sse
     
-    # We need to recreate the client because SseServerTransport is created in create_app
     app = create_app(mock_server, "/fake/repo")
     client = TestClient(app)
     
-    # TestClient.get for SSE might block or behave weirdly, but we can check if it tries to connect
-    # Using a context manager for SSE is tricky here, but we can at least hit the endpoint
     try:
         response = client.get("/mcp/sse", headers={"Authorization": "Bearer valid"}, timeout=0.1)
     except Exception:
         pass
     
-    # If it reached connect_sse, it means auth passed
     mock_validate.assert_called_with("valid")
 
 @patch("memex.mcp_server.http.validate_key")
 @patch("memex.mcp_server.http.SseServerTransport")
+@patch.dict(os.environ, {"MEMEX_MCP_TRANSPORT": "sse"})
 def test_mcp_messages_post(mock_sse_class, mock_validate, mock_server):
     mock_validate.return_value = True
     mock_sse = MagicMock()
@@ -97,6 +117,8 @@ def test_mcp_messages_post(mock_sse_class, mock_validate, mock_server):
     assert response.status_code == 204
     mock_validate.assert_called_with("valid")
 
+
+# --- Graph, Notify, and Utils Tests ---
 
 @patch("memex.mcp_server.http.get_graph_client")
 def test_get_graph(mock_get_client, client):
@@ -259,4 +281,3 @@ def test_notify_local_server_debounces_bursts(mock_get_config, mock_urlopen):
             shutil.rmtree(temp_dir)
         except Exception:
             pass
-

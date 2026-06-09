@@ -4,7 +4,7 @@ from memex.mcp_server import server
 from memex.mcp_server.server import create_server, ConfigError, MemexStartupError, handle_list_tools, handle_call_tool
 
 @pytest.mark.asyncio
-async def test_server_registers_all_12_tools():
+async def test_server_registers_all_13_tools():
     # constructs the instance, validates config, checks Neo4j
     with patch("memex.mcp_server.server.get_graph_client") as mock_get_client:
         mock_client = AsyncMock()
@@ -22,9 +22,11 @@ async def test_server_registers_all_12_tools():
                 "record_decision", "record_problem", "resolve_problem", "invalidate_edge",
                 # 2 Phase 9 read tools
                 "explain_change", "predict_impact",
+                # Phase 10 / v0.5.0
+                "get_context_briefing",
             ]
 
-            assert len(tools) == 12
+            assert len(tools) == 13
             actual_names = [t.name for t in tools]
             for name in expected:
                 assert name in actual_names
@@ -66,7 +68,7 @@ async def test_introspection_only_mode_skips_neo4j(monkeypatch):
         srv = await create_server("/fake/repo")
 
     tools = await handle_list_tools()
-    assert len(tools) == 12
+    assert len(tools) == 13
 
 @pytest.mark.asyncio
 async def test_server_tool_returns_string_not_none():
@@ -105,6 +107,7 @@ async def test_call_all_tools_smoke():
         ("record_problem", {"text": "P"*10}),
         ("resolve_problem", {"problem_id": "1", "resolution_text": "R"*10}),
         ("invalidate_edge", {"edge_id": "1", "reason": "R"*10}),
+        ("get_context_briefing", {"max_tokens": "1000"}),
     ]
     for name, args in tools:
         with patch(f"memex.mcp_server.server.{name}", new_callable=AsyncMock) as mock_impl:
