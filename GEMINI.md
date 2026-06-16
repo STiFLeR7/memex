@@ -59,7 +59,7 @@ memex/
 ```
 
 ### Current phase
-**v0.5.0 — Production-Ready (Telescope) complete.** See `docs/implementation_plan/PLAN_v0.5.0.md` for details.
+**v0.5.1 — Telemetry stats CLI and endpoint (Lighthouse) complete.** See `docs/PLAN-v0.5.1.md` and `docs/internals/WALKTHROUGH_v0.5.1.md` for details.
 
 Update this section as phases complete:
 - [x] Phase 1 — Graph Writes
@@ -79,8 +79,9 @@ Update this section as phases complete:
 - [x] Wave 1 — Streamable HTTP Transport (v0.5.0)
 - [x] Wave 2 — OpenTelemetry Integration (v0.5.0)
 - [x] Wave 3 — Context Quality (C-lite) (v0.5.0)
+- [x] v0.5.1 — Stats command + unified telemetry stats API (Lighthouse)
 
-Current status: v0.5.0 — Streamable HTTP, OTel, Leiden cluster summaries, and get_context_briefing complete and verified with unit/integration tests
+Current status: v0.5.1 — Unified stats aggregator, CLI stats command, aligned GET /stats HTTP API complete and verified with unit/integration tests
 
 ### v0.3.0 additions to non-negotiables
 - Two new optional Gemini calls: cluster topic summarisation (Gemini Flash) and `explain_change` (Gemini Pro for synthesis quality).

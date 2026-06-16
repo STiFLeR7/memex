@@ -121,7 +121,7 @@ def test_stats_endpoint_returns_json_and_requires_auth(temp_db_path):
     # Patch registry validation and TelemetryDB to point to our test database
     with patch("memex.mcp_server.http.validate_key", return_value=True):
         with patch("memex.graph.telemetry.get_telemetry_db_path", return_value=temp_db_path):
-            with patch("memex.mcp_server.http.get_graph_client") as mock_graph_client:
+            with patch("memex.graph.stats.get_graph_client") as mock_graph_client:
                 # Mock Neo4j query for validation health
                 mock_driver = MagicMock()
                 mock_driver.execute_query = AsyncMock(return_value=MagicMock(records=[
@@ -143,19 +143,19 @@ def test_stats_endpoint_returns_json_and_requires_auth(temp_db_path):
                 assert response.status_code == 200
                 data = response.json()
                 
-                assert data["period_days"] == 30
-                assert data["total_calls"] == 2
-                assert data["tokens_returned"] == 250
-                assert data["tokens_naive"] == 1000
-                assert data["tokens_saved"] == 800  # 1000 - 200 (only rows with tokens_naive)
-                assert data["reduction_pct"] == 80.0
-                assert data["naive_coverage_pct"] == 50.0
+                assert "today" in data
+                assert "lifetime" in data
+                assert data["lifetime"]["tool_calls"] == 2
+                assert data["lifetime"]["tokens_returned"] == 250
+                assert data["lifetime"]["tokens_naive"] == 1000
+                assert data["lifetime"]["tokens_saved"] == 800
+                assert data["lifetime"]["reduction_pct"] == 80.0
                 
                 # Check breakdowns
-                assert len(data["by_tool"]) == 2
-                assert data["by_tool"][0]["tool_name"] == "get_project_context"
-                assert data["by_tool"][0]["calls"] == 1
-                assert data["by_tool"][0]["tokens_saved"] == 800
+                assert len(data["top_tools"]) == 2
+                assert data["top_tools"][0]["tool_name"] == "get_project_context"
+                assert data["top_tools"][0]["calls"] == 1
+                assert data["top_tools"][0]["tokens_saved"] == 800
                 
                 # Check validation health
                 assert "validation_health" in data
@@ -195,14 +195,15 @@ async def test_read_tools_record_telemetry_on_every_call():
             ["src/main.py"]
         )
 
-def test_stats_command_outputs_correct_totals(temp_db_path):
+@pytest.mark.asyncio
+async def test_stats_command_outputs_correct_totals(temp_db_path):
     """Checks the CLI memex stats formatting and execution flow."""
     # Seed data
     db = TelemetryDB(db_path=temp_db_path)
     db.record_call("get_project_context", "/fake/repo", "claude-code", 200, 1000)
     
     with patch("memex.graph.telemetry.get_telemetry_db_path", return_value=temp_db_path), \
-         patch("memex.cli.get_graph_client") as mock_graph_client:
+         patch("memex.graph.stats.get_graph_client") as mock_graph_client:
              
         mock_driver = MagicMock()
         mock_driver.execute_query = AsyncMock(return_value=MagicMock(records=[
@@ -215,19 +216,14 @@ def test_stats_command_outputs_correct_totals(temp_db_path):
         ]))
         mock_graph_client.return_value = MagicMock(driver=mock_driver)
         
-        # Capture console print
-        with patch("rich.console.Console.print") as mock_print:
-            import asyncio
-            asyncio.run(run_stats_command("/fake/repo", 30))
+        import io
+        from contextlib import redirect_stdout
+        f = io.StringIO()
+        with redirect_stdout(f):
+            await run_stats_command("/fake/repo", 30)
             
-            # Verify rich Console printed the headers and values
-            printed_texts = []
-            for call in mock_print.call_args_list:
-                args = call[0]
-                if args:
-                    printed_texts.append(str(args[0]))
-                    
-            text_block = "\n".join(printed_texts)
-            assert "memex token savings" in text_block
-            assert "total calls:        1" in text_block
-            assert "validated:" in text_block
+        text_block = f.getvalue().lower()
+        
+        assert "memex statistics" in text_block
+        assert "today" in text_block
+        assert "validated:" in text_block

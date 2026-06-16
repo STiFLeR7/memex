@@ -173,6 +173,37 @@ flowchart LR
 | User overrides | `.memex/clusters.yaml` — any assignment can be locked |
 | Context budget | `get_project_context` stays under 1500 tokens whether your repo has 50 or 5000 modules |
 
+## Measure Your Savings
+
+memex tracks token reduction metrics and human review actions locally in a SQLite database (`~/.config/memex/telemetry.db`). 
+
+You can query your savings at any time using the CLI:
+```bash
+memex stats
+```
+
+Or view the raw JSON payload:
+```bash
+memex stats --json
+```
+
+Or target a specific repository scope:
+```bash
+memex stats --repo /path/to/repo
+```
+
+This returns an aggregation of:
+- **Period Summaries**: Calls, tokens returned, naive tokens (size of files requested), tokens saved, and token reduction percentage across `today`, `last 7 days`, `last 30 days`, and `lifetime`.
+- **Top Tools**: The most valuable tools sorted by total tokens saved.
+- **Agent Clients**: Active agents (Claude Code, Gemini CLI, Cursor, Codex) and their token saving distribution.
+- **Validation Health**: Total validated, unvalidated, and corroborated nodes, along with the elapsed days since the last review.
+
+The same statistics are exposed via the HTTP MCP transport:
+```http
+GET /stats?repo=/path/to/repo
+Authorization: Bearer <your-key>
+```
+
 ## Connect your agent
 
 <details>
@@ -310,6 +341,7 @@ memex/
 | `memex graph --output graph.html` | Self-contained D3 force layout with cluster overlays |
 | `memex cluster [--rerun] [--dry-run]` | Run Leiden over the hybrid edge graph; pin cluster IDs by Jaccard ≥ 0.5 |
 | `memex memory-tool serve` | Back Anthropic's `memory_20250818` tool with a graph projection |
+| `memex stats [--json] [--repo <path>]` | Show context token savings and telemetry stats |
 
 ## License
 

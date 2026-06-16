@@ -231,74 +231,18 @@ def create_app(server: Server, repo_root: str):
                 content={"detail": "Missing or invalid Authorization header"}
             )
             
-        # 2. Get Stats from TelemetryDB
+        # 2. Get Stats from unified stats service
         try:
-            from memex.graph.telemetry import TelemetryDB
-            db = TelemetryDB()
+            from memex.graph.stats import get_stats_data
+            path = repo or repo_root
+            stats = await get_stats_data(path)
+            return stats
         except Exception as e:
-            logger.error(f"Failed to initialize TelemetryDB in /stats: {e}", exc_info=True)
+            logger.error(f"Failed to generate stats in /stats endpoint: {e}", exc_info=True)
             return JSONResponse(
                 status_code=500,
-                content={"detail": "Telemetry DB initialization failed"}
+                content={"detail": f"Failed to generate stats: {str(e)}"}
             )
-        
-        actual_repo = repo or repo_root
-        try:
-            actual_repo = canonical_repo_path(actual_repo)
-        except Exception:
-            # Fallback to abspath if canonical_repo_path fails/not configured
-            import os
-            actual_repo = os.path.abspath(actual_repo)
-        
-        stats = db.get_stats(actual_repo, days)
-        
-        # 3. Retrieve validation health from Neo4j
-        validation_health = {
-            "validated": 0,
-            "unvalidated": 0,
-            "corroborated": 0,
-            "last_review_days_ago": None
-        }
-        try:
-            client = await get_graph_client()
-            query = """
-            MATCH (d:Entity)
-            WHERE (d.type = 'Decision' OR d.name CONTAINS 'Decision')
-              AND ($repo IS NULL OR d.repo_path = $repo)
-            RETURN
-              sum(case when coalesce(d.validated, false) = true then 1 else 0 end) as validated,
-              sum(case when coalesce(d.validated, false) = false and coalesce(d.excluded, false) = false then 1 else 0 end) as unvalidated,
-              sum(case when coalesce(d.corroborated, false) = true then 1 else 0 end) as corroborated,
-              max(coalesce(d.validated_at, d.updated_at)) as last_validated_at
-            """
-            res = await client.driver.execute_query(query, params={"repo": actual_repo})
-            if res.records:
-                rec = res.records[0].data()
-                validation_health["validated"] = rec.get("validated") or 0
-                validation_health["unvalidated"] = rec.get("unvalidated") or 0
-                validation_health["corroborated"] = rec.get("corroborated") or 0
-                
-                last_validated_at = rec.get("last_validated_at")
-                if last_validated_at:
-                    from datetime import datetime, timezone
-                    if isinstance(last_validated_at, str):
-                        try:
-                            s = last_validated_at.replace("Z", "+00:00")
-                            dt = datetime.fromisoformat(s)
-                        except Exception:
-                            dt = None
-                    else:
-                        dt = last_validated_at
-                    if dt:
-                        if dt.tzinfo is None:
-                            dt = dt.replace(tzinfo=timezone.utc)
-                        now = datetime.now(timezone.utc)
-                        validation_health["last_review_days_ago"] = (now - dt).days
-        except Exception as e:
-            logger.warning(f"Failed to fetch validation health in /stats endpoint: {e}")
-            
-        stats["validation_health"] = validation_health
-        return stats
 
     # Custom ASGI app for MCP to handle raw send/receive
     async def mcp_asgi_app(scope, receive, send):
