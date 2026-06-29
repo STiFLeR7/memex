@@ -175,3 +175,53 @@ Per-module estimates from the test surface:
 ## Inspiration
 
 Vannevar Bush's 1945 essay "As We May Think" described the memex as a device that stores all of a person's knowledge, cross-referenced and associative. v0.3.0 brings memex closer to that vision — agents now reinforce, validate, supersede, and explain decisions as a normal part of their work, and the graph remembers it all.
+
+---
+
+# memex Audit Report — v0.6.0 (Signal)
+
+> Verify-first audit conducted 2026-06-29. Unlike the v0.3.0 pre-release sweep, this was
+> a **gap audit**: the bulk of the Signal write-discipline model had already landed
+> incrementally (Phase 8/9), so the audit ran the test suites end-to-end first and scoped
+> v0.6.0 to what was genuinely broken or missing. Confidence-state, corroboration,
+> contradiction handling, `memex review` (CLI), and validation-health stats were verified
+> present and passing rather than re-implemented.
+
+## What was verified (not rebuilt)
+
+| Signal component | Location | Verdict |
+|------------------|----------|---------|
+| Three-regime confidence (floor 0.7 / cap 0.5) | `graph/confidence.py` | Present, computed at query time |
+| Corroboration detection (two-pass, embedding sim) | `watcher/handlers.py` | **3/3 integration tests pass on live Neo4j** |
+| `corroborates`/`supersedes` + 0.85 dedup | `mcp_server/tools_write.py` | Present, passing |
+| `memex review` CLI | `cli_review.py` | Present, passing |
+| `memex stats` validation health | `graph/stats.py` | Present, passing |
+| `get_recent_decisions(corroborated_only=)` | `mcp_server/queries.py` | Present, passing |
+| Unvalidated-count banner in briefing | `mcp_server/formatter.py` | Present, passing |
+
+## Findings & fixes
+
+| ID | Severity | Finding | Resolution |
+|----|----------|---------|------------|
+| V1 | **High** | Agent `record_decision` never set `base_confidence`; `current_confidence()` fell back to `coalesce(..., 1.0)` — every agent write treated as fully trusted, defeating Signal's premise. | Explicit config-driven `base_confidence` + `validated=False` SET on write. |
+| V2 | Medium | `harnesses.*.initial_decision_confidence` config was dead — read by nothing. | `Config.initial_confidence_for()` resolver; both write paths route through it. |
+| V3 | Medium | Pillar D/D3 OTel `decision.confidence` attribute + `validated_ratio` gauge unimplemented. | Added to `graph/otel.py`; emitted from `tools_read.py`. |
+| V4 | Low | `test_briefing_includes_all_sections_when_budget_allows` was a temporal-drift bomb; master CI red. | Frozen confidence clock (autouse fixture). |
+
+All four carry regression tests. No critical findings.
+
+## Test posture (v0.6.0)
+
+- 403 test functions across 54 files (+6: 2 write-discipline, 4 OTel).
+- Offline suite (CI mirror): **377 passed**, 1 skipped, 3 deselected.
+- Corroboration integration suite green against Neo4j 5.26 Community.
+
+## Deferred (not in v0.6.0)
+
+1. **VS Code `memex.openReview`** — CLI review satisfies Pillar C; Webview is additive.
+2. **Per-client harness attribution** — needs `clientInfo` capture from the MCP
+   `initialize` handshake (the multi-agent attribution item open since v0.3.0). Until
+   then both write paths resolve the `default` harness.
+3. **Pre-condition feedback window** — the plan's mandated triage of post-article issues
+   (and a possible v0.5.2 patch) was not part of this engineering pass and remains a gate
+   before the release is tagged and published.
