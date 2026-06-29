@@ -75,7 +75,11 @@ async def extract_decisions(
             for d in data.get("decisions", []):
                 # v0.3.0 defaults (Phase 8 — Hallucination Mitigation):
                 #   validated=False  — watcher-synthesised, must be approved via `memex review`
-                #   base_confidence=0.6 — anchors the TempValid two-regime decay
+                #   base_confidence — config-driven (Signal Pillar A): the
+                #     synthesiser routes through the same initial-confidence
+                #     resolver as agent writes instead of hardcoding 0.6, so a
+                #     repo can tune how much it trusts unreviewed synthesis.
+                #     harness=None resolves the `default` harness (default 0.6).
                 #   source="watcher" — distinguishes from agent-recorded decisions
                 # ``last_reinforced_at`` is set to ``created_at`` by the writer so the
                 # computed_confidence helper has an anchor on freshly-synthesised nodes.
@@ -86,7 +90,7 @@ async def extract_decisions(
                     source_commit=commit_sha,
                     source="watcher",
                     validated=False,
-                    base_confidence=0.6,
+                    base_confidence=config.initial_confidence_for(None),
                 ))
                 
             return extracted_decisions

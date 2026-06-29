@@ -232,3 +232,60 @@ async def test_get_recent_decisions_corroborated_only(mock_client):
     call_args = mock_client.driver.execute_query.call_args
     assert call_args[1]["params"]["corroborated_only"] is True
     assert "$corroborated_only = false OR d.corroborated = true OR d.validated = true" in call_args[0][0]
+
+
+# --- Signal Pillar A: per-harness initial confidence wiring -----------------
+
+def test_initial_confidence_for_resolves_by_harness():
+    """The config resolver keys initial confidence by harness, falling back to
+    the `default` entry and finally to the HarnessConfig default (0.6)."""
+    from memex.config import Config, HarnessConfig
+
+    cfg = Config(
+        neo4j_uri="x", neo4j_user="x", neo4j_password="x", gemini_api_key="x",
+        harnesses={
+            "claude-code": HarnessConfig(initial_decision_confidence=0.7),
+            "default": HarnessConfig(initial_decision_confidence=0.6),
+        },
+    )
+    assert cfg.initial_confidence_for("claude-code") == 0.7
+    assert cfg.initial_confidence_for("codex") == 0.6   # unknown harness -> default
+    assert cfg.initial_confidence_for(None) == 0.6      # watcher synthesis -> default
+
+    # No harness config at all -> HarnessConfig field default, never an
+    # implicit 1.0.
+    bare = Config(neo4j_uri="x", neo4j_user="x", neo4j_password="x", gemini_api_key="x")
+    assert bare.initial_confidence_for("anything") == 0.6
+
+
+@pytest.mark.asyncio
+async def test_record_decision_sets_configured_initial_confidence(mock_client):
+    """Agent-recorded decisions must carry the configured initial base_confidence
+    (Signal Pillar A) rather than the implicit coalesce(..., 1.0) over-trust
+    fallback that current_confidence applies when base_confidence is unset."""
+    mock_client.add_episode.return_value = MagicMock(episode=MagicMock(uuid="agent-dec-1"))
+    mock_client.driver.execute_query.return_value = MagicMock(records=[])
+
+    with patch("memex.mcp_server.tools_write.get_config") as mock_cfg:
+        cfg = MagicMock()
+        cfg.initial_confidence_for.return_value = 0.55
+        mock_cfg.return_value = cfg
+
+        res = await record_decision(
+            text="Adopt EdDSA token signing for rotation simplicity",
+            module="auth.py",
+            repo=".",
+            force=True,  # skip Layer B intent-confirmation
+        )
+
+    assert "decision recorded" in res
+    set_calls = [
+        c for c in mock_client.driver.execute_query.call_args_list
+        if "base_confidence" in c[0][0]
+    ]
+    assert set_calls, "expected a SET writing base_confidence on the new Decision node"
+    params = set_calls[0][1]["params"]
+    assert params["base_confidence"] == 0.55
+    assert params["validated"] is False
+    # The configured harness default (None -> default) must have been consulted.
+    cfg.initial_confidence_for.assert_called()
