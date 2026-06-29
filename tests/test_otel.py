@@ -5,17 +5,17 @@ from unittest.mock import MagicMock, patch
 @pytest.fixture(autouse=True)
 def reset_otel_state():
     import memex.graph.otel
-    memex.graph.otel._tracer = None
-    memex.graph.otel._meter = None
-    memex.graph.otel._initialized = False
-    if hasattr(memex.graph.otel.record_token_metrics, "_counters"):
-        delattr(memex.graph.otel.record_token_metrics, "_counters")
+    def _clear():
+        memex.graph.otel._tracer = None
+        memex.graph.otel._meter = None
+        memex.graph.otel._initialized = False
+        if hasattr(memex.graph.otel.record_token_metrics, "_counters"):
+            delattr(memex.graph.otel.record_token_metrics, "_counters")
+        if hasattr(memex.graph.otel.record_validated_ratio, "_gauge"):
+            delattr(memex.graph.otel.record_validated_ratio, "_gauge")
+    _clear()
     yield
-    memex.graph.otel._tracer = None
-    memex.graph.otel._meter = None
-    memex.graph.otel._initialized = False
-    if hasattr(memex.graph.otel.record_token_metrics, "_counters"):
-        delattr(memex.graph.otel.record_token_metrics, "_counters")
+    _clear()
 
 
 def test_tool_span_yields_none_without_sdk():
@@ -106,6 +106,52 @@ async def test_record_tool_call_emits_otel(mock_record_otel, mock_db_class):
         1200,  # search_context naive multiplier is 12 (100 * 12 = 1200)
         1100   # saved = 1200 - 100 = 1100
     )
+
+
+def test_set_decision_confidence_noop_without_sdk():
+    with patch.dict("sys.modules", {"opentelemetry": None}):
+        import memex.graph.otel
+        # Should run without raising when the SDK is absent.
+        memex.graph.otel.set_decision_confidence(0.73)
+
+
+def test_set_decision_confidence_sets_attribute_on_span():
+    mock_tracer = MagicMock()
+    mock_span = MagicMock()
+
+    with patch("opentelemetry.trace.get_tracer", return_value=mock_tracer), \
+         patch("opentelemetry.trace.get_current_span", return_value=mock_span):
+        import memex.graph.otel
+        memex.graph.otel.set_decision_confidence(0.73)
+
+        mock_span.set_attribute.assert_called_once_with("memex.decision.confidence", 0.73)
+
+
+def test_record_validated_ratio_noop_without_sdk():
+    with patch.dict("sys.modules", {"opentelemetry": None}):
+        import memex.graph.otel
+        memex.graph.otel.record_validated_ratio(0.5)
+
+
+def test_record_validated_ratio_creates_and_sets_gauge():
+    mock_meter = MagicMock()
+    mock_gauge = MagicMock()
+    mock_meter.create_gauge.return_value = mock_gauge
+
+    with patch("opentelemetry.metrics.get_meter", return_value=mock_meter):
+        import memex.graph.otel
+        memex.graph.otel.record_validated_ratio(0.42)
+        # second call must reuse the gauge, not recreate it
+        memex.graph.otel.record_validated_ratio(0.84)
+
+        mock_meter.create_gauge.assert_called_once_with(
+            "memex.decision.validated_ratio",
+            description="Fraction of surfaced decisions that are validated or corroborated",
+            unit="1",
+        )
+        assert mock_gauge.set.call_count == 2
+        mock_gauge.set.assert_any_call(0.42)
+        mock_gauge.set.assert_any_call(0.84)
 
 
 def test_init_otel_idempotent():

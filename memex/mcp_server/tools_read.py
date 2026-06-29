@@ -28,6 +28,37 @@ from memex.mcp_server.formatter import (
 
 logger = logging.getLogger(__name__)
 
+
+def _emit_decision_confidence(decisions: list) -> None:
+    """Best-effort: annotate the active OTel span with the mean computed
+    confidence of the decisions being returned (Signal D3). Never raises —
+    observability must not break a read tool."""
+    try:
+        if not decisions:
+            return
+        from memex.graph.confidence import current_confidence
+        from memex.graph.otel import set_decision_confidence
+        confs = [current_confidence(d) for d in decisions]
+        if confs:
+            set_decision_confidence(sum(confs) / len(confs))
+    except Exception:
+        logger.debug("failed to emit memex.decision.confidence", exc_info=True)
+
+
+def _emit_validated_ratio(decisions: list) -> None:
+    """Best-effort: update the validated_ratio gauge with the fraction of
+    decisions that are validated or corroborated (Signal D3). Never raises."""
+    try:
+        from memex.graph.otel import record_validated_ratio
+        if not decisions:
+            record_validated_ratio(0.0)
+            return
+        ok = sum(1 for d in decisions if (d.get("validated") or d.get("corroborated")))
+        record_validated_ratio(ok / len(decisions))
+    except Exception:
+        logger.debug("failed to emit memex.decision.validated_ratio", exc_info=True)
+
+
 async def get_project_context(scope: Optional[str] = None, repo: Optional[str] = None) -> str:
     """
     Returns a structured markdown briefing of the project.
@@ -156,6 +187,7 @@ async def get_recent_decisions(days: int = 30, module: Optional[str] = None, rep
             module=module,
             total_count=len(decisions)
         )
+        _emit_decision_confidence(decisions)
         try:
             from memex.graph.telemetry import record_tool_call
             await record_tool_call("get_recent_decisions", len(result) // 4, repo)
@@ -347,6 +379,10 @@ async def get_context_briefing(
             scored = [(d, current_confidence(d)) for d in decisions]
             scored.sort(key=lambda x: x[1], reverse=True)
             high_conf = [d for d, c in scored if c > 0.5]
+            # Signal D3 — surface confidence + validation health on this span /
+            # metrics pipeline alongside the token-saving attributes.
+            _emit_decision_confidence(decisions)
+            _emit_validated_ratio(decisions)
             if high_conf:
                 lines = []
                 for d in high_conf:

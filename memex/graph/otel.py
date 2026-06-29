@@ -62,6 +62,57 @@ def tool_span(
         yield span
 
 
+def set_decision_confidence(confidence: float) -> None:
+    """Annotate the active span with ``memex.decision.confidence`` (Signal D3).
+
+    Called by Decision-returning tools so confidence becomes visible in the same
+    trace that already carries token-saving attributes — confidence and savings
+    as two axes of one span. No-op when the SDK isn't installed or no span is
+    active. ``confidence`` is expected in [0.0, 1.0].
+    """
+    _init_otel()
+    if _tracer is None:
+        return
+    try:
+        from opentelemetry import trace
+        span = trace.get_current_span()
+        # get_current_span never returns None, but an unrecording default span
+        # ignores set_attribute — which is exactly the no-op we want.
+        if span is not None:
+            span.set_attribute("memex.decision.confidence", float(confidence))
+    except Exception:
+        logger.debug("failed to set memex.decision.confidence", exc_info=True)
+
+
+def record_validated_ratio(ratio: float) -> None:
+    """Update the ``memex.decision.validated_ratio`` gauge (Signal D3).
+
+    The fraction of recently-surfaced decisions that are validated or
+    corroborated, emitted on each get_context_briefing call so Signal's effect
+    rides the same metrics pipeline as token savings. No-op without the SDK.
+    ``ratio`` is expected in [0.0, 1.0].
+    """
+    _init_otel()
+    if _meter is None:
+        return
+    if not hasattr(record_validated_ratio, "_gauge"):
+        try:
+            record_validated_ratio._gauge = _meter.create_gauge(
+                "memex.decision.validated_ratio",
+                description="Fraction of surfaced decisions that are validated or corroborated",
+                unit="1",
+            )
+        except Exception:
+            logger.debug("failed to create validated_ratio gauge", exc_info=True)
+            record_validated_ratio._gauge = None
+    gauge = record_validated_ratio._gauge
+    if gauge is not None:
+        try:
+            gauge.set(float(ratio))
+        except Exception:
+            logger.debug("failed to set validated_ratio gauge", exc_info=True)
+
+
 def record_token_metrics(
     tool_name: str,
     tokens_returned: int,
