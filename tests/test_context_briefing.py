@@ -5,10 +5,27 @@ and telemetry recording without requiring a live Neo4j or Gemini backend.
 """
 
 from __future__ import annotations
+from datetime import datetime, timezone
 from unittest.mock import AsyncMock, patch
 import pytest
 
 from memex.mcp_server.tools_read import get_context_briefing
+
+
+# The mock decisions below carry fixed ``created_at`` dates (2026-06-08/09).
+# ``get_context_briefing`` scores each decision via ``current_confidence`` and
+# drops anything <= 0.5, so without a frozen clock the unvalidated decision
+# decays below the cutoff once ~21 days of real wall-clock elapse — making
+# ``test_briefing_includes_all_sections_when_budget_allows`` a time bomb.
+# Freeze the confidence clock to just after the fixture dates so the intended
+# scenario (validated 1-day-old, unvalidated 2-day-old, both fresh) is stable.
+_FROZEN_NOW = datetime(2026, 6, 10, tzinfo=timezone.utc)
+
+
+@pytest.fixture(autouse=True)
+def _frozen_confidence_clock():
+    with patch("memex.graph.confidence._utc_now", return_value=_FROZEN_NOW):
+        yield
 
 
 @pytest.fixture
