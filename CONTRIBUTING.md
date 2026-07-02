@@ -97,5 +97,27 @@ Maintainers review regularly. CI (tests on push tags / PRs) must be green.
 ## Releases
 
 Releases are tag-driven: pushing a `v*` tag runs the publish workflow
-(PyPI + npm + MCP Registry). Maintainers cut releases; contributors don't need
-to bump versions in their PRs.
+(`.github/workflows/publish.yml`), which publishes **PyPI + npm + MCP Registry**.
+Version bumps must update **both** `pyproject.toml` and `npm/package.json` (and
+they must agree); `server.json` tracks the same version. Maintainers cut
+releases; contributors don't need to bump versions in their PRs.
+
+The three publish jobs are **idempotent** — a version already on PyPI/npm is
+skipped rather than failing the run. So a maintainer can publish manually and
+still let CI complete the MCP Registry listing, and re-runs are safe.
+
+**Authentication (no npm 2FA/OTP in CI):**
+
+- **npm → OIDC Trusted Publishing.** No `NPM_API` token; the job uses
+  `id-token: write` and npm ≥ 11.5.1. **One-time setup on npmjs.com** (required
+  before the npm job can publish): package `stifler-memex-mcp` → *Settings* →
+  *Trusted Publisher* → GitHub Actions → org `STiFLeR7`, repo `memex`, workflow
+  `publish.yml`, allowed action `npm publish`.
+- **PyPI → token.** Repo secret `PYPI_API` (`__token__` / API token). Trusted
+  publishing optional; the token path is already OTP-free.
+- **MCP Registry → GitHub OIDC.** No stored secret; the workflow's OIDC identity
+  (`STiFLeR7/memex`) authorizes the `io.github.stifler7/*` namespace.
+
+To (re)register on the MCP Registry against an already-published version without
+cutting a new tag, run the workflow via **Actions → Publish → Run workflow**
+(`workflow_dispatch`).
