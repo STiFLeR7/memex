@@ -90,6 +90,32 @@ def mock_queries():
     return mock_clusters, mock_decisions, mock_problems, mock_stale
 
 
+def test_emit_validated_ratio_counts_validated_and_corroborated():
+    """The validated_ratio gauge must count decisions that are validated OR
+    corroborated (D3). Regression guard: get_recent_decisions_raw must surface
+    the `corroborated` field, else corroborated-only decisions are undercounted."""
+    from memex.mcp_server.tools_read import _emit_validated_ratio
+
+    decisions = [
+        {"validated": True, "corroborated": False},   # counts
+        {"validated": False, "corroborated": True},    # counts (corroborated-only)
+        {"validated": False, "corroborated": False},   # does not count
+        {"validated": False},                          # missing key -> does not count
+    ]
+    with patch("memex.graph.otel.record_validated_ratio") as mock_ratio:
+        _emit_validated_ratio(decisions)
+        mock_ratio.assert_called_once_with(0.5)  # 2 of 4
+
+
+def test_get_recent_decisions_raw_returns_corroborated_field():
+    """The raw decisions query must RETURN `corroborated` so validation-health
+    telemetry can distinguish corroborated-only decisions."""
+    import inspect
+    from memex.mcp_server import queries
+    src = inspect.getsource(queries.get_recent_decisions_raw)
+    assert "as corroborated" in src
+
+
 @pytest.mark.asyncio
 async def test_briefing_includes_all_sections_when_budget_allows(mock_queries):
     clusters, decisions, problems, stale = mock_queries
