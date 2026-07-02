@@ -87,6 +87,7 @@ async def get_recent_decisions_raw(since_days: int, module: Optional[str], limit
       d.last_reinforced_at as last_reinforced_at,
       d.created_at as created_at,
       d.validated as validated,
+      d.corroborated as corroborated,
       coalesce(d.uuid, elementId(d)) as id
     ORDER BY d.created_at DESC
     LIMIT $limit

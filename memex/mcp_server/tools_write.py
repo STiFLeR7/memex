@@ -390,9 +390,37 @@ async def record_decision(
 
             node_id = result.episode.uuid
 
-            # Explicitly set repo_path + supersedes properties
-            set_clauses = ["n.repo_path = $repo", "n.type = coalesce(n.type, 'Decision')"]
-            params = {"id": node_id, "repo": repo_path}
+            # Signal Pillar A — a freshly agent-recorded Decision must carry an
+            # explicit, config-driven base_confidence. Without this SET the node
+            # has no base_confidence and current_confidence() falls back to
+            # coalesce(..., 1.0), silently treating every agent write as a
+            # fully-trusted fact — the exact over-trust Signal exists to prevent.
+            # Harness identity isn't yet threaded from the MCP initialize
+            # handshake, so resolve the `default` harness (harness=None).
+            try:
+                initial_conf = get_config().initial_confidence_for(None)
+            except Exception:
+                initial_conf = 0.6  # never regress to the implicit 1.0 fallback
+
+            # Explicitly set repo_path + Signal confidence anchor + supersedes.
+            # validated stays False — only `memex review` (or corroboration)
+            # may raise an agent-written decision toward 1.0.
+            set_clauses = [
+                "n.repo_path = $repo",
+                "n.type = coalesce(n.type, 'Decision')",
+                "n.base_confidence = $base_confidence",
+                "n.validated = $validated",
+                "n.source = coalesce(n.source, 'agent')",
+                "n.last_reinforced_at = coalesce(n.last_reinforced_at, $now)",
+                "n.access_count = coalesce(n.access_count, 0)",
+            ]
+            params = {
+                "id": node_id,
+                "repo": repo_path,
+                "base_confidence": initial_conf,
+                "validated": False,
+                "now": now,
+            }
             if supersedes:
                 set_clauses.append("n.supersedes = $supersedes")
                 params["supersedes"] = supersedes

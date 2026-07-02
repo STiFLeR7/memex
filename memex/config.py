@@ -84,6 +84,28 @@ class Config(BaseModel):
     # Phase 7 — composite-reranker / RRF / conflict-detection knobs.
     retrieval: RetrievalConfig = Field(default_factory=RetrievalConfig)
 
+    def harness_config(self, harness: Optional[str]) -> HarnessConfig:
+        """Resolve the HarnessConfig for ``harness``, falling back to the
+        ``default`` entry and finally to the HarnessConfig defaults.
+
+        ``harness`` is the writing client's identity (e.g. ``claude-code``,
+        ``gemini-cli``, ``codex``) or ``None``/``"watcher"`` for the commit
+        synthesiser. Unknown harnesses resolve to ``default`` so the config
+        stays forward-compatible with clients we haven't named yet.
+        """
+        if harness and harness in self.harnesses:
+            return self.harnesses[harness]
+        if "default" in self.harnesses:
+            return self.harnesses["default"]
+        return HarnessConfig()
+
+    def initial_confidence_for(self, harness: Optional[str]) -> float:
+        """Initial ``base_confidence`` a freshly-written Decision should carry,
+        keyed by the writing harness (Signal Pillar A). This is the single
+        source of truth — agent writes and commit synthesis both route through
+        here instead of hardcoding 0.6."""
+        return self.harness_config(harness).initial_decision_confidence
+
 def load_config(repo_root: Optional[str] = None) -> Config:
     """
     Loads configuration from environment variables and optionally config.yaml.
