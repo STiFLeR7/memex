@@ -1,6 +1,6 @@
 # memex — temporal knowledge graph memory for AI coding agents
 
-<!-- mcp-name: io.github.stifler7/memex -->
+<!-- mcp-name: io.github.STiFLeR7/memex -->
 
 > Persistent memory and codebase context for AI coding agents, served over MCP. A bitemporal knowledge graph of your repository — modules, symbols, decisions, problems — for Claude Code, Cursor, Codex, Gemini CLI, and any MCP-compatible agent.
 
