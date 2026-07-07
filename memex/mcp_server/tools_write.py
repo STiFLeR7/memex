@@ -10,7 +10,7 @@ from memex.graph.schema import (
     MemexWritePolicyError,
     check_write_policy as _schema_check_write_policy,
 )
-from memex.config import get_config
+from memex.config import get_config, resolve_project_id
 from memex.watcher.registry import get_active_repositories
 
 from memex.watcher.handlers import notify_local_server
@@ -89,6 +89,15 @@ async def _resolve_repo(repo: Optional[str]) -> str:
 
     raise ValueError("Repository scoping required: please specify 'repo' parameter (multiple repos registered).")
 
+async def _resolve_project(repo_path: str) -> Optional[str]:
+    """Best-effort project_id resolution for a resolved repo_path (NET-01).
+
+    Delegates to `memex.config.resolve_project_id`, run via `asyncio.to_thread`
+    so the blocking `git remote get-url` subprocess call doesn't block the
+    event loop. Never raises — mirrors `_resolve_repo`'s shape.
+    """
+    return await asyncio.to_thread(resolve_project_id, repo_path)
+
 async def _get_or_create_session(client, repo_path: str) -> str:
     """Gets or creates a stable AgentSession for this process."""
     global _current_session_name
@@ -107,10 +116,18 @@ async def _get_or_create_session(client, repo_path: str) -> str:
         reference_time=now
     )
 
-    # Force repo_path property on the session node
+    # Force repo_path property on the session node, conditionally adding
+    # project_id alongside it when resolvable (NET-01/NET-02 — additive only,
+    # never SET to null).
+    project_id = await _resolve_project(repo_path)
+    session_set_clauses = ["n.repo_path = $repo"]
+    session_params = {"name": session_name, "repo": repo_path}
+    if project_id:
+        session_set_clauses.append("n.project_id = $project")
+        session_params["project"] = project_id
     await client.driver.execute_query(
-        "MATCH (n:Entity {name: $name}) SET n.repo_path = $repo",
-        params={"name": session_name, "repo": repo_path}
+        "MATCH (n:Entity {name: $name}) SET " + ", ".join(session_set_clauses),
+        params=session_params
     )
 
     _current_session_name = session_name
@@ -324,6 +341,8 @@ async def record_decision(
     except ValueError as e:
         return f"Error: {e}"
 
+    project_id = await _resolve_project(repo_path)
+
     client = await get_graph_client()
     now = datetime.now(UTC)
 
@@ -424,6 +443,9 @@ async def record_decision(
             if supersedes:
                 set_clauses.append("n.supersedes = $supersedes")
                 params["supersedes"] = supersedes
+            if project_id:
+                set_clauses.append("n.project_id = $project")
+                params["project"] = project_id
             update_cypher = (
                 "MATCH (n:Entity) WHERE n.uuid = $id OR elementId(n) = $id "
                 "SET " + ", ".join(set_clauses)
@@ -437,9 +459,15 @@ async def record_decision(
                     source_description="agent",
                     reference_time=now
                 )
+                link_set_clauses = ["n.repo_path = $repo"]
+                link_params = {"id": link_result.episode.uuid, "repo": repo_path}
+                if project_id:
+                    link_set_clauses.append("n.project_id = $project")
+                    link_params["project"] = project_id
                 await client.driver.execute_query(
-                    "MATCH (n:Entity) WHERE n.uuid = $id OR elementId(n) = $id SET n.repo_path = $repo",
-                    params={"id": link_result.episode.uuid, "repo": repo_path}
+                    "MATCH (n:Entity) WHERE n.uuid = $id OR elementId(n) = $id SET "
+                    + ", ".join(link_set_clauses),
+                    params=link_params
                 )
 
             display_text = text[:80] + ("..." if len(text) > 80 else "")
@@ -484,6 +512,8 @@ async def record_problem(
         repo_path = await _resolve_repo(repo)
     except ValueError as e:
         return f"Error: {e}"
+
+    project_id = await _resolve_project(repo_path)
 
     client = await get_graph_client()
     now = datetime.now(UTC)
@@ -530,10 +560,17 @@ async def record_problem(
             )
 
             node_id = result.episode.uuid
-            # Explicitly set repo_path property
+            # Explicitly set repo_path property, conditionally adding
+            # project_id alongside it when resolvable (NET-01/NET-02).
+            problem_set_clauses = ["n.repo_path = $repo"]
+            problem_params = {"id": node_id, "repo": repo_path}
+            if project_id:
+                problem_set_clauses.append("n.project_id = $project")
+                problem_params["project"] = project_id
             await client.driver.execute_query(
-                "MATCH (n:Entity) WHERE n.uuid = $id OR elementId(n) = $id SET n.repo_path = $repo",
-                params={"id": node_id, "repo": repo_path}
+                "MATCH (n:Entity) WHERE n.uuid = $id OR elementId(n) = $id SET "
+                + ", ".join(problem_set_clauses),
+                params=problem_params
             )
 
             if module:
@@ -543,9 +580,15 @@ async def record_problem(
                     source_description="agent",
                     reference_time=now
                 )
+                 link_set_clauses = ["n.repo_path = $repo"]
+                 link_params = {"id": link_result.episode.uuid, "repo": repo_path}
+                 if project_id:
+                     link_set_clauses.append("n.project_id = $project")
+                     link_params["project"] = project_id
                  await client.driver.execute_query(
-                    "MATCH (n:Entity) WHERE n.uuid = $id OR elementId(n) = $id SET n.repo_path = $repo",
-                    params={"id": link_result.episode.uuid, "repo": repo_path}
+                    "MATCH (n:Entity) WHERE n.uuid = $id OR elementId(n) = $id SET "
+                    + ", ".join(link_set_clauses),
+                    params=link_params
                 )
 
             res_msg = f"problem recorded [{severity}]: {text[:80]}"
@@ -609,6 +652,7 @@ async def resolve_problem(
         return f"problem {problem_id} was already resolved"
 
     repo_path = rec.get('repo_path') or await _resolve_repo(repo)
+    project_id = await _resolve_project(repo_path)
     try:
         # 2. Get/Create Session
         session_name = await _get_or_create_session(client, repo_path)
@@ -621,24 +665,32 @@ async def resolve_problem(
             reference_time=now
         )
 
-        # 4. Explicitly mark as closed via direct Cypher
-        update_query = """
-        MATCH (p:Entity)
-        WHERE p.uuid = $id OR elementId(p) = $id
-        SET p.status = 'closed',
-            p.valid_until = $now,
-            p.type = 'Problem'
-        WITH p
-        MATCH (s:Entity {name: $session_name})
-        MERGE (p)-[r:RESOLVED_BY]->(s)
-        SET r.resolved_at = $now, r.fact = $resolution
-        """
-        await client.driver.execute_query(update_query, params={
+        # 4. Explicitly mark as closed via direct Cypher, conditionally
+        # adding project_id alongside the closing SET when resolvable.
+        p_set_clauses = [
+            "p.status = 'closed'",
+            "p.valid_until = $now",
+            "p.type = 'Problem'",
+        ]
+        update_params = {
             "id": problem_id,
             "session_name": session_name,
             "now": now,
             "resolution": resolution_text
-        })
+        }
+        if project_id:
+            p_set_clauses.append("p.project_id = $project")
+            update_params["project"] = project_id
+        update_query = (
+            "MATCH (p:Entity)\n"
+            "WHERE p.uuid = $id OR elementId(p) = $id\n"
+            "SET " + ", ".join(p_set_clauses) + "\n"
+            "WITH p\n"
+            "MATCH (s:Entity {name: $session_name})\n"
+            "MERGE (p)-[r:RESOLVED_BY]->(s)\n"
+            "SET r.resolved_at = $now, r.fact = $resolution"
+        )
+        await client.driver.execute_query(update_query, params=update_params)
 
         res = f"problem resolved: {rec['text'][:50]}..."
         notify_local_server()
