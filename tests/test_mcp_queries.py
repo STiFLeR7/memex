@@ -32,6 +32,40 @@ async def test_get_node_counts_repo_filter():
         assert "n.repo_path = $repo" in call_args[0][0]
         assert call_args[1]["params"]["repo"] == "/fake/repo"
 
+
+@pytest.mark.asyncio
+async def test_get_node_counts_project_filter():
+    """NET-03: project_id is a valid alternative scoping key to repo."""
+    mock_res = MagicMock(records=[])
+    with patch("memex.mcp_server.queries.get_graph_client", new_callable=AsyncMock) as mock_get_client:
+        mock_client = AsyncMock()
+        mock_client.driver.execute_query.return_value = mock_res
+        mock_get_client.return_value = mock_client
+
+        await queries.get_node_counts(project="github.com/acme/widgets")
+        call_args = mock_client.driver.execute_query.call_args
+        assert "n.project_id = $project" in call_args[0][0]
+        assert call_args[1]["params"]["project"] == "github.com/acme/widgets"
+
+
+@pytest.mark.asyncio
+async def test_get_node_counts_unscoped_when_neither_repo_nor_project():
+    """Calling a read query with no repo/project (today's unscoped/global CLI
+    usage) must still run the query unfiltered — the dual-key WHERE clause
+    must never accidentally narrow an unscoped query to zero rows."""
+    mock_res = MagicMock(records=[])
+    with patch("memex.mcp_server.queries.get_graph_client", new_callable=AsyncMock) as mock_get_client:
+        mock_client = AsyncMock()
+        mock_client.driver.execute_query.return_value = mock_res
+        mock_get_client.return_value = mock_client
+
+        await queries.get_node_counts()
+        call_args = mock_client.driver.execute_query.call_args
+        assert call_args[1]["params"]["repo"] is None
+        assert call_args[1]["params"]["project"] is None
+        assert "$project IS NULL AND $repo IS NULL" in call_args[0][0]
+
+
 @pytest.mark.asyncio
 async def test_get_active_modules_filters_by_scope():
     mock_res = MagicMock()
@@ -271,3 +305,33 @@ async def test_all_edge_traversing_queries_filter_expired_at():
                 f"{func_name}: Cypher missing `r.expired_at IS NULL` filter — "
                 f"Graphiti-invalidated edges will leak into agent context"
             )
+
+
+@pytest.mark.asyncio
+async def test_composite_search_filters_by_project_id():
+    """NET-03: composite_search() accepts `project` and filters in-memory
+    results on `project_id` when supplied, taking precedence over `repo`."""
+    from memex.mcp_server import queries as queries_mod
+
+    class FakeResult:
+        def __init__(self, uuid, project_id=None, repo_path=None):
+            self.uuid = uuid
+            self.project_id = project_id
+            self.repo_path = repo_path
+            self.created_at = None
+            self.confidence = 1.0
+            self.access_count = 0
+
+    fake_client = AsyncMock()
+    fake_client.search = AsyncMock(return_value=[
+        FakeResult("u1", project_id="github.com/acme/widgets"),
+        FakeResult("u2", project_id="github.com/other/thing"),
+        FakeResult("u3", repo_path="/fake/repo"),
+    ])
+
+    with patch("memex.mcp_server.queries.increment_access_count", new_callable=AsyncMock):
+        result = await queries_mod.composite_search(
+            "query text", project="github.com/acme/widgets", client=fake_client
+        )
+    assert len(result) == 1
+    assert result[0].node_or_edge.uuid == "u1"

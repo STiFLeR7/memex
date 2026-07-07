@@ -11,33 +11,33 @@ class MemexQueryError(Exception):
         self.query = query
         self.original_error = original_error
 
-async def get_node_counts(repo: Optional[str] = None) -> Dict[str, int]:
+async def get_node_counts(repo: Optional[str] = None, project: Optional[str] = None) -> Dict[str, int]:
     """Returns counts of core node types."""
     client = await get_graph_client()
     query = """
     MATCH (n:Entity)
-    WHERE ($repo IS NULL OR n.repo_path = $repo)
-    RETURN 
+    WHERE ($project IS NULL AND $repo IS NULL) OR ($project IS NOT NULL AND n.project_id = $project) OR ($repo IS NOT NULL AND n.repo_path = $repo)
+    RETURN
       count(CASE WHEN n.name ENDS WITH '.py' OR n.name ENDS WITH '.js' OR n.name ENDS WITH '.ts' OR coalesce(n.type, '') = 'Module' THEN 1 END) as modules,
       count(CASE WHEN n.type = 'Symbol' OR (NOT n.name ENDS WITH '.py' AND n.type IS NULL) THEN 1 END) as symbols,
       count(CASE WHEN n.type = 'Decision' OR n.name CONTAINS 'Decision' THEN 1 END) as decisions,
       count(CASE WHEN n.type = 'Problem' AND coalesce(n.status, 'open') = 'open' THEN 1 END) as problems
     """
     try:
-        res = await client.driver.execute_query(query, params={"repo": repo})
+        res = await client.driver.execute_query(query, params={"repo": repo, "project": project})
         if not res.records:
             return {"modules": 0, "symbols": 0, "decisions": 0, "problems": 0}
         return res.records[0].data()
     except Exception as e:
         raise MemexQueryError("Failed to get node counts", query, e)
 
-async def get_active_modules(since_days: int, scope: Optional[str], repo: Optional[str] = None) -> List[Dict[str, Any]]:
+async def get_active_modules(since_days: int, scope: Optional[str], repo: Optional[str] = None, project: Optional[str] = None) -> List[Dict[str, Any]]:
     """Returns modules modified recently."""
     client = await get_graph_client()
     query = """
     MATCH (m:Entity)
     WHERE (coalesce(m.type, '') = 'Module' OR m.name ENDS WITH '.py' OR m.name ENDS WITH '.js')
-      AND ($repo IS NULL OR m.repo_path = $repo)
+      AND (($project IS NULL AND $repo IS NULL) OR ($project IS NOT NULL AND m.project_id = $project) OR ($repo IS NOT NULL AND m.repo_path = $repo))
       AND ($scope IS NULL OR m.name STARTS WITH $scope)
       AND coalesce(m.created_at, datetime()) >= datetime() - duration({days: $days})
     OPTIONAL MATCH (s:Entity) WHERE coalesce(s.file, '') = m.name OR (s.type = 'Symbol' AND s.file = m.name)
@@ -46,18 +46,18 @@ async def get_active_modules(since_days: int, scope: Optional[str], repo: Option
     LIMIT 20
     """
     try:
-        res = await client.driver.execute_query(query, params={"scope": scope, "days": since_days, "repo": repo})
+        res = await client.driver.execute_query(query, params={"scope": scope, "days": since_days, "repo": repo, "project": project})
         return [r.data() for r in res.records]
     except Exception as e:
         raise MemexQueryError("Failed to get active modules", query, e)
 
-async def get_recent_decisions_raw(since_days: int, module: Optional[str], limit: int, repo: Optional[str] = None, corroborated_only: bool = False) -> List[Dict[str, Any]]:
+async def get_recent_decisions_raw(since_days: int, module: Optional[str], limit: int, repo: Optional[str] = None, corroborated_only: bool = False, project: Optional[str] = None) -> List[Dict[str, Any]]:
     """Returns recent decision nodes and their affected modules."""
     client = await get_graph_client()
     query = """
     MATCH (d:Entity)
     WHERE (d.type = 'Decision' OR d.name CONTAINS 'Decision')
-      AND ($repo IS NULL OR d.repo_path = $repo)
+      AND (($project IS NULL AND $repo IS NULL) OR ($project IS NOT NULL AND d.project_id = $project) OR ($repo IS NOT NULL AND d.repo_path = $repo))
       AND coalesce(d.created_at, datetime()) >= datetime() - duration({days: $days})
       AND ($corroborated_only = false OR d.corroborated = true OR d.validated = true)
     
@@ -93,19 +93,19 @@ async def get_recent_decisions_raw(since_days: int, module: Optional[str], limit
     LIMIT $limit
     """
     try:
-        res = await client.driver.execute_query(query, params={"days": since_days, "module": module, "limit": limit, "repo": repo, "corroborated_only": corroborated_only})
+        res = await client.driver.execute_query(query, params={"days": since_days, "module": module, "limit": limit, "repo": repo, "corroborated_only": corroborated_only, "project": project})
         return [r.data() for r in res.records]
     except Exception as e:
         raise MemexQueryError("Failed to get recent decisions", query, e)
 
-async def get_open_problems_raw(module: Optional[str], repo: Optional[str] = None) -> List[Dict[str, Any]]:
+async def get_open_problems_raw(module: Optional[str], repo: Optional[str] = None, project: Optional[str] = None) -> List[Dict[str, Any]]:
     """Returns unresolved problem nodes."""
     client = await get_graph_client()
     # We match anything that looks like a Problem and is NOT resolved
     query = """
     MATCH (p:Entity)
-    WHERE (p.type = 'Problem' OR p.name CONTAINS 'Problem') 
-      AND ($repo IS NULL OR p.repo_path = $repo)
+    WHERE (p.type = 'Problem' OR p.name CONTAINS 'Problem')
+      AND (($project IS NULL AND $repo IS NULL) OR ($project IS NOT NULL AND p.project_id = $project) OR ($repo IS NOT NULL AND p.repo_path = $repo))
       AND coalesce(p.status, 'open') = 'open'
       AND NOT (p)-[:RESOLVED_BY|RESOLVES]->()
     
@@ -132,19 +132,19 @@ async def get_open_problems_raw(module: Optional[str], repo: Optional[str] = Non
     LIMIT 20
     """
     try:
-        res = await client.driver.execute_query(query, params={"module": module, "repo": repo})
+        res = await client.driver.execute_query(query, params={"module": module, "repo": repo, "project": project})
         return [r.data() for r in res.records]
     except Exception as e:
         raise MemexQueryError("Failed to get open problems", query, e)
 
-async def get_stale_edges(threshold: float, limit: int, repo: Optional[str] = None) -> List[Dict[str, Any]]:
+async def get_stale_edges(threshold: float, limit: int, repo: Optional[str] = None, project: Optional[str] = None) -> List[Dict[str, Any]]:
     """Returns relationships with low confidence."""
     client = await get_graph_client()
     query = """
     MATCH (s:Entity)-[r]->(t:Entity)
     WHERE r.expired_at IS NULL
       AND coalesce(r.confidence, 1.0) < $threshold
-      AND ($repo IS NULL OR s.repo_path = $repo)
+      AND (($project IS NULL AND $repo IS NULL) OR ($project IS NOT NULL AND s.project_id = $project) OR ($repo IS NOT NULL AND s.repo_path = $repo))
     RETURN s.name as source, t.name as target, type(r) as edge_type,
            coalesce(r.confidence, 1.0) as confidence, coalesce(r.valid_from, r.created_at, datetime()) as date,
            coalesce(r.source_commit, 'unknown') as sha,
@@ -153,32 +153,32 @@ async def get_stale_edges(threshold: float, limit: int, repo: Optional[str] = No
     LIMIT $limit
     """
     try:
-        res = await client.driver.execute_query(query, params={"threshold": threshold, "limit": limit, "repo": repo})
+        res = await client.driver.execute_query(query, params={"threshold": threshold, "limit": limit, "repo": repo, "project": project})
         return [r.data() for r in res.records]
     except Exception as e:
         raise MemexQueryError("Failed to get stale edges", query, e)
 
-async def get_symbol_by_name(name: str, file: Optional[str], repo: Optional[str] = None) -> Optional[Dict[str, Any]]:
+async def get_symbol_by_name(name: str, file: Optional[str], repo: Optional[str] = None, project: Optional[str] = None) -> Optional[Dict[str, Any]]:
     """Finds a single symbol by name and optional file."""
     client = await get_graph_client()
     query = """
     MATCH (s:Entity {name: $name})
     WHERE (coalesce(s.type, '') = 'Symbol' OR (s.type IS NULL AND NOT s.name ENDS WITH '.py'))
     AND ($file IS NULL OR coalesce(s.file, '') = $file)
-    AND ($repo IS NULL OR s.repo_path = $repo)
-    RETURN s.name as name, coalesce(s.kind, 'fn') as kind, coalesce(s.file, 'unknown') as file, 
-           coalesce(s.line, 0) as line, coalesce(s.signature, 'n/a') as signature, 
+    AND (($project IS NULL AND $repo IS NULL) OR ($project IS NOT NULL AND s.project_id = $project) OR ($repo IS NOT NULL AND s.repo_path = $repo))
+    RETURN s.name as name, coalesce(s.kind, 'fn') as kind, coalesce(s.file, 'unknown') as file,
+           coalesce(s.line, 0) as line, coalesce(s.signature, 'n/a') as signature,
            coalesce(s.confidence, 1.0) as confidence, coalesce(s.stale, false) as stale,
            elementId(s) as id
     LIMIT 1
     """
     try:
-        res = await client.driver.execute_query(query, params={"name": name, "file": file, "repo": repo})
+        res = await client.driver.execute_query(query, params={"name": name, "file": file, "repo": repo, "project": project})
         return res.records[0].data() if res.records else None
     except Exception as e:
         raise MemexQueryError(f"Failed to find symbol '{name}'", query, e)
 
-async def get_symbol_callers(symbol_name: str, repo: Optional[str] = None) -> List[Dict[str, Any]]:
+async def get_symbol_callers(symbol_name: str, repo: Optional[str] = None, project: Optional[str] = None) -> List[Dict[str, Any]]:
     """Finds symbols that call the target symbol."""
     client = await get_graph_client()
     query = """
@@ -186,16 +186,16 @@ async def get_symbol_callers(symbol_name: str, repo: Optional[str] = None) -> Li
     WHERE r.expired_at IS NULL
       AND (caller.type = 'Symbol' OR caller.type IS NULL)
       AND (s.type = 'Symbol' OR s.type IS NULL)
-      AND ($repo IS NULL OR s.repo_path = $repo)
+      AND (($project IS NULL AND $repo IS NULL) OR ($project IS NOT NULL AND s.project_id = $project) OR ($repo IS NOT NULL AND s.repo_path = $repo))
     RETURN caller.name as name, coalesce(caller.file, 'unknown') as file
     """
     try:
-        res = await client.driver.execute_query(query, params={"name": symbol_name, "repo": repo})
+        res = await client.driver.execute_query(query, params={"name": symbol_name, "repo": repo, "project": project})
         return [r.data() for r in res.records]
     except Exception as e:
         raise MemexQueryError(f"Failed to get callers for '{symbol_name}'", query, e)
 
-async def get_symbol_callees(symbol_name: str, repo: Optional[str] = None) -> List[Dict[str, Any]]:
+async def get_symbol_callees(symbol_name: str, repo: Optional[str] = None, project: Optional[str] = None) -> List[Dict[str, Any]]:
     """Finds symbols called by the target symbol."""
     client = await get_graph_client()
     query = """
@@ -203,16 +203,16 @@ async def get_symbol_callees(symbol_name: str, repo: Optional[str] = None) -> Li
     WHERE r.expired_at IS NULL
       AND (callee.type = 'Symbol' OR callee.type IS NULL)
       AND (s.type = 'Symbol' OR s.type IS NULL)
-      AND ($repo IS NULL OR s.repo_path = $repo)
+      AND (($project IS NULL AND $repo IS NULL) OR ($project IS NOT NULL AND s.project_id = $project) OR ($repo IS NOT NULL AND s.repo_path = $repo))
     RETURN callee.name as name, coalesce(callee.file, 'unknown') as file
     """
     try:
-        res = await client.driver.execute_query(query, params={"name": symbol_name, "repo": repo})
+        res = await client.driver.execute_query(query, params={"name": symbol_name, "repo": repo, "project": project})
         return [r.data() for r in res.records]
     except Exception as e:
         raise MemexQueryError(f"Failed to get callees for '{symbol_name}'", query, e)
 
-async def get_symbol_decisions(symbol_name: str, repo: Optional[str] = None) -> List[str]:
+async def get_symbol_decisions(symbol_name: str, repo: Optional[str] = None, project: Optional[str] = None) -> List[str]:
     """Finds decisions linked to a symbol."""
     client = await get_graph_client()
     query = """
@@ -220,16 +220,16 @@ async def get_symbol_decisions(symbol_name: str, repo: Optional[str] = None) -> 
     WHERE r.expired_at IS NULL
       AND (d.type = 'Decision' OR d.name CONTAINS 'Decision')
       AND (s.type = 'Symbol' OR s.type IS NULL)
-      AND ($repo IS NULL OR s.repo_path = $repo)
+      AND (($project IS NULL AND $repo IS NULL) OR ($project IS NOT NULL AND s.project_id = $project) OR ($repo IS NOT NULL AND s.repo_path = $repo))
     RETURN d.name as text
     """
     try:
-        res = await client.driver.execute_query(query, params={"name": symbol_name, "repo": repo})
+        res = await client.driver.execute_query(query, params={"name": symbol_name, "repo": repo, "project": project})
         return [r['text'] for r in res.records]
     except Exception as e:
         raise MemexQueryError(f"Failed to get decisions for '{symbol_name}'", query, e)
 
-async def get_symbol_problems(symbol_name: str, repo: Optional[str] = None) -> List[str]:
+async def get_symbol_problems(symbol_name: str, repo: Optional[str] = None, project: Optional[str] = None) -> List[str]:
     """Finds open problems linked to a symbol."""
     client = await get_graph_client()
     query = """
@@ -238,11 +238,11 @@ async def get_symbol_problems(symbol_name: str, repo: Optional[str] = None) -> L
       AND (p.type = 'Problem' OR p.name CONTAINS 'Problem')
       AND (s.type = 'Symbol' OR s.type IS NULL)
       AND coalesce(p.status, 'open') = 'open'
-      AND ($repo IS NULL OR s.repo_path = $repo)
+      AND (($project IS NULL AND $repo IS NULL) OR ($project IS NOT NULL AND s.project_id = $project) OR ($repo IS NOT NULL AND s.repo_path = $repo))
     RETURN p.name as text
     """
     try:
-        res = await client.driver.execute_query(query, params={"name": symbol_name, "repo": repo})
+        res = await client.driver.execute_query(query, params={"name": symbol_name, "repo": repo, "project": project})
         return [r['text'] for r in res.records]
     except Exception as e:
         raise MemexQueryError(f"Failed to get problems for '{symbol_name}'", query, e)
@@ -256,7 +256,7 @@ async def get_symbol_problems(symbol_name: str, repo: Optional[str] = None) -> L
 # ---------------------------------------------------------------------------
 
 
-async def count_unvalidated_decisions(repo: Optional[str] = None) -> int:
+async def count_unvalidated_decisions(repo: Optional[str] = None, project: Optional[str] = None) -> int:
     """Phase 8: returns count of Decision nodes with validated=False.
     Surfaced in `get_project_context()` as a warning.
     Scaffolded — returns 0 until Phase 8 lands."""
@@ -265,17 +265,17 @@ async def count_unvalidated_decisions(repo: Optional[str] = None) -> int:
     MATCH (d:Entity)
     WHERE (d.type = 'Decision' OR d.name CONTAINS 'Decision')
       AND coalesce(d.validated, false) = false
-      AND ($repo IS NULL OR d.repo_path = $repo)
+      AND (($project IS NULL AND $repo IS NULL) OR ($project IS NOT NULL AND d.project_id = $project) OR ($repo IS NOT NULL AND d.repo_path = $repo))
     RETURN count(d) as cnt
     """
     try:
-        res = await client.driver.execute_query(query, params={"repo": repo})
+        res = await client.driver.execute_query(query, params={"repo": repo, "project": project})
         return res.records[0]["cnt"] if res.records else 0
     except Exception:
         return 0
 
 
-async def get_cluster_level_context(repo: Optional[str] = None) -> List[Dict[str, Any]]:
+async def get_cluster_level_context(repo: Optional[str] = None, project: Optional[str] = None) -> List[Dict[str, Any]]:
     """Phase 6 (dev2): returns one row per Cluster with aggregate counts.
     Scaffolded — returns empty list until Cluster nodes exist."""
     client = await get_graph_client()
@@ -283,7 +283,7 @@ async def get_cluster_level_context(repo: Optional[str] = None) -> List[Dict[str
     MATCH (c:Entity)
     WHERE c.type = 'Cluster'
       AND c.expired_at IS NULL
-      AND ($repo IS NULL OR c.repo_path = $repo)
+      AND (($project IS NULL AND $repo IS NULL) OR ($project IS NOT NULL AND c.project_id = $project) OR ($repo IS NOT NULL AND c.repo_path = $repo))
     OPTIONAL MATCH (c)-[rc:CONTAINS]->(m:Entity)
     WHERE rc.expired_at IS NULL AND m.type = 'Module'
     RETURN c.name as name,
@@ -294,7 +294,7 @@ async def get_cluster_level_context(repo: Optional[str] = None) -> List[Dict[str
     ORDER BY c.name ASC
     """
     try:
-        res = await client.driver.execute_query(query, params={"repo": repo})
+        res = await client.driver.execute_query(query, params={"repo": repo, "project": project})
         return [r.data() for r in res.records]
     except Exception:
         return []
@@ -344,6 +344,7 @@ async def composite_search(
     rehearsal_weight: Optional[float] = None,
     rrf_k: Optional[int] = None,
     repo: Optional[str] = None,
+    project: Optional[str] = None,
     client: Any = None,
 ):
     """Search Graphiti and apply the Phase 7 composite reranker.
@@ -395,9 +396,12 @@ async def composite_search(
         client = await get_graph_client()
     raw_results = await client.search(query, num_results=num_results)
 
-    # Optional repo filter — applied BEFORE composite scoring so we don't
-    # waste rerank work on out-of-scope hits.
-    if repo:
+    # Optional project/repo filter — applied BEFORE composite scoring so we
+    # don't waste rerank work on out-of-scope hits. `project` takes
+    # precedence over `repo` when both are supplied.
+    if project:
+        raw_results = [r for r in raw_results if getattr(r, "project_id", None) == project]
+    elif repo:
         raw_results = [r for r in raw_results if getattr(r, "repo_path", None) == repo]
 
     # Single-modality flow: score + sort, then run RRF (no-op for one list
