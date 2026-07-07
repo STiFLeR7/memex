@@ -136,3 +136,49 @@ async def test_stats_aggregation_periods_and_filtering(temp_db_path):
         assert agents["Cursor"]["calls"] == 1
         assert agents["Other"]["calls"] == 1
         assert agents["Other"]["pct"] == 25.0
+
+
+@pytest.mark.asyncio
+async def test_get_stats_data_project_scoping_dual_key(temp_db_path):
+    """get_stats_data(project=...) filters the SQLite aggregation by
+    project_id (falling back to repo_path for unmigrated rows), and also
+    passes $project into the Neo4j validation-health query. Omitting
+    `project` leaves behavior unchanged from today (repo_path-only)."""
+    with patch("memex.graph.telemetry.get_telemetry_db_path", return_value=temp_db_path), \
+         patch("memex.graph.stats.get_graph_client") as mock_graph_client:
+
+        mock_driver = MagicMock()
+        mock_driver.execute_query = AsyncMock(return_value=MagicMock(records=[
+            MagicMock(data=lambda: {
+                "validated": 1,
+                "unvalidated": 0,
+                "corroborated": 0,
+                "last_validated_at": None
+            })
+        ]))
+        mock_graph_client.return_value = MagicMock(driver=mock_driver)
+
+        db = TelemetryDB(db_path=temp_db_path)
+        repo_a = normalize_repo_path("/repo/a")
+        repo_b = normalize_repo_path("/repo/b")
+
+        # Row 1: repo_a, tagged with project_id.
+        db.record_call("get_project_context", repo_a, "claude-code", 100, 500, project_id="github.com/acme/widgets")
+        # Row 2: a different repo_path but the SAME project_id — should be
+        # picked up when querying by project (dual-key), not when querying
+        # by repo_path alone.
+        db.record_call("search_context", repo_b, "claude-code", 50, 200, project_id="github.com/acme/widgets")
+        # Row 3: repo_a, no project_id — always included for repo_a queries.
+        db.record_call("get_open_problems", repo_a, "claude-code", 10, 40)
+
+        # repo-path-only query (no project) — unchanged: rows 1 + 3 only.
+        stats_repo_only = await get_stats_data(repo_path=repo_a)
+        assert stats_repo_only["lifetime"]["tool_calls"] == 2
+
+        # project-scoped query — rows 1, 2 (project match) + 3 (repo fallback) = 3.
+        stats_project = await get_stats_data(repo_path=repo_a, project="github.com/acme/widgets")
+        assert stats_project["lifetime"]["tool_calls"] == 3
+
+        # Confirm $project was threaded into the Neo4j validation-health query.
+        call_kwargs = mock_driver.execute_query.call_args
+        assert call_kwargs.kwargs["params"]["project"] == "github.com/acme/widgets"

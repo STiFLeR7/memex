@@ -19,23 +19,42 @@ from memex.graph.telemetry import TelemetryDB, normalize_repo_path
 logger = logging.getLogger(__name__)
 
 
-def _query_db_sync(db: TelemetryDB, normalized_repo: Optional[str]) -> Dict[str, Any]:
-    """Synchronous SQLite aggregation execution."""
+def _query_db_sync(db: TelemetryDB, normalized_repo: Optional[str], project: Optional[str] = None) -> Dict[str, Any]:
+    """Synchronous SQLite aggregation execution.
+
+    When `project` is truthy, every query below switches from a
+    repo_path-only WHERE to the dual-key form
+    `WHERE (project_id = ? OR (project_id IS NULL AND repo_path = ?))`
+    (mirroring TelemetryDB.get_stats' pattern), with params reordered to
+    `(project, normalized_repo, ...)`. When `project` is falsy, every query
+    is left exactly as-is (byte-for-byte unchanged from today).
+    """
     now = datetime.now(timezone.utc)
-    
+
     # 1. Boundaries
     today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
     today_start_str = today_start.isoformat()
-    
+
     seven_days_ago = now - timedelta(days=7)
     seven_days_ago_str = seven_days_ago.isoformat()
-    
+
     thirty_days_ago = now - timedelta(days=30)
     thirty_days_ago_str = thirty_days_ago.isoformat()
-    
+
     def execute_summary_query(conn: sqlite3.Connection, start_time_str: Optional[str]) -> Dict[str, Any]:
         if start_time_str:
-            if normalized_repo:
+            if project:
+                query = """
+                    SELECT
+                        COUNT(*) as total_calls,
+                        coalesce(SUM(tokens_returned), 0) as tokens_returned,
+                        coalesce(SUM(tokens_naive), 0) as tokens_naive,
+                        coalesce(SUM(tokens_saved), 0) as tokens_saved
+                    FROM tool_calls
+                    WHERE (project_id = ? OR (project_id IS NULL AND repo_path = ?)) AND called_at >= ?
+                """
+                params = (project, normalized_repo, start_time_str)
+            elif normalized_repo:
                 query = """
                     SELECT
                         COUNT(*) as total_calls,
@@ -58,7 +77,18 @@ def _query_db_sync(db: TelemetryDB, normalized_repo: Optional[str]) -> Dict[str,
                 """
                 params = (start_time_str,)
         else:
-            if normalized_repo:
+            if project:
+                query = """
+                    SELECT
+                        COUNT(*) as total_calls,
+                        coalesce(SUM(tokens_returned), 0) as tokens_returned,
+                        coalesce(SUM(tokens_naive), 0) as tokens_naive,
+                        coalesce(SUM(tokens_saved), 0) as tokens_saved
+                    FROM tool_calls
+                    WHERE (project_id = ? OR (project_id IS NULL AND repo_path = ?))
+                """
+                params = (project, normalized_repo)
+            elif normalized_repo:
                 query = """
                     SELECT
                         COUNT(*) as total_calls,
@@ -79,7 +109,7 @@ def _query_db_sync(db: TelemetryDB, normalized_repo: Optional[str]) -> Dict[str,
                     FROM tool_calls
                 """
                 params = ()
-                
+
         row = conn.execute(query, params).fetchone()
         calls = row["total_calls"] or 0
         returned = row["tokens_returned"] or 0
@@ -115,7 +145,19 @@ def _query_db_sync(db: TelemetryDB, normalized_repo: Optional[str]) -> Dict[str,
         thirty_days["avg_daily_savings"] = round(avg_daily_30, 1)
         
         # 2. Top Tools
-        if normalized_repo:
+        if project:
+            top_tools_query = """
+                SELECT
+                    tool_name,
+                    COUNT(*) as calls,
+                    coalesce(SUM(tokens_saved), 0) as tokens_saved
+                FROM tool_calls
+                WHERE (project_id = ? OR (project_id IS NULL AND repo_path = ?))
+                GROUP BY tool_name
+                ORDER BY tokens_saved DESC, calls DESC
+            """
+            top_tools_params = (project, normalized_repo)
+        elif normalized_repo:
             top_tools_query = """
                 SELECT
                     tool_name,
@@ -149,7 +191,18 @@ def _query_db_sync(db: TelemetryDB, normalized_repo: Optional[str]) -> Dict[str,
             })
             
         # 3. Agent Breakdown
-        if normalized_repo:
+        if project:
+            agents_query = """
+                SELECT
+                    agent,
+                    COUNT(*) as calls,
+                    coalesce(SUM(tokens_saved), 0) as tokens_saved
+                FROM tool_calls
+                WHERE (project_id = ? OR (project_id IS NULL AND repo_path = ?))
+                GROUP BY agent
+            """
+            agents_params = (project, normalized_repo)
+        elif normalized_repo:
             agents_query = """
                 SELECT
                     agent,
@@ -219,8 +272,14 @@ def _query_db_sync(db: TelemetryDB, normalized_repo: Optional[str]) -> Dict[str,
     }
 
 
-async def get_stats_data(repo_path: Optional[str] = None) -> Dict[str, Any]:
-    """Retrieves all telemetry statistics and validation health."""
+async def get_stats_data(repo_path: Optional[str] = None, project: Optional[str] = None) -> Dict[str, Any]:
+    """Retrieves all telemetry statistics and validation health.
+
+    `project`, when provided, scopes both the SQLite aggregation (via
+    `_query_db_sync`) and the Neo4j validation-health query by project_id,
+    falling back to repo_path for unmigrated data. Omitting `project` is
+    byte-for-byte unchanged from today's repo_path-only behavior.
+    """
     db = TelemetryDB()
     normalized_repo = None
     if repo_path:
@@ -228,10 +287,10 @@ async def get_stats_data(repo_path: Optional[str] = None) -> Dict[str, Any]:
             normalized_repo = normalize_repo_path(repo_path)
         except Exception:
             normalized_repo = os.path.abspath(repo_path)
-            
+
     # 1. Fetch DB Stats in thread pool
-    stats = await asyncio.to_thread(_query_db_sync, db, normalized_repo)
-    
+    stats = await asyncio.to_thread(_query_db_sync, db, normalized_repo, project)
+
     # 2. Retrieve validation health from Neo4j
     validation_health = {
         "validated": 0,
@@ -244,14 +303,14 @@ async def get_stats_data(repo_path: Optional[str] = None) -> Dict[str, Any]:
         query = """
         MATCH (d:Entity)
         WHERE (d.type = 'Decision' OR d.name CONTAINS 'Decision')
-          AND ($repo IS NULL OR d.repo_path = $repo)
+          AND (($project IS NOT NULL AND d.project_id = $project) OR ($project IS NULL AND ($repo IS NULL OR d.repo_path = $repo)))
         RETURN
           sum(case when coalesce(d.validated, false) = true then 1 else 0 end) as validated,
           sum(case when coalesce(d.validated, false) = false and coalesce(d.excluded, false) = false then 1 else 0 end) as unvalidated,
           sum(case when coalesce(d.corroborated, false) = true then 1 else 0 end) as corroborated,
           max(coalesce(d.validated_at, d.updated_at)) as last_validated_at
         """
-        res = await client.driver.execute_query(query, params={"repo": normalized_repo})
+        res = await client.driver.execute_query(query, params={"repo": normalized_repo, "project": project})
         if res.records:
             rec = res.records[0].data()
             validation_health["validated"] = rec.get("validated") or 0
