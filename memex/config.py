@@ -1,12 +1,63 @@
 import os
+import re
 import yaml
 from pathlib import Path
 from pydantic import BaseModel, Field
 from typing import Optional, List, Dict
+from urllib.parse import urlparse
 from dotenv import load_dotenv
 
 # Load .env file if it exists
 load_dotenv()
+
+
+# SCP-shorthand git remote form: `[user@]host:path` (e.g. `git@github.com:org/repo.git`).
+# Verified against pip's own VCS URL normalizer (pip/_internal/vcs/git.py) — see
+# 00-RESEARCH.md Pattern 2.
+_SCP_LIKE = re.compile(r"^(?:(?P<user>[\w.-]+)@)?(?P<host>[^/:]+):(?P<path>[\w.-][^:]*)$")
+
+
+def normalize_git_remote_url(url: Optional[str]) -> Optional[str]:
+    """Normalize a git remote URL (SSH, HTTPS, SCP-shorthand, or self-hosted
+    with a custom port) into one canonical ``host/path`` string so two
+    clones of the same repo converge on the same ``project_id`` (NET-01).
+
+    Never raises. Returns ``None`` for falsy input, unrecognized forms, or
+    a local bare-repo path (Pitfall 1 — a Windows/POSIX filesystem path can
+    superficially match the SCP-shorthand regex, so `os.path.exists()` is
+    checked FIRST, exactly matching pip's own ordering). Only the hostname
+    is lower-cased; the path case is preserved (Pitfall 5 / Assumption A1).
+    """
+    if not url:
+        return None
+    url = url.strip()
+    if not url:
+        return None
+
+    # Guard FIRST: a local bare-repo path (e.g. Windows "C:\\repos\\shared.git")
+    # can superficially match the SCP-shorthand regex below because a
+    # single-letter drive "host" precedes a colon. Check filesystem
+    # existence before attempting the regex (Pitfall 1).
+    if os.path.exists(url):
+        return None
+
+    if not re.match(r"^\w+://", url):
+        m = _SCP_LIKE.match(url)
+        if m:
+            url = f"ssh://{m.group('host')}/{m.group('path')}"
+        else:
+            return None  # unrecognized form — caller falls back
+
+    parsed = urlparse(url)
+    host = (parsed.hostname or "").lower()
+    if not host:
+        return None
+    path = parsed.path.strip("/")
+    if path.lower().endswith(".git"):
+        path = path[: -len(".git")]
+    if not host or not path:
+        return None
+    return f"{host}/{path}"
 
 
 def canonical_repo_path(p: Optional[str]) -> Optional[str]:
