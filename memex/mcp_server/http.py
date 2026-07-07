@@ -218,24 +218,24 @@ def create_app(server: Server, repo_root: str):
         return {"status": "ok"}
 
     @app.get("/stats")
-    async def get_stats_endpoint(request: Request, repo: str = None, days: int = 30):
+    async def get_stats_endpoint(request: Request, repo: str = None, days: int = 30, project: str = None):
         # 1. Authenticate using Bearer token
         auth_header = request.headers.get("Authorization")
         token = None
         if auth_header and auth_header.startswith("Bearer "):
             token = auth_header.removeprefix("Bearer ")
-        
+
         if not await verify_auth_token(token):
             return JSONResponse(
                 status_code=401,
                 content={"detail": "Missing or invalid Authorization header"}
             )
-            
+
         # 2. Get Stats from unified stats service
         try:
             from memex.graph.stats import get_stats_data
             path = repo or repo_root
-            stats = await get_stats_data(path)
+            stats = await get_stats_data(path, project=project)
             return stats
         except Exception as e:
             logger.error(f"Failed to generate stats in /stats endpoint: {e}", exc_info=True)

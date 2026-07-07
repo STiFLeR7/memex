@@ -2,6 +2,7 @@ import logging
 from typing import Optional
 from memex.graph.client import get_graph_client
 from memex.config import get_config
+from memex.mcp_server.tools_write import _resolve_project
 from memex.mcp_server.queries import (
     get_node_counts,
     get_active_modules,
@@ -43,6 +44,24 @@ def _emit_decision_confidence(decisions: list) -> None:
             set_decision_confidence(sum(confs) / len(confs))
     except Exception:
         logger.debug("failed to emit memex.decision.confidence", exc_info=True)
+
+
+async def _resolve_effective_project(project: Optional[str], repo: Optional[str]) -> Optional[str]:
+    """Best-effort telemetry attribution helper (NET-03 Task 3).
+
+    Returns the caller-supplied `project` if one was explicitly passed;
+    otherwise attempts to resolve one from `repo` (or config.repo_root) via
+    the existing `_resolve_project` resolver (reused from tools_write.py —
+    not duplicated). Never raises: telemetry attribution must never break a
+    read tool.
+    """
+    if project:
+        return project
+    try:
+        config = get_config()
+        return await _resolve_project(repo or config.repo_root)
+    except Exception:
+        return None
 
 
 def _emit_validated_ratio(decisions: list) -> None:
@@ -102,8 +121,9 @@ async def get_project_context(scope: Optional[str] = None, repo: Optional[str] =
         )
         try:
             module_files = [m['path'] for m in modules if m.get('path')]
+            effective_project = await _resolve_effective_project(project, repo)
             from memex.graph.telemetry import record_tool_call
-            await record_tool_call("get_project_context", len(result) // 4, repo or config.repo_root, module_files)
+            await record_tool_call("get_project_context", len(result) // 4, repo or config.repo_root, module_files, project_id=effective_project)
         except Exception:
             pass
         return result
@@ -135,8 +155,9 @@ async def get_symbol_context(symbol_name: str, file: Optional[str] = None, repo:
                 suggestion = f"\n\nDid you mean '{getattr(best, 'name', 'unknown')}'?"
             result = f"Symbol '{symbol_name}' not found.{suggestion}"
             try:
+                effective_project = await _resolve_effective_project(project, repo)
                 from memex.graph.telemetry import record_tool_call
-                await record_tool_call("get_symbol_context", len(result) // 4, repo)
+                await record_tool_call("get_symbol_context", len(result) // 4, repo, project_id=effective_project)
             except Exception:
                 pass
             return result
@@ -155,8 +176,9 @@ async def get_symbol_context(symbol_name: str, file: Optional[str] = None, repo:
         )
         try:
             module_files = [symbol['file']] if symbol.get('file') and symbol.get('file') != 'unknown' else None
+            effective_project = await _resolve_effective_project(project, repo)
             from memex.graph.telemetry import record_tool_call
-            await record_tool_call("get_symbol_context", len(result) // 4, repo, module_files)
+            await record_tool_call("get_symbol_context", len(result) // 4, repo, module_files, project_id=effective_project)
         except Exception:
             pass
         return result
@@ -192,8 +214,9 @@ async def get_recent_decisions(days: int = 30, module: Optional[str] = None, rep
         )
         _emit_decision_confidence(decisions)
         try:
+            effective_project = await _resolve_effective_project(project, repo)
             from memex.graph.telemetry import record_tool_call
-            await record_tool_call("get_recent_decisions", len(result) // 4, repo)
+            await record_tool_call("get_recent_decisions", len(result) // 4, repo, project_id=effective_project)
         except Exception:
             pass
         return result
@@ -211,8 +234,9 @@ async def get_open_problems(module: Optional[str] = None, repo: Optional[str] = 
         if not problems:
             result = "no open problems recorded"
             try:
+                effective_project = await _resolve_effective_project(project, repo)
                 from memex.graph.telemetry import record_tool_call
-                await record_tool_call("get_open_problems", len(result) // 4, repo, [module] if module else None)
+                await record_tool_call("get_open_problems", len(result) // 4, repo, [module] if module else None, project_id=effective_project)
             except Exception:
                 pass
             return result
@@ -225,8 +249,9 @@ async def get_open_problems(module: Optional[str] = None, repo: Optional[str] = 
             
         result = format_problems(problems=problems, module=module)
         try:
+            effective_project = await _resolve_effective_project(project, repo)
             from memex.graph.telemetry import record_tool_call
-            await record_tool_call("get_open_problems", len(result) // 4, repo, [module] if module else None)
+            await record_tool_call("get_open_problems", len(result) // 4, repo, [module] if module else None, project_id=effective_project)
         except Exception:
             pass
         return result
@@ -269,8 +294,9 @@ async def search_context(query: str, top_k: int = 8, repo: Optional[str] = None,
 
         result = format_search_results_with_breakdown(query=query, results=merged)
         try:
+            effective_project = await _resolve_effective_project(project, repo)
             from memex.graph.telemetry import record_tool_call
-            await record_tool_call("search_context", len(result) // 4, repo)
+            await record_tool_call("search_context", len(result) // 4, repo, project_id=effective_project)
         except Exception:
             pass
         return result
@@ -293,8 +319,9 @@ async def get_stale_context(threshold: float = 0.5, repo: Optional[str] = None, 
             total_found=len(edges)
         )
         try:
+            effective_project = await _resolve_effective_project(project, repo)
             from memex.graph.telemetry import record_tool_call
-            await record_tool_call("get_stale_context", len(result) // 4, repo)
+            await record_tool_call("get_stale_context", len(result) // 4, repo, project_id=effective_project)
         except Exception:
             pass
         return result
@@ -425,8 +452,9 @@ async def get_context_briefing(
 
     # Telemetry
     try:
+        effective_project = await _resolve_effective_project(project, repo)
         from memex.graph.telemetry import record_tool_call
-        await record_tool_call("get_context_briefing", used_tokens, repo)
+        await record_tool_call("get_context_briefing", used_tokens, repo, project_id=effective_project)
     except Exception:
         pass
 

@@ -187,12 +187,17 @@ async def test_read_tools_record_telemetry_on_every_call():
         res = await tools_read.get_project_context(repo="/fake/repo")
         assert res == "dummy briefing"
         
-        # Verify that record_tool_call was called for get_project_context
+        # Verify that record_tool_call was called for get_project_context.
+        # project_id resolves to None here since "/fake/repo" isn't a real
+        # git repo and no explicit `project` was passed — best-effort
+        # telemetry attribution (Phase 00 Plan 04 Task 3) never raises and
+        # falls back to None rather than breaking the read tool.
         mock_record.assert_called_once_with(
             "get_project_context",
             len("dummy briefing") // 4,
             "/fake/repo",
-            ["src/main.py"]
+            ["src/main.py"],
+            project_id=None
         )
 
 def test_fresh_telemetry_db_has_project_id_column(temp_db_path):

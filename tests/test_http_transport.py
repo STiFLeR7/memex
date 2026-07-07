@@ -217,6 +217,37 @@ def test_get_graph_with_project_query_param(mock_get_client, client):
     assert edges_call_args.kwargs["params"]["project"] == "github.com/acme/widgets"
     assert "n.project_id = $project" in nodes_call_args[0][0]
 
+@patch("memex.mcp_server.http.validate_key")
+def test_stats_endpoint_accepts_project_query_param(mock_validate, client):
+    """NET-03: `GET /stats?project=<id>` threads `project` into
+    get_stats_data(); `GET /stats?repo=<x>` (no project) passes project=None
+    so existing repo-only callers are unaffected."""
+    mock_validate.return_value = True
+
+    from unittest.mock import AsyncMock
+    with patch("memex.graph.stats.get_stats_data", new_callable=AsyncMock) as mock_get_stats:
+        mock_get_stats.return_value = {"today": {}, "lifetime": {}, "top_tools": [], "agents": [], "validation_health": {}}
+
+        response = client.get(
+            "/stats?project=github.com/acme/widgets",
+            headers={"Authorization": "Bearer good-token"},
+        )
+        assert response.status_code == 200
+        mock_get_stats.assert_called_once()
+        args, kwargs = mock_get_stats.call_args
+        assert kwargs.get("project") == "github.com/acme/widgets"
+
+        mock_get_stats.reset_mock()
+
+        response = client.get(
+            "/stats?repo=/fake/repo",
+            headers={"Authorization": "Bearer good-token"},
+        )
+        assert response.status_code == 200
+        args, kwargs = mock_get_stats.call_args
+        assert kwargs.get("project") is None
+
+
 def test_notify_and_events(client):
     response = client.post("/notify")
     assert response.status_code == 200
