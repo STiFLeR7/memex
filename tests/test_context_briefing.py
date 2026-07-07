@@ -199,8 +199,8 @@ async def test_briefing_scopes_to_module(mock_queries):
         assert "cluster-watcher" not in briefing
 
         # Verify query functions were called with the correct module scope
-        mock_get_decisions.assert_called_once_with(since_days=7, module="memex/graph", limit=10, repo="/fake")
-        mock_get_problems.assert_called_once_with(module="memex/graph", repo="/fake")
+        mock_get_decisions.assert_called_once_with(since_days=7, module="memex/graph", limit=10, repo="/fake", project=None)
+        mock_get_problems.assert_called_once_with(module="memex/graph", repo="/fake", project=None)
 
 
 @pytest.mark.asyncio
