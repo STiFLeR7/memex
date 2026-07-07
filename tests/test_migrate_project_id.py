@@ -69,11 +69,16 @@ async def test_migrate_project_id_errors_when_unresolvable(tmp_path):
 
 def test_cli_migrate_project_id_dispatches():
     with (
+        patch(
+            "memex.graph.migrate_project_id.run_migrate_project_id_command",
+            new_callable=AsyncMock,
+        ) as mock_run,
         patch("memex.cli.asyncio.run") as mock_asyncio_run,
         patch.object(
             sys, "argv", ["memex", "migrate", "project-id", "--repo", "/fake/repo"]
         ),
     ):
+        mock_asyncio_run.side_effect = lambda coro: None
         from memex import cli
 
         cli.main()

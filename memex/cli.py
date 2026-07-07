@@ -326,6 +326,15 @@ def main(args=None):
         help="Force-regenerate Gemini summaries for all clusters",
     )
 
+    # migrate (Phase 00 — project_id backfill, NET-02)
+    migrate_parser = subparsers.add_parser("migrate", help="Run one-off migrations", parents=[parent_parser])
+    migrate_subparsers = migrate_parser.add_subparsers(dest="migrate_command", required=True)
+    migrate_subparsers.add_parser(
+        "project-id",
+        help="Backfill project_id onto existing repo_path-only nodes",
+        parents=[parent_parser],
+    )
+
     # memory-tool (Move 1)
     mt_parser = subparsers.add_parser("memory-tool", help="Anthropic memory-tool backend adapter", parents=[parent_parser])
     mt_sub = mt_parser.add_subparsers(dest="memory_tool_command", required=True)
@@ -506,6 +515,11 @@ def main(args=None):
             dry_run=parsed_args.dry_run,
             refresh_summaries=parsed_args.refresh_summaries,
         ))
+
+    elif parsed_args.command == "migrate":
+        if parsed_args.migrate_command == "project-id":
+            from memex.graph.migrate_project_id import run_migrate_project_id_command
+            asyncio.run(run_migrate_project_id_command(repo_root or "."))
 
     elif parsed_args.command == "memory-tool":
         if parsed_args.memory_tool_command == "serve":
