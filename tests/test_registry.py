@@ -35,6 +35,20 @@ def test_add_repository(temp_registry):
     assert repos[0].path == str(repo_path)
     assert repos[0].active is True
 
+def test_add_repository_with_project_id(temp_registry):
+    """Phase 00 (NET-01) — add_repository() persists a resolved project_id
+    onto the registered Repository entry."""
+    repo_path = Path("/tmp/fake-repo").absolute()
+    if os.name == 'nt':
+        repo_path = Path("C:/fake-repo").absolute()
+
+    registry.add_repository(str(repo_path), "test-repo", project_id="acme/widgets")
+
+    repos = registry.get_repositories()
+    assert len(repos) == 1
+    assert repos[0].project_id == "acme/widgets"
+
+
 def test_add_repository_default_name(temp_registry):
     repo_path = Path("/tmp/fake-repo").absolute()
     if os.name == 'nt':

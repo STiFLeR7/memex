@@ -171,6 +171,10 @@ class Repository(BaseModel):
     write_policy: str = "locked"
     access_count: int = 0
     last_reinforced_at: Optional[datetime] = None
+    # Phase 00 — path-independent project scoping key (NET-01/NET-02).
+    # Resolved via memex.config.resolve_project_id(); None when
+    # unresolvable (unchanged single-dev behavior).
+    project_id: Optional[str] = None
 
     @field_validator("path")
     @classmethod

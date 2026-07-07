@@ -2,6 +2,7 @@ import pytest
 import sys
 from unittest.mock import AsyncMock, patch, MagicMock
 from memex import cli
+from memex.watcher import registry
 
 def test_cli_unknown_command_exits_nonzero():
     with pytest.raises(SystemExit) as exc:
@@ -21,10 +22,15 @@ def test_cli_init_installs_hooks():
     with patch("memex.cli.install_hooks") as mock_install:
         with patch("memex.cli.add_repository") as mock_add:
             with patch("memex.cli.Path.mkdir") as mock_mkdir:
+                # "/fake/repo" doesn't exist on disk and has no --project-id
+                # flag, so resolve_project_id() falls through its whole
+                # chain (no git remote, no .memex/project_id) and returns
+                # None deterministically (Phase 00 — project_id= kwarg is
+                # now always passed to add_repository()).
                 with patch.object(sys, "argv", ["memex", "init", "--repo", "/fake/repo"]):
                     cli.main()
                     mock_install.assert_called_with("/fake/repo")
-                    mock_add.assert_called_with("/fake/repo")
+                    mock_add.assert_called_with("/fake/repo", project_id=None)
 
 @pytest.mark.asyncio
 async def test_cli_status_prints_node_counts():
@@ -111,3 +117,53 @@ def test_cli_keys_revoke():
         with patch.object(sys, "argv", ["memex", "keys", "revoke", "test"]):
             cli.main()
             mock_revoke.assert_called_with("test")
+
+
+# ---------------------------------------------------------------------------
+# `memex init --project-id` — Task 3 (NET-01/NET-02)
+# ---------------------------------------------------------------------------
+
+
+def test_cli_init_with_project_id_writes_file_and_registers(tmp_path):
+    (tmp_path / ".git" / "hooks").mkdir(parents=True)
+    reg_path = tmp_path / "registry.json"
+    old_path = registry.REGISTRY_PATH
+    registry.REGISTRY_PATH = reg_path
+    try:
+        with patch("memex.cli.asyncio.run"):  # skip the Neo4j cluster pass
+            with patch.object(
+                sys,
+                "argv",
+                ["memex", "init", "--repo", str(tmp_path), "--project-id", "my-team-project"],
+            ):
+                cli.main()
+
+        project_file = tmp_path / ".memex" / "project_id"
+        assert project_file.exists()
+        assert project_file.read_text(encoding="utf-8") == "my-team-project"
+
+        repos = registry.get_repositories()
+        assert len(repos) == 1
+        assert repos[0].project_id == "my-team-project"
+    finally:
+        registry.REGISTRY_PATH = old_path
+
+
+def test_cli_init_without_project_id_no_git_remote_stays_none(tmp_path):
+    (tmp_path / ".git" / "hooks").mkdir(parents=True)
+    reg_path = tmp_path / "registry.json"
+    old_path = registry.REGISTRY_PATH
+    registry.REGISTRY_PATH = reg_path
+    try:
+        with patch("memex.cli.asyncio.run"):  # skip the Neo4j cluster pass
+            with patch.object(sys, "argv", ["memex", "init", "--repo", str(tmp_path)]):
+                cli.main()
+
+        project_file = tmp_path / ".memex" / "project_id"
+        assert not project_file.exists()
+
+        repos = registry.get_repositories()
+        assert len(repos) == 1
+        assert repos[0].project_id is None
+    finally:
+        registry.REGISTRY_PATH = old_path

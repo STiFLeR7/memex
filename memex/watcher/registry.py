@@ -37,18 +37,27 @@ def _save_registry(registry: RegistrySchema) -> None:
         json.dump(registry.model_dump(mode='json'), f, indent=2)
     temp_path.replace(REGISTRY_PATH)
 
-def add_repository(path: str, name: Optional[str] = None) -> None:
-    """Adds a repo to the registry. If no name is provided, use the directory name."""
+def add_repository(path: str, name: Optional[str] = None, project_id: Optional[str] = None) -> None:
+    """Adds a repo to the registry. If no name is provided, use the directory name.
+
+    ``project_id`` (Phase 00 / NET-01) is persisted best-effort — resolved by
+    the caller (typically `memex.config.resolve_project_id()`) and stored
+    alongside the path-keyed entry. Re-running with a newly-resolvable
+    ``project_id`` updates the existing entry in place (mirrors the
+    existing ``name`` update-in-place behavior below).
+    """
     path_obj = Path(path).resolve()
     if not name:
         name = path_obj.name
-    
+
     registry = _load_registry()
-    
+
     # Check if already exists
     for repo in registry.repositories:
         if repo.path == str(path_obj):
             repo.name = name
+            if project_id is not None:
+                repo.project_id = project_id
             _save_registry(registry)
             return
 
@@ -56,7 +65,8 @@ def add_repository(path: str, name: Optional[str] = None) -> None:
         path=str(path_obj),
         name=name,
         added_at=datetime.now(),
-        active=True
+        active=True,
+        project_id=project_id,
     )
     registry.repositories.append(new_repo)
     _save_registry(registry)

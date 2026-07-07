@@ -11,6 +11,7 @@ from memex.watcher.git_hook import install_hooks
 from memex.mcp_server.server import run_server
 from memex.graph.client import get_graph_client
 from memex.mcp_server.queries import get_node_counts, get_stale_edges
+from memex.config import resolve_project_id
 from memex.watcher.registry import (
     add_repository,
     remove_repository,
@@ -229,7 +230,12 @@ def main(args=None):
     subparsers = parser.add_subparsers(dest="command", required=True)
     
     # init
-    subparsers.add_parser("init", help="Initialize memex hooks", parents=[parent_parser])
+    init_parser = subparsers.add_parser("init", help="Initialize memex hooks", parents=[parent_parser])
+    init_parser.add_argument(
+        "--project-id",
+        dest="project_id",
+        help="Explicit project_id for repos without a shared git remote (writes .memex/project_id)",
+    )
     
     # watch
     subparsers.add_parser("watch", help="Start watcher daemon", parents=[parent_parser])
@@ -339,8 +345,22 @@ def main(args=None):
         path = repo_root or "."
         install_hooks(path)
         (Path(path) / ".memex").mkdir(exist_ok=True)
-        add_repository(path)
+
+        # Phase 00 — resolve a path-independent project_id scoping key
+        # (NET-01/NET-02). Explicit --project-id wins and is persisted to
+        # .memex/project_id; otherwise fall back to the git-remote /
+        # .memex/project_id resolution chain (resolve_project_id() may
+        # return None cleanly — unchanged single-dev behavior).
+        if parsed_args.project_id:
+            resolved_project = parsed_args.project_id.strip()
+            (Path(path) / ".memex" / "project_id").write_text(resolved_project, encoding="utf-8")
+        else:
+            resolved_project = resolve_project_id(path)
+
+        add_repository(path, project_id=resolved_project)
         print(f"memex initialized and registered in {Path(path).resolve()}")
+        if resolved_project:
+            print(f"project_id: {resolved_project}")
 
         # v0.3.1 Deliverable 3: kick off a one-shot cluster pass over the
         # source tree. The watcher hasn't populated Module nodes in Neo4j

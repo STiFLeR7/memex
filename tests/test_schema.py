@@ -1,7 +1,7 @@
 import pytest
 from pydantic import ValidationError
 from datetime import datetime, UTC
-from memex.graph.schema import SymbolNode, DecisionNode, ProblemNode
+from memex.graph.schema import SymbolNode, DecisionNode, ProblemNode, Repository
 
 def test_symbol_node_rejects_invalid_kind():
     with pytest.raises(ValidationError) as exc:
@@ -65,3 +65,21 @@ def test_problem_node_rejects_invalid_severity():
         text="bug", severity="ultra-bad", created_at=datetime.now(UTC)
     )
     assert p.severity == "medium"
+
+
+def test_repository_accepts_project_id(tmp_path):
+    """Phase 00 (NET-01/NET-02) — Repository gains an optional project_id
+    scoping key alongside the existing path-based identity."""
+    r = Repository(
+        path=str(tmp_path),
+        name="repo",
+        added_at=datetime.now(),
+        project_id="github.com/acme/widgets",
+    )
+    assert r.project_id == "github.com/acme/widgets"
+
+
+def test_repository_project_id_defaults_to_none(tmp_path):
+    """Existing callers that don't pass project_id are unaffected."""
+    r = Repository(path=str(tmp_path), name="repo", added_at=datetime.now())
+    assert r.project_id is None
