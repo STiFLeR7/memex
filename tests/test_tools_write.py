@@ -2,7 +2,14 @@ import pytest
 import asyncio
 from datetime import datetime
 from unittest.mock import AsyncMock, patch, MagicMock
-from memex.mcp_server.tools_write import record_decision, record_problem, resolve_problem, invalidate_edge
+from memex.mcp_server.tools_write import (
+    record_decision,
+    record_problem,
+    resolve_problem,
+    invalidate_edge,
+    _resolve_project,
+    _get_or_create_session,
+)
 
 @pytest.mark.asyncio
 async def test_record_decision_creates_node():
@@ -266,3 +273,323 @@ async def test_record_problem_concurrent_calls_no_duplicate():
         assert len(success) == 1
         assert len(duplicates) == 1
         assert mock_client.add_episode.call_count == 1
+
+
+# ---------------------------------------------------------------------------
+# Phase 00 Plan 02 — project_id write-path wiring (NET-01/NET-02/NET-03)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_resolve_project_is_awaitable_and_returns_resolver_value():
+    """_resolve_project() must be await-able and simply return whatever the
+    sync `resolve_project_id` resolver returns, run via asyncio.to_thread."""
+    with patch(
+        "memex.mcp_server.tools_write.resolve_project_id",
+        return_value="github.com/acme/widgets",
+    ) as mock_resolve:
+        result = await _resolve_project("/abs/repo")
+        assert result == "github.com/acme/widgets"
+        mock_resolve.assert_called_once_with("/abs/repo")
+
+
+@pytest.mark.asyncio
+async def test_resolve_project_returns_none_when_unresolvable():
+    with patch("memex.mcp_server.tools_write.resolve_project_id", return_value=None):
+        result = await _resolve_project("/abs/repo")
+        assert result is None
+
+
+@pytest.mark.asyncio
+async def test_record_decision_threads_project_id_when_resolvable():
+    mock_result = MagicMock()
+    mock_result.episode.uuid = "uuid-project-1"
+
+    with (
+        patch("memex.mcp_server.tools_write.get_graph_client") as mock_get_client,
+        patch(
+            "memex.mcp_server.tools_write.resolve_project_id",
+            return_value="github.com/acme/widgets",
+        ),
+    ):
+        mock_client = AsyncMock()
+        mock_client.add_episode.return_value = mock_result
+        mock_get_client.return_value = mock_client
+
+        result = await record_decision(text="Use RS256 for JWT tokens.")
+        assert "decision recorded" in result
+
+        # Find the SET call that updates the main decision node.
+        found = False
+        for call in mock_client.driver.execute_query.call_args_list:
+            cypher = call.args[0] if call.args else call.kwargs.get("query", "")
+            params = call.kwargs.get("params", {})
+            if "n.project_id = $project" in cypher:
+                found = True
+                assert params.get("project") == "github.com/acme/widgets"
+        assert found, "expected a SET n.project_id = $project clause"
+
+
+@pytest.mark.asyncio
+async def test_record_decision_omits_project_id_when_unresolvable():
+    mock_result = MagicMock()
+    mock_result.episode.uuid = "uuid-project-2"
+
+    with (
+        patch("memex.mcp_server.tools_write.get_graph_client") as mock_get_client,
+        patch("memex.mcp_server.tools_write.resolve_project_id", return_value=None),
+    ):
+        mock_client = AsyncMock()
+        mock_client.add_episode.return_value = mock_result
+        mock_get_client.return_value = mock_client
+
+        result = await record_decision(text="Switched to EdDSA for key rotation.")
+        assert "decision recorded" in result
+
+        for call in mock_client.driver.execute_query.call_args_list:
+            cypher = call.args[0] if call.args else call.kwargs.get("query", "")
+            params = call.kwargs.get("params", {})
+            assert "n.project_id" not in cypher
+            assert "project" not in params
+
+
+@pytest.mark.asyncio
+async def test_record_decision_with_module_link_threads_project_id():
+    mock_result = MagicMock()
+    mock_result.episode.uuid = "uuid-project-3"
+    link_result = MagicMock()
+    link_result.episode.uuid = "uuid-link-3"
+
+    with (
+        patch("memex.mcp_server.tools_write.get_graph_client") as mock_get_client,
+        patch(
+            "memex.mcp_server.tools_write.resolve_project_id",
+            return_value="github.com/acme/widgets",
+        ),
+    ):
+        mock_client = AsyncMock()
+        mock_client.add_episode.side_effect = [mock_result, link_result]
+        mock_get_client.return_value = mock_client
+
+        result = await record_decision(
+            text="Use RS256 for JWT tokens.", module="auth/jwt.py"
+        )
+        assert "decision recorded" in result
+
+        # The module-link episode's update Cypher (keyed on link_result uuid)
+        # must also carry the conditional project_id clause.
+        link_call_found = False
+        for call in mock_client.driver.execute_query.call_args_list:
+            cypher = call.args[0] if call.args else call.kwargs.get("query", "")
+            params = call.kwargs.get("params", {})
+            if params.get("id") == "uuid-link-3":
+                link_call_found = True
+                assert "n.project_id = $project" in cypher
+                assert params.get("project") == "github.com/acme/widgets"
+        assert link_call_found
+
+
+@pytest.mark.asyncio
+async def test_record_problem_threads_project_id_when_resolvable():
+    mock_result = MagicMock()
+    mock_result.episode.uuid = "prob-project-1"
+
+    with (
+        patch("memex.mcp_server.tools_write.get_graph_client") as mock_get_client,
+        patch(
+            "memex.mcp_server.tools_write.resolve_project_id",
+            return_value="github.com/acme/widgets",
+        ),
+    ):
+        mock_client = AsyncMock()
+        mock_client.search.return_value = []
+        mock_client.add_episode.return_value = mock_result
+        mock_get_client.return_value = mock_client
+
+        result = await record_problem(text="Memory leak in watcher daemon.")
+        assert "problem recorded" in result
+
+        found = False
+        for call in mock_client.driver.execute_query.call_args_list:
+            cypher = call.args[0] if call.args else call.kwargs.get("query", "")
+            params = call.kwargs.get("params", {})
+            if "n.project_id = $project" in cypher:
+                found = True
+                assert params.get("project") == "github.com/acme/widgets"
+        assert found
+
+
+@pytest.mark.asyncio
+async def test_record_problem_with_module_link_threads_project_id():
+    mock_result = MagicMock()
+    mock_result.episode.uuid = "prob-project-2"
+    link_result = MagicMock()
+    link_result.episode.uuid = "prob-link-2"
+
+    with (
+        patch("memex.mcp_server.tools_write.get_graph_client") as mock_get_client,
+        patch(
+            "memex.mcp_server.tools_write.resolve_project_id",
+            return_value="github.com/acme/widgets",
+        ),
+    ):
+        mock_client = AsyncMock()
+        mock_client.search.return_value = []
+        mock_client.add_episode.side_effect = [mock_result, link_result]
+        mock_get_client.return_value = mock_client
+
+        result = await record_problem(
+            text="Memory leak in watcher daemon.", module="watcher/daemon.py"
+        )
+        assert "problem recorded" in result
+
+        link_call_found = False
+        for call in mock_client.driver.execute_query.call_args_list:
+            cypher = call.args[0] if call.args else call.kwargs.get("query", "")
+            params = call.kwargs.get("params", {})
+            if params.get("id") == "prob-link-2":
+                link_call_found = True
+                assert "n.project_id = $project" in cypher
+                assert params.get("project") == "github.com/acme/widgets"
+        assert link_call_found
+
+
+@pytest.mark.asyncio
+async def test_resolve_problem_threads_project_id_when_resolvable():
+    with (
+        patch("memex.mcp_server.tools_write.get_graph_client") as mock_get_client,
+        patch(
+            "memex.mcp_server.tools_write.resolve_project_id",
+            return_value="github.com/acme/widgets",
+        ),
+        patch(
+            "memex.mcp_server.tools_write._get_or_create_session",
+            return_value="sess-1",
+        ),
+    ):
+        mock_client = AsyncMock()
+        mock_res = MagicMock()
+        mock_res.records = [
+            {"text": "Broken auth", "resolved_at": None, "repo_path": "/tmp/repo"}
+        ]
+        mock_client.driver.execute_query.side_effect = [mock_res, MagicMock()]
+        mock_get_client.return_value = mock_client
+
+        result = await resolve_problem(
+            problem_id="prob-1", resolution_text="Fixed the bug in auth."
+        )
+        assert "problem resolved" in result
+
+        # The second execute_query call is the update_query that closes the
+        # problem — it must now carry the conditional project_id clause.
+        update_call = mock_client.driver.execute_query.call_args_list[1]
+        cypher = update_call.args[0] if update_call.args else update_call.kwargs.get("query", "")
+        params = update_call.kwargs.get("params", {})
+        assert "p.project_id = $project" in cypher
+        assert params.get("project") == "github.com/acme/widgets"
+
+
+@pytest.mark.asyncio
+async def test_resolve_problem_omits_project_id_when_unresolvable():
+    with (
+        patch("memex.mcp_server.tools_write.get_graph_client") as mock_get_client,
+        patch("memex.mcp_server.tools_write.resolve_project_id", return_value=None),
+        patch(
+            "memex.mcp_server.tools_write._get_or_create_session",
+            return_value="sess-1",
+        ),
+    ):
+        mock_client = AsyncMock()
+        mock_res = MagicMock()
+        mock_res.records = [
+            {"text": "Broken auth", "resolved_at": None, "repo_path": "/tmp/repo"}
+        ]
+        mock_client.driver.execute_query.side_effect = [mock_res, MagicMock()]
+        mock_get_client.return_value = mock_client
+
+        result = await resolve_problem(
+            problem_id="prob-1", resolution_text="Fixed the bug in auth."
+        )
+        assert "problem resolved" in result
+
+        update_call = mock_client.driver.execute_query.call_args_list[1]
+        cypher = update_call.args[0] if update_call.args else update_call.kwargs.get("query", "")
+        params = update_call.kwargs.get("params", {})
+        assert "p.project_id" not in cypher
+        assert "project" not in params
+
+
+@pytest.mark.asyncio
+async def test_get_or_create_session_threads_project_id_when_resolvable():
+    import memex.mcp_server.tools_write as tw
+
+    tw._current_session_name = None
+    try:
+        with patch(
+            "memex.mcp_server.tools_write.resolve_project_id",
+            return_value="github.com/acme/widgets",
+        ):
+            mock_client = AsyncMock()
+            mock_client.add_episode.return_value = MagicMock()
+
+            await _get_or_create_session(mock_client, "/tmp/repo")
+
+            found = False
+            for call in mock_client.driver.execute_query.call_args_list:
+                cypher = call.args[0] if call.args else call.kwargs.get("query", "")
+                params = call.kwargs.get("params", {})
+                if "n.project_id = $project" in cypher:
+                    found = True
+                    assert params.get("project") == "github.com/acme/widgets"
+            assert found
+    finally:
+        tw._current_session_name = None
+
+
+@pytest.mark.asyncio
+async def test_get_or_create_session_omits_project_id_when_unresolvable():
+    import memex.mcp_server.tools_write as tw
+
+    tw._current_session_name = None
+    try:
+        with patch("memex.mcp_server.tools_write.resolve_project_id", return_value=None):
+            mock_client = AsyncMock()
+            mock_client.add_episode.return_value = MagicMock()
+
+            await _get_or_create_session(mock_client, "/tmp/repo")
+
+            for call in mock_client.driver.execute_query.call_args_list:
+                cypher = call.args[0] if call.args else call.kwargs.get("query", "")
+                params = call.kwargs.get("params", {})
+                assert "n.project_id" not in cypher
+                assert "project" not in params
+    finally:
+        tw._current_session_name = None
+
+
+@pytest.mark.asyncio
+async def test_invalidate_edge_unchanged_no_project_id_clause():
+    """invalidate_edge never sets repo_path today, so it must gain no
+    project_id SET clause either (confirmed in 00-RESEARCH.md's Runtime
+    State Inventory)."""
+    with patch("memex.mcp_server.tools_write.get_graph_client") as mock_get_client:
+        mock_client = AsyncMock()
+        mock_res = MagicMock()
+        mock_res.records = [
+            {
+                "source": "M1",
+                "target": "S1",
+                "edge_type": "EXPORTS",
+                "valid_until": None,
+                "repo_path": "/tmp/repo",
+            }
+        ]
+        mock_client.driver.execute_query.side_effect = [mock_res, MagicMock()]
+        mock_get_client.return_value = mock_client
+
+        result = await invalidate_edge(edge_id="edge-123", reason="Symbol moved to another file.")
+        assert "edge invalidated" in result
+
+        for call in mock_client.driver.execute_query.call_args_list:
+            cypher = call.args[0] if call.args else call.kwargs.get("query", "")
+            assert "project_id" not in cypher
