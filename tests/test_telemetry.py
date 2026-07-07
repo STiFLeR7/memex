@@ -195,6 +195,117 @@ async def test_read_tools_record_telemetry_on_every_call():
             ["src/main.py"]
         )
 
+def test_fresh_telemetry_db_has_project_id_column(temp_db_path):
+    """A fresh TelemetryDB creates a tool_calls table with a nullable
+    project_id TEXT column (Phase 00 Plan 04 / NET-03)."""
+    db = TelemetryDB(db_path=temp_db_path)
+
+    with db.get_connection() as conn:
+        cols = {row["name"]: row for row in conn.execute("PRAGMA table_info(tool_calls)").fetchall()}
+
+    assert "project_id" in cols
+    assert cols["project_id"]["notnull"] == 0
+
+
+def test_preexisting_schema_migrates_project_id_column_idempotently(temp_db_path):
+    """An existing tool_calls table created by a pre-project_id (v0.6.x)
+    TelemetryDB gets the column added via a guarded ALTER TABLE, without
+    losing existing rows, and running ensure_schema() twice does not raise."""
+    temp_db_path.parent.mkdir(parents=True, exist_ok=True)
+
+    # Simulate the OLD schema (no project_id column) with one pre-existing row.
+    conn = sqlite3.connect(str(temp_db_path))
+    conn.execute("""
+        CREATE TABLE tool_calls (
+            id               INTEGER PRIMARY KEY,
+            tool_name        TEXT    NOT NULL,
+            called_at        TEXT    NOT NULL,
+            repo_path        TEXT    NOT NULL,
+            agent            TEXT    NOT NULL DEFAULT 'unknown',
+            tokens_returned  INTEGER NOT NULL,
+            tokens_naive     INTEGER,
+            tokens_saved     INTEGER
+        );
+    """)
+    conn.execute(
+        "INSERT INTO tool_calls (tool_name, called_at, repo_path, agent, tokens_returned, tokens_naive, tokens_saved) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?)",
+        ("get_project_context", "2026-01-01T00:00:00+00:00", "/old/repo", "claude-code", 100, 500, 400)
+    )
+    conn.commit()
+    conn.close()
+
+    # Instantiating a new TelemetryDB against the same file should migrate it.
+    db = TelemetryDB(db_path=temp_db_path)
+
+    with db.get_connection() as conn2:
+        cols = {row["name"] for row in conn2.execute("PRAGMA table_info(tool_calls)").fetchall()}
+        assert "project_id" in cols
+
+        rows = conn2.execute("SELECT * FROM tool_calls").fetchall()
+        assert len(rows) == 1
+        assert rows[0]["repo_path"] == "/old/repo"
+        assert rows[0]["project_id"] is None
+
+    # Running ensure_schema() again must not raise (idempotent).
+    db.ensure_schema()
+
+
+def test_record_call_persists_project_id(temp_db_path):
+    """record_call with project_id persists it; omitting it (or passing None)
+    persists NULL — existing call sites unaffected."""
+    db = TelemetryDB(db_path=temp_db_path)
+
+    db.record_call("get_project_context", "/abs/repo", "claude-code", 100, 500, project_id="github.com/acme/widgets")
+    db.record_call("search_context", "/abs/repo", "claude-code", 50, None)
+
+    with db.get_connection() as conn:
+        rows = {r["tool_name"]: r for r in conn.execute("SELECT * FROM tool_calls").fetchall()}
+
+    assert rows["get_project_context"]["project_id"] == "github.com/acme/widgets"
+    assert rows["search_context"]["project_id"] is None
+
+
+def test_get_stats_dual_key_project_filter(temp_db_path):
+    """get_stats(project=...) matches rows by project_id even when repo_path
+    differs; get_stats without project is unchanged (repo_path-only)."""
+    db = TelemetryDB(db_path=temp_db_path)
+
+    # Row 1: repo_path matches, project_id matches.
+    db.record_call("get_project_context", "/abs/repo", "claude-code", 100, 500, project_id="github.com/acme/widgets")
+    # Row 2: different repo_path, but same project_id — should be included
+    # when querying by project (dual-key), excluded when querying by repo only.
+    db.record_call("search_context", "/other/repo", "claude-code", 50, 200, project_id="github.com/acme/widgets")
+    # Row 3: same repo_path as row 1, no project_id at all — always included
+    # for repo-path queries; also included for project queries via the
+    # `project_id IS NULL AND repo_path = ?` fallback branch.
+    db.record_call("get_open_problems", "/abs/repo", "claude-code", 10, 40)
+
+    # Repo-path-only query (no project) — byte-for-byte unchanged behavior:
+    # matches rows 1 and 3 only (repo_path = /abs/repo).
+    stats_repo_only = db.get_stats(repo_path="/abs/repo", days=7)
+    assert stats_repo_only["total_calls"] == 2
+
+    # Project-scoped query — matches rows 1, 2 (project_id match) and row 3
+    # (repo_path fallback for untagged rows) = 3 total.
+    stats_project = db.get_stats(repo_path="/abs/repo", days=7, project="github.com/acme/widgets")
+    assert stats_project["total_calls"] == 3
+
+
+@pytest.mark.asyncio
+async def test_record_tool_call_threads_project_id(temp_db_path):
+    """The module-level record_tool_call() threads project_id through to
+    TelemetryDB.record_call()."""
+    with patch("memex.graph.telemetry.get_telemetry_db_path", return_value=temp_db_path):
+        await record_tool_call("get_project_context", 100, repo_path="/abs/repo", project_id="github.com/acme/widgets")
+
+    db = TelemetryDB(db_path=temp_db_path)
+    with db.get_connection() as conn:
+        row = conn.execute("SELECT * FROM tool_calls WHERE tool_name = 'get_project_context'").fetchone()
+
+    assert row["project_id"] == "github.com/acme/widgets"
+
+
 @pytest.mark.asyncio
 async def test_stats_command_outputs_correct_totals(temp_db_path):
     """Checks the CLI memex stats formatting and execution flow."""

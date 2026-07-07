@@ -150,12 +150,28 @@ class TelemetryDB:
                         agent            TEXT    NOT NULL DEFAULT 'unknown',
                         tokens_returned  INTEGER NOT NULL,
                         tokens_naive     INTEGER,            -- NULL for unscoped fallback tools
-                        tokens_saved     INTEGER             -- NULL when tokens_naive IS NULL
+                        tokens_saved     INTEGER,            -- NULL when tokens_naive IS NULL
+                        project_id       TEXT                -- NULL until resolvable (NET-01/NET-03)
                     );
                 """)
                 conn.execute("""
                     CREATE INDEX IF NOT EXISTS idx_tool_calls_repo_called
                         ON tool_calls (repo_path, called_at);
+                """)
+
+                # Additive migration guard for pre-existing (v0.6.x) databases
+                # that predate the project_id column. Two processes racing to
+                # add the column concurrently is expected and safe (T-00-08).
+                existing_cols = {row[1] for row in conn.execute("PRAGMA table_info(tool_calls)").fetchall()}
+                if "project_id" not in existing_cols:
+                    try:
+                        conn.execute("ALTER TABLE tool_calls ADD COLUMN project_id TEXT")
+                    except sqlite3.OperationalError:
+                        pass
+
+                conn.execute("""
+                    CREATE INDEX IF NOT EXISTS idx_tool_calls_project_called
+                        ON tool_calls (project_id, called_at);
                 """)
                 conn.commit()
         except Exception as e:
@@ -168,6 +184,7 @@ class TelemetryDB:
         agent: str,
         tokens_returned: int,
         tokens_naive: Optional[int],
+        project_id: Optional[str] = None,
     ) -> None:
         try:
             repo_path = normalize_repo_path(repo_path)
@@ -180,18 +197,24 @@ class TelemetryDB:
                 conn.execute(
                     """
                     INSERT INTO tool_calls (
-                        tool_name, called_at, repo_path, agent, tokens_returned, tokens_naive, tokens_saved
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                        tool_name, called_at, repo_path, agent, tokens_returned, tokens_naive, tokens_saved, project_id
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                     """,
-                    (tool_name, called_at, repo_path, agent, tokens_returned, tokens_naive, tokens_saved)
+                    (tool_name, called_at, repo_path, agent, tokens_returned, tokens_naive, tokens_saved, project_id)
                 )
                 conn.commit()
         except Exception as e:
             logger.warning(f"Failed to record call in telemetry DB: {e}", exc_info=True)
 
-    def get_stats(self, repo_path: str, days: int) -> Dict[str, Any]:
+    def get_stats(self, repo_path: str, days: int, project: Optional[str] = None) -> Dict[str, Any]:
         """
         Returns aggregate stats for the specified repo and period.
+
+        When `project` is truthy, rows are matched by `project_id` (dual-key:
+        a project_id match is sufficient even if repo_path differs) with a
+        fallback to `repo_path` for rows that predate project_id tagging.
+        When `project` is falsy, behavior is unchanged from today
+        (repo_path-only filter).
         """
         cutoff = datetime.now(timezone.utc) - timedelta(days=days)
         cutoff_str = cutoff.isoformat()
@@ -199,11 +222,18 @@ class TelemetryDB:
         # Handle canonical/normalized repo path representation
         repo_path = normalize_repo_path(repo_path)
 
+        if project:
+            where_clause = "WHERE (project_id = ? OR (project_id IS NULL AND repo_path = ?)) AND called_at >= ?"
+            where_params = (project, repo_path, cutoff_str)
+        else:
+            where_clause = "WHERE repo_path = ? AND called_at >= ?"
+            where_params = (repo_path, cutoff_str)
+
         try:
             with self.get_connection() as conn:
                 # 1. Total aggregates
                 row = conn.execute(
-                    """
+                    f"""
                     SELECT
                         COUNT(*) as total_calls,
                         SUM(tokens_returned) as total_tokens_returned,
@@ -211,9 +241,9 @@ class TelemetryDB:
                         SUM(tokens_saved) as total_tokens_saved,
                         COUNT(tokens_naive) as naive_coverage_calls
                     FROM tool_calls
-                    WHERE repo_path = ? AND called_at >= ?
+                    {where_clause}
                     """,
-                    (repo_path, cutoff_str)
+                    where_params
                 ).fetchone()
 
                 total_calls = row["total_calls"] or 0
@@ -235,7 +265,7 @@ class TelemetryDB:
                 # 2. Tool breakdown
                 by_tool = []
                 tool_rows = conn.execute(
-                    """
+                    f"""
                     SELECT
                         tool_name,
                         COUNT(*) as calls,
@@ -243,11 +273,11 @@ class TelemetryDB:
                         SUM(tokens_naive) as tokens_naive,
                         SUM(tokens_saved) as tokens_saved
                     FROM tool_calls
-                    WHERE repo_path = ? AND called_at >= ?
+                    {where_clause}
                     GROUP BY tool_name
                     ORDER BY tokens_saved DESC, calls DESC
                     """,
-                    (repo_path, cutoff_str)
+                    where_params
                 ).fetchall()
 
                 for r in tool_rows:
@@ -262,7 +292,7 @@ class TelemetryDB:
                 # 3. Agent breakdown
                 by_agent = []
                 agent_rows = conn.execute(
-                    """
+                    f"""
                     SELECT
                         agent,
                         COUNT(*) as calls,
@@ -270,11 +300,11 @@ class TelemetryDB:
                         SUM(tokens_naive) as tokens_naive,
                         SUM(tokens_saved) as tokens_saved
                     FROM tool_calls
-                    WHERE repo_path = ? AND called_at >= ?
+                    {where_clause}
                     GROUP BY agent
                     ORDER BY calls DESC
                     """,
-                    (repo_path, cutoff_str)
+                    where_params
                 ).fetchall()
 
                 for r in agent_rows:
@@ -320,6 +350,7 @@ async def record_tool_call(
     tokens_returned: int,
     repo_path: Optional[str] = None,
     module_files: Optional[List[str]] = None,
+    project_id: Optional[str] = None,
 ) -> None:
     """
     Asynchronously records a tool call to the global SQLite database.
@@ -332,7 +363,7 @@ async def record_tool_call(
             config_repo = config.repo_root
         except Exception:
             config_repo = None
-            
+
         actual_repo = repo_path or config_repo or os.getcwd()
         actual_repo = normalize_repo_path(actual_repo)
 
@@ -345,7 +376,7 @@ async def record_tool_call(
         record_token_metrics(tool_name, tokens_returned, tokens_naive, tokens_saved)
 
         db = TelemetryDB()
-        await asyncio.to_thread(db.record_call, tool_name, actual_repo, agent, tokens_returned, tokens_naive)
+        await asyncio.to_thread(db.record_call, tool_name, actual_repo, agent, tokens_returned, tokens_naive, project_id)
     except Exception as e:
         logger.warning(f"Telemetry recording failed for {tool_name}: {e}")
 
