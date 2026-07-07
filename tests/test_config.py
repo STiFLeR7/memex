@@ -1,6 +1,8 @@
 import os
+import subprocess
 import pytest
-from memex.config import canonical_repo_path, normalize_git_remote_url
+from unittest.mock import patch
+from memex.config import canonical_repo_path, normalize_git_remote_url, resolve_project_id
 
 
 def test_canonical_repo_path_equivalent_forms(tmp_path):
@@ -80,3 +82,52 @@ def test_normalize_git_remote_degenerate_inputs():
     assert normalize_git_remote_url("") is None
     assert normalize_git_remote_url(None) is None
     assert normalize_git_remote_url("not a url") is None
+
+
+# ---------------------------------------------------------------------------
+# resolve_project_id() — Task 2 (NET-01) — three-step fallback chain
+# ---------------------------------------------------------------------------
+
+
+def test_resolve_project_id_prefers_git_remote_over_file(tmp_path):
+    memex_dir = tmp_path / ".memex"
+    memex_dir.mkdir()
+    (memex_dir / "project_id").write_text("acme-widgets-team", encoding="utf-8")
+
+    with patch(
+        "memex.config.subprocess.check_output",
+        return_value=b"git@github.com:acme/widgets.git",
+    ):
+        assert resolve_project_id(str(tmp_path)) == "github.com/acme/widgets"
+
+
+def test_resolve_project_id_falls_back_to_file_when_no_remote(tmp_path):
+    memex_dir = tmp_path / ".memex"
+    memex_dir.mkdir()
+    (memex_dir / "project_id").write_text("acme-widgets-team", encoding="utf-8")
+
+    with patch(
+        "memex.config.subprocess.check_output",
+        side_effect=subprocess.CalledProcessError(128, "git"),
+    ):
+        assert resolve_project_id(str(tmp_path)) == "acme-widgets-team"
+
+
+def test_resolve_project_id_returns_none_when_git_missing_and_no_file(tmp_path):
+    with patch(
+        "memex.config.subprocess.check_output",
+        side_effect=FileNotFoundError("git not found"),
+    ):
+        assert resolve_project_id(str(tmp_path)) is None
+
+
+def test_resolve_project_id_empty_file_falls_through_to_none(tmp_path):
+    memex_dir = tmp_path / ".memex"
+    memex_dir.mkdir()
+    (memex_dir / "project_id").write_text("   ", encoding="utf-8")
+
+    with patch(
+        "memex.config.subprocess.check_output",
+        side_effect=subprocess.CalledProcessError(128, "git"),
+    ):
+        assert resolve_project_id(str(tmp_path)) is None

@@ -1,5 +1,6 @@
 import os
 import re
+import subprocess
 import yaml
 from pathlib import Path
 from pydantic import BaseModel, Field
@@ -58,6 +59,52 @@ def normalize_git_remote_url(url: Optional[str]) -> Optional[str]:
     if not host or not path:
         return None
     return f"{host}/{path}"
+
+
+def _get_git_remote_url(repo_path: str) -> Optional[str]:
+    """Run `git remote get-url origin` in ``repo_path``. Never raises —
+    returns ``None`` on any failure (no remote, no git, timeout, etc.),
+    matching the existing convention in
+    `memex/watcher/git_hook.py::emit_commit_event` (Pitfall 4)."""
+    try:
+        output = subprocess.check_output(
+            ["git", "remote", "get-url", "origin"],
+            cwd=repo_path,
+            stderr=subprocess.DEVNULL,
+        )
+        text = output.decode().strip()
+        return text or None
+    except Exception:
+        return None
+
+
+def resolve_project_id(repo_path: str) -> Optional[str]:
+    """Resolve a path-independent ``project_id`` scoping key for ``repo_path``,
+    per the locked resolution order (NET-01): (1) normalized git remote
+    identity — most authoritative, shared across the team; (2) else the
+    contents of ``<repo_path>/.memex/project_id`` (written by
+    `memex init --project-id <id>`); (3) else ``None`` (unchanged single-dev
+    behavior — callers fall back to `canonical_repo_path()` themselves; the
+    two resolvers stay orthogonal per 00-RESEARCH.md Pattern 1).
+
+    Never raises regardless of git/filesystem state.
+    """
+    remote = _get_git_remote_url(repo_path)
+    if remote:
+        normalized = normalize_git_remote_url(remote)
+        if normalized:
+            return normalized
+
+    try:
+        project_file = Path(repo_path) / ".memex" / "project_id"
+        if project_file.exists():
+            text = project_file.read_text(encoding="utf-8").strip()
+            if text:
+                return text
+    except Exception:
+        pass
+
+    return None
 
 
 def canonical_repo_path(p: Optional[str]) -> Optional[str]:
