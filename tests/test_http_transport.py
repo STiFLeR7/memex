@@ -168,6 +168,55 @@ def test_get_graph(mock_get_client, client):
     assert len(data["edges"]) == 1
     assert data["edges"][0]["type"] == "MOTIVATES"
 
+    # `GET /graph` (no query param) must pass project=None so the Cypher
+    # WHERE falls through to the repo_root-scoped branch unchanged.
+    nodes_call_params = mock_execute.call_args_list[0].kwargs["params"]
+    edges_call_params = mock_execute.call_args_list[1].kwargs["params"]
+    assert nodes_call_params["project"] is None
+    assert edges_call_params["project"] is None
+
+
+@patch("memex.mcp_server.http.get_graph_client")
+def test_get_graph_with_project_query_param(mock_get_client, client):
+    """NET-03: `GET /graph?project=<id>` scopes the Cypher by project_id
+    instead of repo_path."""
+    mock_client = MagicMock()
+    mock_get_client.return_value = mock_client
+
+    from unittest.mock import AsyncMock
+    mock_execute = AsyncMock()
+    mock_client.driver.execute_query = mock_execute
+
+    mock_node_record = MagicMock()
+    mock_node_record.data.return_value = {
+        "id": "node-1",
+        "name": "foo.py",
+        "raw_type": "Module",
+        "summary": "a py module",
+        "created_at": "2026-05-23T12:00:00",
+        "status": "",
+        "scope": "",
+        "source_commit": ""
+    }
+    mock_nodes_res = MagicMock()
+    mock_nodes_res.records = [mock_node_record]
+
+    mock_edges_res = MagicMock()
+    mock_edges_res.records = []
+
+    mock_execute.side_effect = [mock_nodes_res, mock_edges_res]
+
+    response = client.get("/graph?project=github.com/acme/widgets")
+    assert response.status_code == 200
+    data = response.json()
+    assert len(data["nodes"]) == 1
+
+    nodes_call_args = mock_execute.call_args_list[0]
+    edges_call_args = mock_execute.call_args_list[1]
+    assert nodes_call_args.kwargs["params"]["project"] == "github.com/acme/widgets"
+    assert edges_call_args.kwargs["params"]["project"] == "github.com/acme/widgets"
+    assert "n.project_id = $project" in nodes_call_args[0][0]
+
 def test_notify_and_events(client):
     response = client.post("/notify")
     assert response.status_code == 200

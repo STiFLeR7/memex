@@ -90,15 +90,15 @@ def create_app(server: Server, repo_root: str):
             )
 
     @app.get("/graph")
-    async def get_graph():
+    async def get_graph(project: str = None):
         client = await get_graph_client()
         canonical_repo = canonical_repo_path(repo_root)
-        
+
         # Query nodes
         nodes_query = """
         MATCH (n:Entity)
-        WHERE n.repo_path = $repo
-        RETURN 
+        WHERE ($project IS NOT NULL AND n.project_id = $project) OR ($project IS NULL AND n.repo_path = $repo)
+        RETURN
           elementId(n) as id,
           n.name as name,
           coalesce(n.type, '') as raw_type,
@@ -108,24 +108,24 @@ def create_app(server: Server, repo_root: str):
           coalesce(n.scope, '') as scope,
           coalesce(n.source_commit, '') as source_commit
         """
-        
+
         # Query relationships
         edges_query = """
         MATCH (n1:Entity)-[r]->(n2:Entity)
-        WHERE n1.repo_path = $repo 
-          AND n2.repo_path = $repo
+        WHERE (($project IS NOT NULL AND n1.project_id = $project) OR ($project IS NULL AND n1.repo_path = $repo))
+          AND (($project IS NOT NULL AND n2.project_id = $project) OR ($project IS NULL AND n2.repo_path = $repo))
           AND r.expired_at IS NULL
           AND r.valid_until IS NULL
-        RETURN 
+        RETURN
           elementId(n1) as source,
           elementId(n2) as target,
           type(r) as type,
           coalesce(r.created_at, '') as created_at
         """
-        
+
         try:
-            nodes_res = await client.driver.execute_query(nodes_query, params={"repo": canonical_repo})
-            edges_res = await client.driver.execute_query(edges_query, params={"repo": canonical_repo})
+            nodes_res = await client.driver.execute_query(nodes_query, params={"repo": canonical_repo, "project": project})
+            edges_res = await client.driver.execute_query(edges_query, params={"repo": canonical_repo, "project": project})
             
             nodes = []
             for record in nodes_res.records:
