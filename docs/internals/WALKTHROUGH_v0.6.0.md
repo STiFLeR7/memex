@@ -12,6 +12,10 @@ and the unvalidated-count banner in briefings. v0.6.0 was scoped by a **verify-f
 audit** that ran the offline suite (mirroring CI) plus the corroboration integration
 suite against a live Neo4j, then fixed only what was genuinely broken or missing.
 
+Shipped across two PRs, both merged to `master` 2026-07-02:
+- **PR #21** (`1077a1f`) — the Signal finish work (Pillars 0–4 below).
+- **PR #22** (`3a935c6`) — the hands-free publish pipeline (Pillar 5).
+
 ---
 
 ## Pillar 0: Verify-first audit (what the audit found)
@@ -76,6 +80,11 @@ in the observability pipeline that already tracks token savings.
   of returned decisions; `get_context_briefing` emits both confidence and the
   validated/corroborated ratio. Best-effort — observability never breaks a read tool.
 
+**Review fix (`d8b3752`):** the `validated_ratio` gauge claimed to count "validated OR
+corroborated," but `get_recent_decisions_raw` only `RETURN`ed `validated` — so
+corroborated-only decisions were silently undercounted. Caught during PR self-review;
+fixed by returning `d.corroborated`, with two regression tests.
+
 Confidence and savings are now two axes of the same span/metrics view.
 
 ---
@@ -91,10 +100,43 @@ Confidence and savings are now two axes of the same span/metrics view.
 
 ---
 
+## Pillar 5: Hands-free publish pipeline (PR #22, `3a935c6`)
+
+A systematic-debugging pass on the release path — separate from Signal, but it's what
+lets v0.6.0 actually ship end-to-end.
+
+**Root cause:** every `publish.yml` run from v0.3.5 → v0.5.1 was red. `publish-npm`
+failed with `npm error code EOTP` (the `NPM_API` classic token has publish-2FA on; CI
+can't supply an OTP), so npm/PyPI were kept current only by **manual publishing**.
+Because the publish jobs went red, `publish-registry` (`needs: [publish-pypi,
+publish-npm]`) was **skipped on every tag** — so memex was never listed on the MCP
+Registry, despite the packages shipping fine. (The stale "npm stuck at 0.3.6" belief was
+disproven: npm was at 0.5.1.)
+
+**Fix:**
+- **npm → OIDC Trusted Publishing** — dropped `NODE_AUTH_TOKEN`/`NPM_API`, added
+  `id-token: write`, upgraded npm to ≥ 11.5.1 on Node 22. Mirrors how `publish-pypi`
+  already authenticates; kills EOTP at the root.
+- **Idempotency** — npm skips if the version already exists; PyPI uses
+  `twine upload --skip-existing`. Re-runs and manual pre-publishes no longer turn the
+  workflow red, so `publish-registry` finally runs.
+- **`workflow_dispatch`** trigger + version sourced from `npm/package.json` (not the tag
+  ref) → the registry can be (re)published against an already-published version without
+  cutting a new tag.
+- `CONTRIBUTING.md` documents the release/publishing model.
+
+**Required one-time activation (maintainer, npmjs.com):** package `stifler-memex-mcp`
+→ Settings → Trusted Publisher → GitHub Actions → org `STiFLeR7`, repo `memex`, workflow
+`publish.yml`, action `npm publish`. Until set, the npm job fails via OIDC instead of
+EOTP (no regression). Verified statically only — a live run publishes packages.
+
+---
+
 ## Test posture
 
-- 403 test functions across 54 files (+6 this release: 2 write-discipline, 4 OTel).
-- Offline suite (CI mirror): **377 passed**, 1 skipped, 3 deselected.
+- 405 test functions across 54 files (+8 this release: 2 write-discipline, 4 OTel,
+  2 validated-ratio regression).
+- Offline suite (CI mirror): **all passing** (377 at PR #21; +2 in the review fix).
 - Corroboration integration suite verified green against live Neo4j 5.26 Community.
 
 ---
@@ -106,5 +148,7 @@ Confidence and savings are now two axes of the same span/metrics view.
 - The plan's **pre-condition feedback window** (triage post-article issues, possibly a
   v0.5.2 patch) was *not* performed as part of this engineering pass and remains a gate
   before tagging/publishing the release.
+- **npm Trusted Publisher activation** (Pillar 5) — the one-time npmjs.com config is a
+  maintainer action; until done, hands-free npm publishing and the MCP Registry listing
+  stay pending.
 </content>
-</invoke>
