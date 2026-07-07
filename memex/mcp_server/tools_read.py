@@ -59,23 +59,23 @@ def _emit_validated_ratio(decisions: list) -> None:
         logger.debug("failed to emit memex.decision.validated_ratio", exc_info=True)
 
 
-async def get_project_context(scope: Optional[str] = None, repo: Optional[str] = None) -> str:
+async def get_project_context(scope: Optional[str] = None, repo: Optional[str] = None, project: Optional[str] = None) -> str:
     """
     Returns a structured markdown briefing of the project.
     """
     try:
         config = get_config()
-        
-        counts = await get_node_counts(repo=repo)
-        modules = await get_active_modules(since_days=30, scope=scope, repo=repo)
-        decisions = await get_recent_decisions_raw(since_days=7, module=scope, limit=10, repo=repo)
-        problems = await get_open_problems_raw(module=scope, repo=repo)
-        stale_list = await get_stale_edges(threshold=0.3, limit=1, repo=repo)
+
+        counts = await get_node_counts(repo=repo, project=project)
+        modules = await get_active_modules(since_days=30, scope=scope, repo=repo, project=project)
+        decisions = await get_recent_decisions_raw(since_days=7, module=scope, limit=10, repo=repo, project=project)
+        problems = await get_open_problems_raw(module=scope, repo=repo, project=project)
+        stale_list = await get_stale_edges(threshold=0.3, limit=1, repo=repo, project=project)
         # v0.3.0 Phase 8 — surface unvalidated decision count as a leading
         # warning so the gap between watcher-synthesised and human-reviewed
         # decisions stays visible.
         try:
-            unvalidated_count = await count_unvalidated_decisions(repo=repo)
+            unvalidated_count = await count_unvalidated_decisions(repo=repo, project=project)
         except Exception:
             unvalidated_count = 0
 
@@ -86,7 +86,7 @@ async def get_project_context(scope: Optional[str] = None, repo: Optional[str] =
         clusters: list = []
         if not scope:
             try:
-                clusters = await get_cluster_level_context(repo=repo)
+                clusters = await get_cluster_level_context(repo=repo, project=project)
             except Exception:
                 logger.debug("cluster-level context fetch failed", exc_info=True)
 
@@ -112,20 +112,23 @@ async def get_project_context(scope: Optional[str] = None, repo: Optional[str] =
         logger.error("Failed to generate project context", exc_info=True)
         return f"Error: Failed to retrieve project context from Neo4j. {e}"
 
-async def get_symbol_context(symbol_name: str, file: Optional[str] = None, repo: Optional[str] = None) -> str:
+async def get_symbol_context(symbol_name: str, file: Optional[str] = None, repo: Optional[str] = None, project: Optional[str] = None) -> str:
     """
     Returns everything the graph knows about a specific symbol.
     """
     try:
-        symbol = await get_symbol_by_name(symbol_name, file, repo=repo)
-        
+        symbol = await get_symbol_by_name(symbol_name, file, repo=repo, project=project)
+
         if not symbol:
             client = await get_graph_client()
             search_results = await client.search(symbol_name, num_results=1)
-            # Filter search results if repo is provided
-            if repo:
+            # Filter search results if project or repo is provided (project
+            # takes precedence when both are supplied).
+            if project:
+                search_results = [r for r in search_results if getattr(r, 'project_id', None) == project]
+            elif repo:
                 search_results = [r for r in search_results if getattr(r, 'repo_path', None) == repo]
-            
+
             suggestion = ""
             if search_results:
                 best = search_results[0]
@@ -138,10 +141,10 @@ async def get_symbol_context(symbol_name: str, file: Optional[str] = None, repo:
                 pass
             return result
 
-        callers = await get_symbol_callers(symbol_name, repo=repo)
-        callees = await get_symbol_callees(symbol_name, repo=repo)
-        decisions = await get_symbol_decisions(symbol_name, repo=repo)
-        problems = await get_symbol_problems(symbol_name, repo=repo)
+        callers = await get_symbol_callers(symbol_name, repo=repo, project=project)
+        callees = await get_symbol_callees(symbol_name, repo=repo, project=project)
+        decisions = await get_symbol_decisions(symbol_name, repo=repo, project=project)
+        problems = await get_symbol_problems(symbol_name, repo=repo, project=project)
 
         result = format_symbol_context(
             symbol=symbol,
@@ -162,7 +165,7 @@ async def get_symbol_context(symbol_name: str, file: Optional[str] = None, repo:
         logger.error("Failed to fetch symbol context", exc_info=True)
         return f"Error: Failed to retrieve symbol context for '{symbol_name}'. {e}"
 
-async def get_recent_decisions(days: int = 30, module: Optional[str] = None, repo: Optional[str] = None, corroborated_only: bool = False) -> str:
+async def get_recent_decisions(days: int = 30, module: Optional[str] = None, repo: Optional[str] = None, corroborated_only: bool = False, project: Optional[str] = None) -> str:
     """
     Returns Decision nodes created within the last days days, newest first.
     Phase 7: runs `detect_decision_conflicts` so contradictory Decisions with
@@ -170,7 +173,7 @@ async def get_recent_decisions(days: int = 30, module: Optional[str] = None, rep
     surfaces to the agent.
     """
     try:
-        decisions = await get_recent_decisions_raw(since_days=days, module=module, limit=21, repo=repo, corroborated_only=corroborated_only)
+        decisions = await get_recent_decisions_raw(since_days=days, module=module, limit=21, repo=repo, corroborated_only=corroborated_only, project=project)
         # Phase 7 conflict detection — opportunistic. Falls back silently if
         # the graph client / similarity function isn't usable so an LLM
         # hiccup doesn't break the read tool.
@@ -199,12 +202,12 @@ async def get_recent_decisions(days: int = 30, module: Optional[str] = None, rep
         logger.error("Failed to fetch recent decisions", exc_info=True)
         return f"Error: Failed to retrieve decisions from Neo4j. {e}"
 
-async def get_open_problems(module: Optional[str] = None, repo: Optional[str] = None) -> str:
+async def get_open_problems(module: Optional[str] = None, repo: Optional[str] = None, project: Optional[str] = None) -> str:
     """
     Returns Problem nodes with no resolved_by edge.
     """
     try:
-        problems = await get_open_problems_raw(module=module, repo=repo)
+        problems = await get_open_problems_raw(module=module, repo=repo, project=project)
         if not problems:
             result = "no open problems recorded"
             try:
@@ -232,7 +235,7 @@ async def get_open_problems(module: Optional[str] = None, repo: Optional[str] = 
         logger.error("Failed to fetch open problems", exc_info=True)
         return f"Error: Failed to retrieve problems from Neo4j. {e}"
 
-async def search_context(query: str, top_k: int = 8, repo: Optional[str] = None) -> str:
+async def search_context(query: str, top_k: int = 8, repo: Optional[str] = None, project: Optional[str] = None) -> str:
     """
     Semantic + keyword + graph traversal search across all node types.
 
@@ -257,6 +260,7 @@ async def search_context(query: str, top_k: int = 8, repo: Optional[str] = None)
             query=query,
             num_results=top_k,
             repo=repo,
+            project=project,
             client=client,
         )
 
@@ -275,14 +279,14 @@ async def search_context(query: str, top_k: int = 8, repo: Optional[str] = None)
         logger.error("Graphiti search failed", exc_info=True)
         return "search temporarily unavailable — try get_project_context() instead"
 
-async def get_stale_context(threshold: float = 0.5, repo: Optional[str] = None) -> str:
+async def get_stale_context(threshold: float = 0.5, repo: Optional[str] = None, project: Optional[str] = None) -> str:
     """
     Returns edges whose confidence field is below threshold.
     """
     threshold = min(max(0.0, threshold), 1.0)
-    
+
     try:
-        edges = await get_stale_edges(threshold=threshold, limit=51, repo=repo)
+        edges = await get_stale_edges(threshold=threshold, limit=51, repo=repo, project=project)
         result = format_stale_edges(
             edges=edges,
             threshold=threshold,
@@ -313,6 +317,7 @@ async def get_context_briefing(
     max_tokens: int = 2000,
     scope: Optional[str] = None,
     repo: Optional[str] = None,
+    project: Optional[str] = None,
 ) -> str:
     """Token-budgeted context briefing for session priming.
 
@@ -355,7 +360,7 @@ async def get_context_briefing(
 
     # 1. Cluster summaries (cheapest, highest density)
     try:
-        cluster_ctx = await get_cluster_level_context(repo=repo)
+        cluster_ctx = await get_cluster_level_context(repo=repo, project=project)
         if scope:
             cluster_ctx = [
                 c for c in cluster_ctx
@@ -374,7 +379,7 @@ async def get_context_briefing(
     if _budget_remaining() > 50:
         try:
             # get decisions for the last 7 days.
-            decisions = await get_recent_decisions_raw(since_days=7, module=scope, limit=10, repo=repo)
+            decisions = await get_recent_decisions_raw(since_days=7, module=scope, limit=10, repo=repo, project=project)
             from memex.graph.confidence import current_confidence
             scored = [(d, current_confidence(d)) for d in decisions]
             scored.sort(key=lambda x: x[1], reverse=True)
@@ -395,7 +400,7 @@ async def get_context_briefing(
     # 3. Open problems
     if _budget_remaining() > 50:
         try:
-            problems = await get_open_problems_raw(module=scope, repo=repo)
+            problems = await get_open_problems_raw(module=scope, repo=repo, project=project)
             if problems:
                 lines = [f"- **{p.get('text', 'unnamed')}** ({p.get('severity', 'medium')})" for p in problems[:5]]
                 _add_section("Open Problems", "\n".join(lines))
@@ -406,7 +411,7 @@ async def get_context_briefing(
     if _budget_remaining() > 50:
         try:
             # stale edges threshold 0.3
-            stale = await get_stale_edges(threshold=0.3, limit=3, repo=repo)
+            stale = await get_stale_edges(threshold=0.3, limit=3, repo=repo, project=project)
             if stale:
                 lines = [
                     f"- ⚠️ **{s.get('source')}** -[{s.get('edge_type')}]-> **{s.get('target')}** (conf: {s.get('confidence'):.2f})"

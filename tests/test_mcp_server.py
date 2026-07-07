@@ -96,6 +96,52 @@ async def test_call_get_symbol_context_missing_arg():
     assert "Error: 'symbol_name' is required" in result[0].text
 
 @pytest.mark.asyncio
+async def test_read_tools_advertise_project_property():
+    """NET-03: every read tool's MCP inputSchema advertises `project` as an
+    optional scoping key. Write tools must NOT advertise it (project_id on
+    the write path is auto-derived from repo_path, not agent-supplied)."""
+    read_tools = {
+        "get_project_context", "get_symbol_context", "get_recent_decisions",
+        "get_open_problems", "search_context", "get_stale_context",
+        "get_context_briefing",
+    }
+    write_tools = {"record_decision", "record_problem", "resolve_problem", "invalidate_edge"}
+
+    tools = await handle_list_tools()
+    by_name = {t.name: t for t in tools}
+
+    for name in read_tools:
+        props = by_name[name].inputSchema.get("properties", {})
+        assert "project" in props, f"{name} is missing the 'project' schema property"
+
+    for name in write_tools:
+        props = by_name[name].inputSchema.get("properties", {})
+        assert "project" not in props, f"{name} must not advertise 'project' (write path auto-derives it)"
+
+
+@pytest.mark.asyncio
+async def test_handle_call_tool_threads_project_kwarg():
+    """NET-03: `arguments={"project": "x", ...}` reaches the underlying
+    tools_read function with `project="x"`."""
+    read_tool_calls = [
+        ("get_project_context", {"project": "github.com/acme/widgets"}),
+        ("get_symbol_context", {"symbol_name": "foo", "project": "github.com/acme/widgets"}),
+        ("get_recent_decisions", {"project": "github.com/acme/widgets"}),
+        ("get_open_problems", {"project": "github.com/acme/widgets"}),
+        ("search_context", {"query": "test", "project": "github.com/acme/widgets"}),
+        ("get_stale_context", {"project": "github.com/acme/widgets"}),
+        ("get_context_briefing", {"project": "github.com/acme/widgets"}),
+    ]
+    for name, args in read_tool_calls:
+        with patch(f"memex.mcp_server.server.{name}", new_callable=AsyncMock) as mock_impl:
+            mock_impl.return_value = "ok"
+            await handle_call_tool(name, args)
+            assert mock_impl.called
+            _, kwargs = mock_impl.call_args
+            assert kwargs.get("project") == "github.com/acme/widgets", f"{name} did not receive project kwarg"
+
+
+@pytest.mark.asyncio
 async def test_call_all_tools_smoke():
     # Smoke test to ensure all dispatch branches are covered
     tools = [

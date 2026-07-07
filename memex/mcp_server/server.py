@@ -58,6 +58,10 @@ async def handle_list_tools() -> list[Tool]:
                     "repo": {
                         "type": "string",
                         "description": "Optional absolute path to the repository to scope results."
+                    },
+                    "project": {
+                        "type": "string",
+                        "description": "Optional project_id to scope results (alternative or complement to 'repo' — see `memex init --project-id`)."
                     }
                 }
             }
@@ -79,6 +83,10 @@ async def handle_list_tools() -> list[Tool]:
                     "repo": {
                         "type": "string",
                         "description": "Optional absolute path to the repository to scope results."
+                    },
+                    "project": {
+                        "type": "string",
+                        "description": "Optional project_id to scope results (alternative or complement to 'repo' — see `memex init --project-id`)."
                     }
                 },
                 "required": ["symbol_name"]
@@ -102,6 +110,10 @@ async def handle_list_tools() -> list[Tool]:
                     "repo": {
                         "type": "string",
                         "description": "Optional absolute path to the repository to scope results."
+                    },
+                    "project": {
+                        "type": "string",
+                        "description": "Optional project_id to scope results (alternative or complement to 'repo' — see `memex init --project-id`)."
                     }
                 }
             }
@@ -119,6 +131,10 @@ async def handle_list_tools() -> list[Tool]:
                     "repo": {
                         "type": "string",
                         "description": "Optional absolute path to the repository to scope results."
+                    },
+                    "project": {
+                        "type": "string",
+                        "description": "Optional project_id to scope results (alternative or complement to 'repo' — see `memex init --project-id`)."
                     }
                 }
             }
@@ -141,6 +157,10 @@ async def handle_list_tools() -> list[Tool]:
                     "repo": {
                         "type": "string",
                         "description": "Optional absolute path to the repository to scope results."
+                    },
+                    "project": {
+                        "type": "string",
+                        "description": "Optional project_id to scope results (alternative or complement to 'repo' — see `memex init --project-id`)."
                     }
                 },
                 "required": ["query"]
@@ -160,6 +180,10 @@ async def handle_list_tools() -> list[Tool]:
                     "repo": {
                         "type": "string",
                         "description": "Optional absolute path to the repository to scope results."
+                    },
+                    "project": {
+                        "type": "string",
+                        "description": "Optional project_id to scope results (alternative or complement to 'repo' — see `memex init --project-id`)."
                     }
                 }
             }
@@ -344,6 +368,10 @@ async def handle_list_tools() -> list[Tool]:
                         "type": "string",
                         "description": "Repository path (uses default if omitted)",
                     },
+                    "project": {
+                        "type": "string",
+                        "description": "Optional project_id to scope results (alternative or complement to 'repo' — see `memex init --project-id`)."
+                    },
                 },
             },
         )
@@ -357,6 +385,7 @@ async def handle_call_tool(name: str, arguments: dict) -> list[TextContent | Ima
     from memex.graph.telemetry import detect_agent
 
     repo = str(arguments.get("repo")) if arguments.get("repo") else None
+    project = str(arguments.get("project")) if arguments.get("project") else None
     agent = detect_agent()
 
     with tool_span(name, repo or ".", agent) as span:
@@ -364,7 +393,7 @@ async def handle_call_tool(name: str, arguments: dict) -> list[TextContent | Ima
             result = None
             if name == "get_project_context":
                 scope = str(arguments.get("scope")) if arguments.get("scope") else None
-                res = await get_project_context(scope, repo=repo)
+                res = await get_project_context(scope, repo=repo, project=project)
                 result = [TextContent(type="text", text=res)]
             elif name == "get_symbol_context":
                 symbol_name = str(arguments.get("symbol_name", ""))
@@ -372,7 +401,7 @@ async def handle_call_tool(name: str, arguments: dict) -> list[TextContent | Ima
                 if not symbol_name:
                     result = [TextContent(type="text", text="Error: 'symbol_name' is required.")]
                 else:
-                    res = await get_symbol_context(symbol_name, file, repo=repo)
+                    res = await get_symbol_context(symbol_name, file, repo=repo, project=project)
                     result = [TextContent(type="text", text=res)]
             elif name == "get_recent_decisions":
                 try:
@@ -380,11 +409,11 @@ async def handle_call_tool(name: str, arguments: dict) -> list[TextContent | Ima
                 except (ValueError, TypeError):
                     days = 30
                 module = str(arguments.get("module")) if arguments.get("module") else None
-                res = await get_recent_decisions(days, module, repo=repo)
+                res = await get_recent_decisions(days, module, repo=repo, project=project)
                 result = [TextContent(type="text", text=res)]
             elif name == "get_open_problems":
                 module = str(arguments.get("module")) if arguments.get("module") else None
-                res = await get_open_problems(module, repo=repo)
+                res = await get_open_problems(module, repo=repo, project=project)
                 result = [TextContent(type="text", text=res)]
             elif name == "search_context":
                 query = str(arguments.get("query", ""))
@@ -392,14 +421,14 @@ async def handle_call_tool(name: str, arguments: dict) -> list[TextContent | Ima
                     top_k = int(arguments.get("top_k", 8))
                 except (ValueError, TypeError):
                     top_k = 8
-                res = await search_context(query, top_k, repo=repo)
+                res = await search_context(query, top_k, repo=repo, project=project)
                 result = [TextContent(type="text", text=res)]
             elif name == "get_stale_context":
                 try:
                     threshold = float(arguments.get("threshold", 0.5))
                 except (ValueError, TypeError):
                     threshold = 0.5
-                res = await get_stale_context(threshold, repo=repo)
+                res = await get_stale_context(threshold, repo=repo, project=project)
                 result = [TextContent(type="text", text=res)]
             elif name == "record_decision":
                 text = str(arguments.get("text", ""))
@@ -452,7 +481,7 @@ async def handle_call_tool(name: str, arguments: dict) -> list[TextContent | Ima
                 except (ValueError, TypeError):
                     max_tokens = 2000
                 scope = str(arguments.get("scope")) if arguments.get("scope") else None
-                res = await get_context_briefing(max_tokens, scope, repo=repo)
+                res = await get_context_briefing(max_tokens, scope, repo=repo, project=project)
                 result = [TextContent(type="text", text=res)]
             else:
                 result = [TextContent(type="text", text=f"Tool {name} not found")]
