@@ -166,3 +166,117 @@ async def test_decay_task_swallows_stale_refresh_errors():
     with patch("memex.graph.decay.get_graph_client", return_value=mock_client):
         # Must not raise
         await scheduler.decay_task()
+
+
+# --- Phase 04 / NET-15: weekly governance report cron job ---
+
+
+def _fake_config(decay_hour=2, report_hour=3, report_day_of_week="mon"):
+    mock_cfg = MagicMock()
+    mock_cfg.decay_hour = decay_hour
+    mock_cfg.decay_minute = 0
+    mock_cfg.report_hour = report_hour
+    mock_cfg.report_minute = 0
+    mock_cfg.report_day_of_week = report_day_of_week
+    return mock_cfg
+
+
+def test_start_registers_two_distinct_cron_jobs():
+    """DecayScheduler.start() must register both the nightly decay job and
+    the new weekly report job on the same AsyncIOScheduler instance, at
+    distinct configured times/trigger shapes."""
+    scheduler = DecayScheduler()
+    fake_config = _fake_config(decay_hour=2, report_hour=3, report_day_of_week="mon")
+
+    with (
+        patch("memex.graph.decay.get_config", return_value=fake_config),
+        patch("apscheduler.schedulers.asyncio.AsyncIOScheduler.start"),
+    ):
+        scheduler.start()
+
+        jobs = scheduler.scheduler.get_jobs()
+        assert len(jobs) == 2
+
+        decay_job = next(j for j in jobs if j.func == scheduler.decay_task)
+        report_job = next(j for j in jobs if j.func == scheduler.report_task)
+
+        assert decay_job.trigger.fields[
+            [f.name for f in decay_job.trigger.fields].index("hour")
+        ].expressions[0].first == 2
+        assert report_job.trigger.fields[
+            [f.name for f in report_job.trigger.fields].index("hour")
+        ].expressions[0].first == 3
+
+        # The report job's trigger carries a day_of_week restriction the
+        # decay job's does not (decay job has no day_of_week kwarg passed).
+        report_dow_field = report_job.trigger.fields[
+            [f.name for f in report_job.trigger.fields].index("day_of_week")
+        ]
+        decay_dow_field = decay_job.trigger.fields[
+            [f.name for f in decay_job.trigger.fields].index("day_of_week")
+        ]
+        assert str(report_dow_field) != str(decay_dow_field)
+
+        # scheduler.scheduler.start() itself is mocked above (no real event
+        # loop is running in this sync test), so the scheduler never
+        # transitions to `running` -- skip calling scheduler.stop(), which
+        # would raise SchedulerNotRunningError against the real shutdown().
+
+
+@pytest.mark.asyncio
+async def test_report_task_invokes_generate_and_write_per_active_repo():
+    """report_task() must call generate_report() + write_report() once per
+    active repo, passing repo.path -- mirrors
+    test_decay_task_invokes_archive_tombstoning_per_active_repo."""
+    scheduler = DecayScheduler()
+
+    fake_report_a = MagicMock(name="report-a")
+    fake_report_b = MagicMock(name="report-b")
+    generate_report_mock = AsyncMock(side_effect=[fake_report_a, fake_report_b])
+    write_report_mock = MagicMock()
+
+    repo_a = MagicMock(path="/repo/a", active=True)
+    repo_b = MagicMock(path="/repo/b", active=True)
+
+    with (
+        patch("memex.graph.governance_report.generate_report", generate_report_mock),
+        patch("memex.graph.governance_report.write_report", write_report_mock),
+        patch("memex.watcher.registry.get_active_repositories", return_value=[repo_a, repo_b]),
+    ):
+        await scheduler.report_task()
+
+    assert generate_report_mock.await_count == 2
+    awaited_paths = [c.args[0] for c in generate_report_mock.await_args_list]
+    assert "/repo/a" in awaited_paths
+    assert "/repo/b" in awaited_paths
+
+    assert write_report_mock.call_count == 2
+    written = [c.args[0] for c in write_report_mock.call_args_list]
+    assert fake_report_a in written
+    assert fake_report_b in written
+
+
+@pytest.mark.asyncio
+async def test_report_task_survives_generate_report_failure_for_one_repo():
+    """If generate_report() raises for one repo, the other must still be
+    attempted; report_task() must not raise -- mirrors
+    test_decay_task_survives_archive_failure_for_one_repo."""
+    scheduler = DecayScheduler()
+
+    fake_report = MagicMock(name="good-report")
+    generate_report_mock = AsyncMock(side_effect=[Exception("bad repo"), fake_report])
+    write_report_mock = MagicMock()
+
+    repos = [MagicMock(path="/bad"), MagicMock(path="/good")]
+
+    with (
+        patch("memex.graph.governance_report.generate_report", generate_report_mock),
+        patch("memex.graph.governance_report.write_report", write_report_mock),
+        patch("memex.watcher.registry.get_active_repositories", return_value=repos),
+    ):
+        await scheduler.report_task()  # must not raise
+
+    assert generate_report_mock.await_count == 2
+    # write_report is only called for the repo whose generate_report succeeded.
+    assert write_report_mock.call_count == 1
+    assert write_report_mock.call_args.args[0] is fake_report

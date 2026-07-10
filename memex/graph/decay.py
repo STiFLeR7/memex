@@ -16,6 +16,7 @@ the docstring and behaviour are the only things that changed.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
@@ -137,6 +138,35 @@ class DecayScheduler:
 
         logger.info("Nightly graph maintenance task complete.")
 
+    async def report_task(self) -> None:
+        """Generate and persist a governance report for every active repo.
+
+        Weekly, best-effort, isolated per repo -- mirrors ``decay_task``'s
+        existing per-repo ``tombstone_cold_nodes`` loop exactly (Phase 04 /
+        NET-15): one repo's report-generation failure must not crash the
+        daemon or block this (or the nightly decay) job.
+        """
+        logger.info("Starting weekly governance report task...")
+
+        from memex.graph.governance_report import generate_report, write_report
+        from memex.watcher.registry import get_active_repositories
+
+        succeeded = 0
+        for repo in get_active_repositories():
+            try:
+                report = await generate_report(repo.path)
+                await asyncio.to_thread(write_report, report)
+                succeeded += 1
+            except Exception:
+                logger.error(
+                    "Report generation failed for repo %s", repo.path, exc_info=True
+                )
+
+        logger.info(
+            "Weekly governance report task complete (%d repo(s) succeeded).",
+            succeeded,
+        )
+
     def start(self) -> None:
         config = get_config()
         self.scheduler.add_job(
@@ -145,11 +175,24 @@ class DecayScheduler:
             hour=config.decay_hour,
             minute=config.decay_minute,
         )
+        self.scheduler.add_job(
+            self.report_task,
+            "cron",
+            day_of_week=config.report_day_of_week,
+            hour=config.report_hour,
+            minute=config.report_minute,
+        )
         self.scheduler.start()
         logger.info(
             "DecayScheduler started (nightly maintenance scheduled for %02d:%02d)",
             config.decay_hour,
             config.decay_minute,
+        )
+        logger.info(
+            "Governance report scheduled for %s %02d:%02d",
+            config.report_day_of_week,
+            config.report_hour,
+            config.report_minute,
         )
 
     def stop(self) -> None:
