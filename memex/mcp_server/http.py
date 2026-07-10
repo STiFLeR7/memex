@@ -4,7 +4,7 @@ import asyncio
 import json
 import os
 
-from fastapi import FastAPI, Request
+from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 from mcp.server import Server
 from mcp.server.sse import SseServerTransport
@@ -12,6 +12,7 @@ import uvicorn
 
 from memex.watcher.registry import validate_key, resolve_principal
 from memex.graph.client import get_graph_client
+from memex.graph.schema import Principal
 from memex.config import canonical_repo_path
 from memex.mcp_server.principal_ctx import principal_ctx
 
@@ -32,10 +33,54 @@ async def broadcast_event(event_type: str, data: dict):
 async def verify_auth_token(token: str) -> bool:
     """
     Validates the Bearer token against the registry.
+
+    Kept for the SSE branch only (deprecated, legacy boolean auth model —
+    see threat_model T-02-09). The streamable-http branch and the ordinary
+    FastAPI routes (/graph, /stats) use `resolve_principal_from_headers` /
+    `require_principal` instead (NET-10, 02-RESEARCH.md Pitfall #4).
     """
     if not token:
         return False
     return validate_key(token)
+
+
+def _extract_bearer_token(headers) -> "str | None":
+    """Extracts the bearer token from an `Authorization` header, stripping
+    only the leading `Bearer ` scheme — a token that itself contains the
+    substring `Bearer ` must survive intact (Audit B6). ``headers`` accepts
+    anything with a `.get(...)` method (a Starlette `Headers` object or a
+    plain dict), so this is usable both from FastAPI `Request.headers` and
+    from `mcp_asgi_app`'s raw ASGI-derived `Request.headers`.
+    """
+    auth_header = headers.get("Authorization")
+    if auth_header and auth_header.startswith("Bearer "):
+        return auth_header.removeprefix("Bearer ")
+    return None
+
+
+async def resolve_principal_from_headers(headers) -> "Principal | None":
+    """Shared token-extraction + resolution helper (02-RESEARCH.md
+    Pitfall #4). Used by the `require_principal` FastAPI dependency
+    (/graph, /stats — ordinary routes with full `Depends()` support) AND by
+    `mcp_asgi_app`'s streamable-http branch directly (a raw ASGI callable
+    mounted via `app.mount()` — Starlette's `Mount` bypasses FastAPI's DI
+    system entirely, so `Depends()` cannot be used there). This is the
+    single place the bearer-token extraction + resolution logic lives, so
+    neither caller hand-rolls its own copy.
+    """
+    token = _extract_bearer_token(headers)
+    return await resolve_principal(token)
+
+
+async def require_principal(request: Request) -> Principal:
+    """FastAPI dependency for ordinary routes (/graph, /stats). Raises the
+    same 401 detail message the pre-existing manual header-parsing blocks
+    used, for behavioral continuity."""
+    principal = await resolve_principal_from_headers(request.headers)
+    if principal is None:
+        raise HTTPException(status_code=401, detail="Missing or invalid Authorization header")
+    return principal
+
 
 def create_app(server: Server, repo_root: str):
     """
@@ -126,7 +171,9 @@ def create_app(server: Server, repo_root: str):
             )
 
     @app.get("/graph")
-    async def get_graph(project: str = None):
+    async def get_graph(project: str = None, principal: Principal = Depends(require_principal)):
+        # NET-10: /graph previously had zero authentication. Any valid
+        # principal suffices — read-only endpoint, no role check needed.
         client = await get_graph_client()
         canonical_repo = canonical_repo_path(repo_root)
 
@@ -254,20 +301,17 @@ def create_app(server: Server, repo_root: str):
         return {"status": "ok"}
 
     @app.get("/stats")
-    async def get_stats_endpoint(request: Request, repo: str = None, days: int = 30, project: str = None):
-        # 1. Authenticate using Bearer token
-        auth_header = request.headers.get("Authorization")
-        token = None
-        if auth_header and auth_header.startswith("Bearer "):
-            token = auth_header.removeprefix("Bearer ")
+    async def get_stats_endpoint(
+        repo: str = None,
+        days: int = 30,
+        project: str = None,
+        principal: Principal = Depends(require_principal),
+    ):
+        # Authentication now shared with /graph via require_principal — no
+        # third copy of the header-parsing/token-extraction logic in this
+        # file (02-RESEARCH.md Pitfall #4).
 
-        if not await verify_auth_token(token):
-            return JSONResponse(
-                status_code=401,
-                content={"detail": "Missing or invalid Authorization header"}
-            )
-
-        # 2. Get Stats from unified stats service
+        # Get Stats from unified stats service
         try:
             from memex.graph.stats import get_stats_data
             path = repo or repo_root
@@ -340,14 +384,13 @@ def create_app(server: Server, repo_root: str):
         # same coroutine, so contextvars.Context (copied at task-creation
         # time) carries principal_ctx's value into it (02-RESEARCH.md
         # Architecture Pattern 3 / Pitfall #3).
-        auth_header = request.headers.get("Authorization")
-        token = None
-        if auth_header and auth_header.startswith("Bearer "):
-            # Strip only the leading scheme — a token containing 'Bearer '
-            # as a substring must survive intact (B6).
-            token = auth_header.removeprefix("Bearer ")
-
-        principal = await resolve_principal(token)
+        # `mcp_asgi_app` is a raw ASGI callable under `app.mount()` —
+        # Starlette's `Mount` bypasses FastAPI's DI entirely, so it cannot
+        # use `Depends(require_principal)` (02-RESEARCH.md Pitfall #4). It
+        # calls the same `resolve_principal_from_headers` helper manually
+        # instead, so the token-extraction logic still lives in exactly one
+        # place in this file.
+        principal = await resolve_principal_from_headers(request.headers)
         if principal is None:
             response = JSONResponse(
                 status_code=401,

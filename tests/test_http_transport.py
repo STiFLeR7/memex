@@ -263,9 +263,6 @@ def _extract_tool_text(response: "httpx.Response") -> str:
     payload = response.json()
     return payload["result"]["content"][0]["text"]
 
-    # After the lifespan exits, the task group is torn down again.
-    assert app.state.session_manager._task_group is None
-
 
 # --- SSE Fallback Tests (MEMEX_MCP_TRANSPORT=sse) ---
 
@@ -313,14 +310,16 @@ def test_mcp_messages_post(mock_sse_class, mock_validate, mock_server):
 # --- Graph, Notify, and Utils Tests ---
 
 @patch("memex.mcp_server.http.get_graph_client")
-def test_get_graph(mock_get_client, client):
+@patch("memex.mcp_server.http.resolve_principal")
+def test_get_graph(mock_resolve, mock_get_client, client):
+    mock_resolve.return_value = Principal(principal_id="viewer-user", role="viewer")
     mock_client = MagicMock()
     mock_get_client.return_value = mock_client
-    
+
     from unittest.mock import AsyncMock
     mock_execute = AsyncMock()
     mock_client.driver.execute_query = mock_execute
-    
+
     mock_node_record = MagicMock()
     mock_node_record.data.return_value = {
         "id": "node-1",
@@ -332,7 +331,7 @@ def test_get_graph(mock_get_client, client):
         "scope": "",
         "source_commit": ""
     }
-    
+
     mock_edge_record = MagicMock()
     mock_edge_record.data.return_value = {
         "source": "node-1",
@@ -340,16 +339,16 @@ def test_get_graph(mock_get_client, client):
         "type": "MOTIVATES",
         "created_at": "2026-05-23T12:05:00"
     }
-    
+
     mock_nodes_res = MagicMock()
     mock_nodes_res.records = [mock_node_record]
-    
+
     mock_edges_res = MagicMock()
     mock_edges_res.records = [mock_edge_record]
-    
+
     mock_execute.side_effect = [mock_nodes_res, mock_edges_res]
-    
-    response = client.get("/graph")
+
+    response = client.get("/graph", headers={"Authorization": "Bearer good-token"})
     assert response.status_code == 200
     data = response.json()
     assert "nodes" in data
@@ -368,10 +367,22 @@ def test_get_graph(mock_get_client, client):
     assert edges_call_params["project"] is None
 
 
+@patch("memex.mcp_server.http.resolve_principal")
+def test_get_graph_requires_auth(mock_resolve, client):
+    """NET-10: `/graph` previously had zero authentication — this is the
+    regression this task fixes."""
+    mock_resolve.return_value = None
+    response = client.get("/graph")
+    assert response.status_code == 401
+    assert response.json() == {"detail": "Missing or invalid Authorization header"}
+
+
 @patch("memex.mcp_server.http.get_graph_client")
-def test_get_graph_with_project_query_param(mock_get_client, client):
+@patch("memex.mcp_server.http.resolve_principal")
+def test_get_graph_with_project_query_param(mock_resolve, mock_get_client, client):
     """NET-03: `GET /graph?project=<id>` scopes the Cypher by project_id
     instead of repo_path."""
+    mock_resolve.return_value = Principal(principal_id="contributor-user", role="contributor")
     mock_client = MagicMock()
     mock_get_client.return_value = mock_client
 
@@ -398,7 +409,10 @@ def test_get_graph_with_project_query_param(mock_get_client, client):
 
     mock_execute.side_effect = [mock_nodes_res, mock_edges_res]
 
-    response = client.get("/graph?project=github.com/acme/widgets")
+    response = client.get(
+        "/graph?project=github.com/acme/widgets",
+        headers={"Authorization": "Bearer good-token"},
+    )
     assert response.status_code == 200
     data = response.json()
     assert len(data["nodes"]) == 1
@@ -409,12 +423,13 @@ def test_get_graph_with_project_query_param(mock_get_client, client):
     assert edges_call_args.kwargs["params"]["project"] == "github.com/acme/widgets"
     assert "n.project_id = $project" in nodes_call_args[0][0]
 
-@patch("memex.mcp_server.http.validate_key")
-def test_stats_endpoint_accepts_project_query_param(mock_validate, client):
+@patch("memex.mcp_server.http.resolve_principal")
+def test_stats_endpoint_accepts_project_query_param(mock_resolve, client):
     """NET-03: `GET /stats?project=<id>` threads `project` into
     get_stats_data(); `GET /stats?repo=<x>` (no project) passes project=None
-    so existing repo-only callers are unaffected."""
-    mock_validate.return_value = True
+    so existing repo-only callers are unaffected. Task 3: /stats now shares
+    require_principal/resolve_principal with /graph."""
+    mock_resolve.return_value = Principal(principal_id="good-token-user", role="admin")
 
     from unittest.mock import AsyncMock
     with patch("memex.graph.stats.get_stats_data", new_callable=AsyncMock) as mock_get_stats:
@@ -438,6 +453,15 @@ def test_stats_endpoint_accepts_project_query_param(mock_validate, client):
         assert response.status_code == 200
         args, kwargs = mock_get_stats.call_args
         assert kwargs.get("project") is None
+
+
+@patch("memex.mcp_server.http.resolve_principal")
+def test_stats_endpoint_requires_auth(mock_resolve, client):
+    """/stats behavior is unchanged from today: still 401 without a token."""
+    mock_resolve.return_value = None
+    response = client.get("/stats")
+    assert response.status_code == 401
+    assert response.json() == {"detail": "Missing or invalid Authorization header"}
 
 
 def test_notify_and_events(client):
