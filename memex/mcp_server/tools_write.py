@@ -18,7 +18,7 @@ from memex.watcher.handlers import notify_local_server
 logger = logging.getLogger(__name__)
 
 # Bounded per-(repo, agent, principal) session cache — replaces the old
-# single module-global `_current_session_name`, which collapsed every
+# single module-global session-name variable, which collapsed every
 # concurrent agent hitting the same process into one shared AgentSession
 # (Phase 01 — NET-07). Evict-oldest-on-overflow via dict insertion order.
 _session_cache: Dict[str, str] = {}
