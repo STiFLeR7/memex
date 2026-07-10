@@ -9,13 +9,24 @@ functions and assert on call shape + derived-field behavior only.
 
 from __future__ import annotations
 
-from datetime import datetime
+import json
+from datetime import datetime, timezone
+from pathlib import Path
 from unittest.mock import AsyncMock, patch
 from types import SimpleNamespace
 
 import pytest
 
-from memex.graph.governance_report import GovernanceReport, generate_report
+from memex.graph.governance_report import (
+    GovernanceReport,
+    generate_report,
+    reports_dir_for,
+    render_markdown,
+    write_report,
+    find_latest_report,
+    REPORT_NOTICE,
+)
+from memex.config import canonical_repo_path
 
 
 def _make_stats() -> dict:
@@ -180,3 +191,144 @@ async def test_period_telemetry_selects_nearest_bucket(period_days, expected_key
         report = await generate_report("/repo", period_days=period_days)
 
     assert report.period_telemetry == stats[expected_key]
+
+
+# ---------------------------------------------------------------------------
+# Plan 04-02 Task 1 — write_report() / render_markdown() / reports_dir_for()
+# ---------------------------------------------------------------------------
+
+
+def _make_report(repo_path: str, **overrides) -> GovernanceReport:
+    """Build a minimal, real (non-mocked) GovernanceReport for persistence
+    tests, which exercise real tmp_path filesystem I/O (no mocking needed —
+    pure pathlib/json/string logic, same style as tests/test_config.py's
+    canonical_repo_path tests)."""
+    defaults = dict(
+        repo_path=repo_path,
+        period_days=7,
+        generated_at=datetime.now(timezone.utc).isoformat(),
+        telemetry={"today": {"tool_calls": 1}},
+        period_telemetry={"tool_calls": 1},
+        confidence_distribution={"high": 2, "mid": 1, "stale": 3},
+        unvalidated_decisions=[{"name": "Use Postgres for X", "created_at": "2026-01-01"}],
+        modules_touched=["a.py", "b.py"],
+    )
+    defaults.update(overrides)
+    return GovernanceReport(**defaults)
+
+
+def test_reports_dir_for_returns_canonicalized_path_and_creates_it(tmp_path):
+    repo_path = str(tmp_path)
+    reports_dir = reports_dir_for(repo_path)
+
+    expected = Path(canonical_repo_path(repo_path)) / ".memex" / "reports"
+    assert reports_dir == expected
+    assert reports_dir.exists()
+    assert reports_dir.is_dir()
+
+
+def test_write_report_writes_json_and_markdown_pair(tmp_path):
+    report = _make_report(str(tmp_path))
+    json_path, md_path = write_report(report)
+
+    stamp = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    assert json_path.name == f"{stamp}.json"
+    assert md_path.name == f"{stamp}.md"
+    assert json_path.exists()
+    assert md_path.exists()
+
+    payload = json.loads(json_path.read_text())
+    assert payload["repo_path"] == report.repo_path
+    assert payload["period_days"] == report.period_days
+    assert payload["generated_at"] == report.generated_at
+    assert payload["telemetry"] == report.telemetry
+    assert payload["period_telemetry"] == report.period_telemetry
+    assert payload["confidence_distribution"] == report.confidence_distribution
+    assert payload["unvalidated_decisions"] == report.unvalidated_decisions
+    assert payload["modules_touched"] == report.modules_touched
+    assert payload["notice"] == REPORT_NOTICE
+
+
+def test_write_report_serializes_non_json_native_values_with_default_str(tmp_path):
+    report = _make_report(
+        str(tmp_path),
+        unvalidated_decisions=[
+            {"name": "Use Postgres for X", "created_at": datetime(2026, 1, 1, tzinfo=timezone.utc)}
+        ],
+    )
+
+    # Must not raise (a bare json.dumps() would raise TypeError on the
+    # datetime value).
+    json_path, _ = write_report(report)
+    payload = json.loads(json_path.read_text())
+    assert payload["unvalidated_decisions"][0]["created_at"] == str(
+        datetime(2026, 1, 1, tzinfo=timezone.utc)
+    )
+
+
+def test_render_markdown_contains_key_fields_and_no_jinja2():
+    report = _make_report("/some/repo")
+    markdown = render_markdown(report)
+
+    assert report.repo_path in markdown
+    assert str(report.period_days) in markdown
+    assert str(report.confidence_distribution["high"]) in markdown
+    assert str(report.confidence_distribution["mid"]) in markdown
+    assert str(report.confidence_distribution["stale"]) in markdown
+    for module in report.modules_touched:
+        assert module in markdown
+    assert REPORT_NOTICE in markdown
+    # REPORT_NOTICE should appear near the top of the document (within the
+    # first few lines), not buried at the end.
+    top_of_doc = "\n".join(markdown.splitlines()[:5])
+    assert REPORT_NOTICE in top_of_doc
+
+    import subprocess
+
+    grep_result = subprocess.run(
+        ["grep", "-c", "jinja2", "memex/graph/governance_report.py"],
+        capture_output=True,
+        text=True,
+        cwd=Path(__file__).resolve().parent.parent,
+    )
+    # grep -c returns exit code 1 when count is 0 (no matches) — either way,
+    # stdout must report zero matches.
+    assert grep_result.stdout.strip() == "0"
+
+
+# ---------------------------------------------------------------------------
+# Plan 04-02 Task 2 — find_latest_report() path-confinement and selection
+# ---------------------------------------------------------------------------
+
+
+def test_find_latest_report_picks_true_latest_by_date_string_sort(tmp_path):
+    repo_path = str(tmp_path)
+    reports_dir = reports_dir_for(repo_path)
+    for name in ["2026-07-01.json", "2026-07-07.json", "2026-06-30.json"]:
+        (reports_dir / name).write_text("{}")
+
+    latest = find_latest_report(repo_path)
+    assert latest is not None
+    assert latest.name == "2026-07-07.json"
+
+
+def test_find_latest_report_returns_none_when_reports_dir_absent(tmp_path):
+    # tmp_path itself has no .memex/reports/ directory created.
+    result = find_latest_report(str(tmp_path))
+    assert result is None
+
+
+def test_find_latest_report_resolves_traversal_path_to_same_canonical_dir(tmp_path):
+    (tmp_path / "sub").mkdir()
+    clean_path = str(tmp_path)
+    traversal_path = str(tmp_path / "sub" / "..")
+
+    reports_dir = reports_dir_for(clean_path)
+    (reports_dir / "2026-07-01.json").write_text("{}")
+
+    result_clean = find_latest_report(clean_path)
+    result_traversal = find_latest_report(traversal_path)
+
+    assert result_clean is not None
+    assert result_traversal is not None
+    assert result_clean == result_traversal
