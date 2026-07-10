@@ -67,6 +67,19 @@ npx stifler-memex-mcp serve --repo .
 | pip | `pip install memex-mcp` |
 | source | `git clone github.com/STiFLeR7/memex && uv sync` |
 
+### Self-hosted team deployment
+
+For a shared team setup (one Neo4j + one memex-server, auth on by default, Neo4j's
+ports never exposed to the host):
+
+```bash
+bash docker/bootstrap-team-env.sh
+docker compose -f docker/docker-compose.team.yml up -d
+```
+
+See [`docker/TEAM-DEPLOY.md`](docker/TEAM-DEPLOY.md) for the full flow, capturing the
+initial admin key, and the `down -v` footgun to avoid.
+
 ## At a glance
 
 | Property | Value |
