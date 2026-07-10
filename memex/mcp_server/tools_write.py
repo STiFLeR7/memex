@@ -332,6 +332,8 @@ async def record_decision(
     supersedes: Optional[str] = None,
     force: bool = False,
     agent: str = "unknown",
+    principal_id: Optional[str] = None,
+    role: str = "contributor",
 ) -> str:
     """
     Creates a Decision node in the graph.
@@ -348,8 +350,14 @@ async def record_decision(
     """
     # Layer A — Decision is "open", but enforce the policy explicitly so a
     # future change to WRITE_POLICIES is honoured without code edits here.
+    # Phase 02 (NET-11): `principal_id` (from the ambient HTTP principal_ctx,
+    # threaded via handle_call_tool) takes precedence when explicitly passed;
+    # direct/unauthenticated callers (stdio, or existing unit tests calling
+    # this function directly with only `agent=`) fall back to the harness
+    # identity in `agent`, preserving pre-Phase-02 behavior exactly.
+    effective_principal_id = principal_id if principal_id is not None else agent
     try:
-        check_write_policy("Decision", principal_id=agent)
+        check_write_policy("Decision", principal_id=effective_principal_id, role=role)
     except MemexWritePolicyError as e:
         return f"Error: {e}"
 
@@ -517,14 +525,18 @@ async def record_problem(
     severity: str = "medium",
     repo: Optional[str] = None,
     agent: str = "unknown",
+    principal_id: Optional[str] = None,
+    role: str = "contributor",
 ) -> str:
     """
     Creates a Problem node with duplicate detection and concurrent write safety.
     """
     # Layer A ACL — Problem is "open" for agents; check anyway to honour
     # any future policy change in WRITE_POLICIES.
+    # Phase 02 (NET-11): see record_decision's matching comment above.
+    effective_principal_id = principal_id if principal_id is not None else agent
     try:
-        check_write_policy("Problem", principal_id=agent)
+        check_write_policy("Problem", principal_id=effective_principal_id, role=role)
     except MemexWritePolicyError as e:
         return f"Error: {e}"
 
@@ -637,13 +649,17 @@ async def resolve_problem(
     resolution_text: str,
     repo: Optional[str] = None,
     agent: str = "unknown",
+    principal_id: Optional[str] = None,
+    role: str = "contributor",
 ) -> str:
     """
     Closes a Problem node and links it to the current AgentSession.
     """
     # Layer A — Problem is "open"; explicit check for future-proofing.
+    # Phase 02 (NET-11): see record_decision's matching comment above.
+    effective_principal_id = principal_id if principal_id is not None else agent
     try:
-        check_write_policy("Problem", principal_id=agent)
+        check_write_policy("Problem", principal_id=effective_principal_id, role=role)
     except MemexWritePolicyError as e:
         return f"Error: {e}"
 
@@ -743,6 +759,13 @@ async def invalidate_edge(
     # Layer A — edges aren't strictly node-typed, but invalidation is a
     # write op and we treat it as agent-permitted (no "locked" gate exists
     # for edges in WRITE_POLICIES). Keep the call for symmetry / audit.
+    #
+    # Phase 02 (NET-09/NET-11) deliberately does NOT add principal_id/role
+    # parameters here, unlike record_decision/record_problem/resolve_problem.
+    # This is a documented scope boundary (02-RESEARCH.md Pitfall #5), not an
+    # oversight: edges have no `check_write_policy` call today, and this
+    # phase's Deferred Ideas explicitly rule out fine-grained per-edge ACLs
+    # for this milestone (see threat T-02-11, disposition "accept").
     reason = _sanitize_text(reason)
     if not reason or not reason.strip():
         return "invalidation reason is required"

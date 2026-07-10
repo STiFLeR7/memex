@@ -24,6 +24,7 @@ from memex.mcp_server.tools_read import (
     get_context_briefing,
 )
 from memex.mcp_server.tools_write import record_decision, record_problem, resolve_problem, invalidate_edge
+from memex.mcp_server.principal_ctx import principal_ctx
 
 logger = logging.getLogger(__name__)
 
@@ -388,6 +389,18 @@ async def handle_call_tool(name: str, arguments: dict) -> list[TextContent | Ima
     project = str(arguments.get("project")) if arguments.get("project") else None
     agent = detect_agent()
 
+    # Phase 02 (NET-11) — thread the ambient HTTP-resolved principal (set by
+    # the /mcp transport per-request, see principal_ctx.py) into the write
+    # tools below. Absent a configured principal (stdio transport, or an
+    # HTTP deployment that never configured principal/role at all), default
+    # to ("local", "admin") — the backward-compatibility backbone that keeps
+    # single-dev deployments behaving exactly as before Phase 02.
+    principal = principal_ctx.get(None)
+    if principal is not None:
+        principal_id, role = principal.principal_id, principal.role
+    else:
+        principal_id, role = "local", "admin"
+
     with tool_span(name, repo or ".", agent) as span:
         try:
             result = None
@@ -442,19 +455,25 @@ async def handle_call_tool(name: str, arguments: dict) -> list[TextContent | Ima
                 res = await record_decision(
                     text, module, symbol, rationale, repo=repo,
                     corroborates=corroborates, supersedes=supersedes, force=force,
-                    agent=agent,
+                    agent=agent, principal_id=principal_id, role=role,
                 )
                 result = [TextContent(type="text", text=res)]
             elif name == "record_problem":
                 text = str(arguments.get("text", ""))
                 module = str(arguments.get("module")) if arguments.get("module") else None
                 severity = str(arguments.get("severity", "medium"))
-                res = await record_problem(text, module, severity, repo=repo, agent=agent)
+                res = await record_problem(
+                    text, module, severity, repo=repo, agent=agent,
+                    principal_id=principal_id, role=role,
+                )
                 result = [TextContent(type="text", text=res)]
             elif name == "resolve_problem":
                 problem_id = str(arguments.get("problem_id", ""))
                 resolution_text = str(arguments.get("resolution_text", ""))
-                res = await resolve_problem(problem_id, resolution_text, repo=repo, agent=agent)
+                res = await resolve_problem(
+                    problem_id, resolution_text, repo=repo, agent=agent,
+                    principal_id=principal_id, role=role,
+                )
                 result = [TextContent(type="text", text=res)]
             elif name == "invalidate_edge":
                 edge_id = str(arguments.get("edge_id", ""))

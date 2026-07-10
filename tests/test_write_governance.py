@@ -362,3 +362,104 @@ async def test_resolve_problem_passes_real_agent_to_check_write_policy():
     if principal_id is None and len(call.args) >= 2:
         principal_id = call.args[1]
     assert principal_id == "codex"
+
+
+# ---------------------------------------------------------------------------
+# Phase 02 Plan 03 Task 2 — handle_call_tool threads the ambient
+# principal_ctx (NET-11) into record_decision/record_problem/resolve_problem.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_record_decision_direct_call_defaults_to_agent_identity():
+    """Direct calls (no principal_id/role kwargs — as all pre-Phase-02 unit
+    tests above already do) must continue to thread `agent` into
+    check_write_policy's principal_id, with role defaulting to
+    'contributor' — unchanged behavior post Task 2."""
+    mock_result = MagicMock()
+    mock_result.episode.uuid = "gov-dec-2"
+
+    with (
+        patch("memex.mcp_server.tools_write.get_graph_client") as mock_get_client,
+        patch("memex.mcp_server.tools_write.check_write_policy") as mock_check_policy,
+    ):
+        mock_client = AsyncMock()
+        mock_client.add_episode.return_value = mock_result
+        mock_get_client.return_value = mock_client
+
+        await record_decision(text="Adopt EdDSA for key rotation.", agent="claude-code")
+
+    mock_check_policy.assert_called_once()
+    call = mock_check_policy.call_args
+    assert call.kwargs.get("principal_id") == "claude-code"
+    assert call.kwargs.get("role") == "contributor"
+
+
+@pytest.mark.asyncio
+async def test_handle_call_tool_defaults_to_local_admin_when_principal_ctx_unset():
+    """NET-11 backward-compatibility backbone: with principal_ctx unset
+    (stdio transport, or HTTP with no principal configured), handle_call_tool
+    must invoke check_write_policy with principal_id='local', role='admin'."""
+    from memex.mcp_server.server import handle_call_tool
+    from memex.mcp_server.principal_ctx import principal_ctx
+
+    assert principal_ctx.get(None) is None  # sanity: nothing set by other tests
+
+    mock_result = MagicMock()
+    mock_result.episode.uuid = "gov-dec-3"
+
+    with (
+        patch("memex.mcp_server.tools_write.get_graph_client") as mock_get_client,
+        patch("memex.mcp_server.tools_write.check_write_policy") as mock_check_policy,
+    ):
+        mock_client = AsyncMock()
+        mock_client.add_episode.return_value = mock_result
+        mock_get_client.return_value = mock_client
+
+        await handle_call_tool(
+            "record_decision",
+            {"text": "Adopt EdDSA so key rotation is simpler.", "repo": "/test/repo"},
+        )
+
+    mock_check_policy.assert_called_once()
+    call = mock_check_policy.call_args
+    assert call.kwargs.get("principal_id") == "local"
+    assert call.kwargs.get("role") == "admin"
+
+
+@pytest.mark.asyncio
+async def test_handle_call_tool_threads_real_principal_when_set():
+    """With principal_ctx set to a real Principal, handle_call_tool must
+    thread that identity (not the 'local'/'admin' default) into
+    check_write_policy. Decision is `open` tier so the write still succeeds
+    regardless of role — only identity threading is asserted here."""
+    from memex.mcp_server.server import handle_call_tool
+    from memex.mcp_server.principal_ctx import principal_ctx
+    from memex.graph.schema import Principal
+
+    mock_result = MagicMock()
+    mock_result.episode.uuid = "gov-dec-4"
+
+    token = principal_ctx.set(Principal(principal_id="alice", role="viewer"))
+    try:
+        with (
+            patch("memex.mcp_server.tools_write.get_graph_client") as mock_get_client,
+            patch("memex.mcp_server.tools_write.check_write_policy") as mock_check_policy,
+        ):
+            mock_client = AsyncMock()
+            mock_client.add_episode.return_value = mock_result
+            mock_get_client.return_value = mock_client
+
+            result = await handle_call_tool(
+                "record_decision",
+                {"text": "Adopt EdDSA so key rotation is simpler.", "repo": "/test/repo"},
+            )
+    finally:
+        principal_ctx.reset(token)
+
+    mock_check_policy.assert_called_once()
+    call = mock_check_policy.call_args
+    assert call.kwargs.get("principal_id") == "alice"
+    assert call.kwargs.get("role") == "viewer"
+    # Decision is `open` tier — role doesn't gate the write, so it succeeds.
+    assert "Error" not in result[0].text
