@@ -630,13 +630,14 @@ async def resolve_problem(
     problem_id: str,
     resolution_text: str,
     repo: Optional[str] = None,
+    agent: str = "unknown",
 ) -> str:
     """
     Closes a Problem node and links it to the current AgentSession.
     """
     # Layer A — Problem is "open"; explicit check for future-proofing.
     try:
-        check_write_policy("Problem", caller="agent")
+        check_write_policy("Problem", caller=agent)
     except MemexWritePolicyError as e:
         return f"Error: {e}"
 
@@ -679,7 +680,7 @@ async def resolve_problem(
     project_id = await _resolve_project(repo_path)
     try:
         # 2. Get/Create Session
-        session_name = await _get_or_create_session(client, repo_path)
+        session_name = await _get_or_create_session(client, repo_path, agent)
 
         # 3. Create resolution episode
         await client.add_episode(
@@ -728,6 +729,7 @@ async def invalidate_edge(
     edge_id: str,
     reason: str,
     repo: Optional[str] = None,
+    agent: str = "unknown",
 ) -> str:
     """
     Explicitly invalidates a graph edge.
@@ -768,12 +770,13 @@ async def invalidate_edge(
         WHERE elementId(r) = $id
         SET r.valid_until = $now,
             r.invalidation_reason = $reason,
-            r.invalidated_by = 'agent'
+            r.invalidated_by = $agent
         """
         await client.driver.execute_query(update_query, params={
             "id": edge_id,
             "now": now,
-            "reason": reason
+            "reason": reason,
+            "agent": agent,
         })
 
         res = f"edge invalidated: {rec['source']} —[{rec['edge_type']}]→ {rec['target']} — reason: {reason}"

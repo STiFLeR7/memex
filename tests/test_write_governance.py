@@ -12,7 +12,7 @@ from memex.graph.schema import (
     MemexWritePolicyError,
     check_write_policy,
 )
-from memex.mcp_server.tools_write import record_decision, record_problem
+from memex.mcp_server.tools_write import record_decision, record_problem, resolve_problem
 
 
 # ---------------------------------------------------------------------------
@@ -297,3 +297,39 @@ async def test_record_problem_passes_real_agent_to_check_write_policy():
     if caller is None and len(call.args) >= 2:
         caller = call.args[1]
     assert caller == "claude-code"
+
+
+@pytest.mark.asyncio
+async def test_resolve_problem_passes_real_agent_to_check_write_policy():
+    """Phase 01 Plan 01 Task 3 — resolve_problem must thread the real agent
+    identity into check_write_policy, not the literal string "agent"."""
+    with (
+        patch("memex.mcp_server.tools_write.get_graph_client") as mock_get_client,
+        patch("memex.mcp_server.tools_write.check_write_policy") as mock_check_policy,
+        patch(
+            "memex.mcp_server.tools_write._get_or_create_session",
+            new_callable=AsyncMock,
+            return_value="sess-gov-1",
+        ),
+    ):
+        mock_client = AsyncMock()
+        mock_res = MagicMock()
+        mock_res.records = [
+            {"text": "Broken auth", "resolved_at": None, "repo_path": "/tmp/repo"}
+        ]
+        mock_client.driver.execute_query.side_effect = [mock_res, MagicMock()]
+        mock_get_client.return_value = mock_client
+
+        result = await resolve_problem(
+            problem_id="prob-1",
+            resolution_text="Fixed the bug in auth.",
+            agent="codex",
+        )
+
+    assert "problem resolved" in result
+    mock_check_policy.assert_called_once()
+    call = mock_check_policy.call_args
+    caller = call.kwargs.get("caller")
+    if caller is None and len(call.args) >= 2:
+        caller = call.args[1]
+    assert caller == "codex"

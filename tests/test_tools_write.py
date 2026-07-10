@@ -743,3 +743,58 @@ async def test_record_problem_sets_harness_node_property():
             found = True
             assert params.get("agent") == "gemini-cli"
     assert found, "expected a SET clause containing n.harness with agent in params"
+
+
+# ---------------------------------------------------------------------------
+# Phase 01 Plan 01 Task 3 — resolve_problem / invalidate_edge agent threading
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_resolve_problem_threads_agent_to_session():
+    """resolve_problem(agent="codex") must pass agent="codex" through to
+    _get_or_create_session, rather than the old no-arg call."""
+    with (
+        patch("memex.mcp_server.tools_write.get_graph_client") as mock_get_client,
+        patch(
+            "memex.mcp_server.tools_write._get_or_create_session",
+            new_callable=AsyncMock,
+            return_value="sess-1",
+        ) as mock_get_session,
+    ):
+        mock_client = AsyncMock()
+        mock_res = MagicMock()
+        mock_res.records = [{"text": "Broken auth", "resolved_at": None, "repo_path": "/tmp/repo"}]
+        mock_client.driver.execute_query.side_effect = [mock_res, MagicMock()]
+        mock_get_client.return_value = mock_client
+
+        result = await resolve_problem(
+            problem_id="prob-1", resolution_text="Fixed the bug in auth.", agent="codex"
+        )
+
+    assert "problem resolved" in result
+    mock_get_session.assert_called_once()
+    call = mock_get_session.call_args
+    assert "codex" in call.args or call.kwargs.get("agent") == "codex"
+
+
+@pytest.mark.asyncio
+async def test_invalidate_edge_sets_real_agent_invalidated_by():
+    """invalidate_edge(agent="cursor")'s update Cypher must parameterize
+    r.invalidated_by with the real agent value, not the hardcoded literal
+    string "agent"."""
+    with patch("memex.mcp_server.tools_write.get_graph_client") as mock_get_client:
+        mock_client = AsyncMock()
+        mock_res = MagicMock()
+        mock_res.records = [{"source": "M1", "target": "S1", "edge_type": "EXPORTS", "valid_until": None, "repo_path": "/tmp/repo"}]
+        mock_client.driver.execute_query.side_effect = [mock_res, MagicMock()]
+        mock_get_client.return_value = mock_client
+
+        result = await invalidate_edge(edge_id="edge-123", reason="Symbol moved to another file.", agent="cursor")
+        assert "edge invalidated" in result
+
+        update_call = mock_client.driver.execute_query.call_args_list[1]
+        cypher = update_call.args[0] if update_call.args else update_call.kwargs.get("query", "")
+        params = update_call.kwargs.get("params", {})
+        assert "r.invalidated_by = $agent" in cypher
+        assert params.get("agent") == "cursor"
