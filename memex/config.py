@@ -167,7 +167,15 @@ class Config(BaseModel):
     decay_hour: int = 2
     decay_minute: int = 0
     decay_hours_threshold: int = 24
-    
+
+    # Governance-report scheduling (Phase 04 / NET-16). report_hour is
+    # deliberately one hour after decay_hour (research Pitfall 2) so the two
+    # jobs don't contend for the same Neo4j connection pool.
+    report_hour: int = 3
+    report_minute: int = 0
+    report_day_of_week: str = "mon"
+    report_period_days: int = 7
+
     # Ignored directories
     ignored_patterns: List[str] = Field(default_factory=lambda: [
         ".git", "__pycache__", "node_modules", ".venv", "dist", "build", ".memex"
@@ -228,6 +236,10 @@ def load_config(repo_root: Optional[str] = None) -> Config:
         "decay_hour": os.getenv("DECAY_HOUR"),
         "decay_minute": os.getenv("DECAY_MINUTE"),
         "decay_hours_threshold": os.getenv("DECAY_HOURS_THRESHOLD"),
+        "report_hour": os.getenv("REPORT_HOUR"),
+        "report_minute": os.getenv("REPORT_MINUTE"),
+        "report_day_of_week": os.getenv("REPORT_DAY_OF_WEEK"),
+        "report_period_days": os.getenv("REPORT_PERIOD_DAYS"),
         "log_level": os.getenv("GRAPHITI_LOG_LEVEL"),
     }
 
@@ -244,6 +256,9 @@ def load_config(repo_root: Optional[str] = None) -> Config:
     if "decay_hour" in config_dict: config_dict["decay_hour"] = int(config_dict["decay_hour"])
     if "decay_minute" in config_dict: config_dict["decay_minute"] = int(config_dict["decay_minute"])
     if "decay_hours_threshold" in config_dict: config_dict["decay_hours_threshold"] = int(config_dict["decay_hours_threshold"])
+    if "report_hour" in config_dict: config_dict["report_hour"] = int(config_dict["report_hour"])
+    if "report_minute" in config_dict: config_dict["report_minute"] = int(config_dict["report_minute"])
+    if "report_period_days" in config_dict: config_dict["report_period_days"] = int(config_dict["report_period_days"])
 
     # Load from config.yaml if it exists (relative to repo_root when known).
     config_base = repo_root if repo_root else os.getcwd()

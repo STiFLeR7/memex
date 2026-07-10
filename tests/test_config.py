@@ -2,7 +2,7 @@ import os
 import subprocess
 import pytest
 from unittest.mock import patch
-from memex.config import canonical_repo_path, normalize_git_remote_url, resolve_project_id
+from memex.config import canonical_repo_path, normalize_git_remote_url, resolve_project_id, Config
 
 
 def test_canonical_repo_path_equivalent_forms(tmp_path):
@@ -131,3 +131,20 @@ def test_resolve_project_id_empty_file_falls_through_to_none(tmp_path):
         side_effect=subprocess.CalledProcessError(128, "git"),
     ):
         assert resolve_project_id(str(tmp_path)) is None
+
+
+# ---------------------------------------------------------------------------
+# Governance-report scheduling config (Phase 04 / NET-16)
+# ---------------------------------------------------------------------------
+
+
+def test_config_report_scheduling_defaults():
+    """report_hour/report_day_of_week default per the documented spec, and
+    report_hour must differ from decay_hour by default (regression guard for
+    research Pitfall 2 — the two jobs must not collide on the same hour)."""
+    cfg = Config(
+        neo4j_uri="x", neo4j_user="x", neo4j_password="x", gemini_api_key="x"
+    )
+    assert cfg.report_hour == 3
+    assert cfg.report_day_of_week == "mon"
+    assert cfg.report_hour != cfg.decay_hour
