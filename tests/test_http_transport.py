@@ -12,7 +12,11 @@ def mock_server():
 @pytest.fixture
 def client(mock_server):
     app = create_app(mock_server, "/fake/repo")
-    return TestClient(app)
+    # Enter/exit as a context manager so TestClient drives the app's
+    # `lifespan=` (Task 1 migration) — without this, session_manager.run()
+    # never executes and its task group stays uninitialized.
+    with TestClient(app) as c:
+        yield c
 
 @patch("memex.mcp_server.http.get_graph_client")
 def test_health_check_does_not_leak_repo(mock_get_client, client):
@@ -53,26 +57,49 @@ def test_mcp_auth_invalid(mock_validate, client):
     mock_validate.assert_called_once_with("invalid")
 
 @patch("memex.mcp_server.http.validate_key")
-@patch("mcp.server.streamable_http.StreamableHTTPServerTransport")
-def test_mcp_streamable_http_success(mock_transport_class, mock_validate, mock_server):
+@patch("mcp.server.streamable_http_manager.StreamableHTTPSessionManager.handle_request")
+def test_mcp_streamable_http_success(mock_handle_request, mock_validate, mock_server):
+    """Task 1: /mcp is now backed by StreamableHTTPSessionManager — the
+    transport is created fresh per-request inside the manager, so we mock
+    StreamableHTTPSessionManager.handle_request directly rather than the old
+    module-level singleton StreamableHTTPServerTransport."""
     mock_validate.return_value = True
-    mock_transport = MagicMock()
-    mock_transport_class.return_value = mock_transport
 
-    async def mock_handle_request(scope, receive, send):
+    async def mock_handle_request_impl(scope, receive, send):
         from fastapi.responses import Response
         res = Response(status_code=200, content=b"streamable http success")
         await res(scope, receive, send)
 
-    mock_transport.handle_request = MagicMock(side_effect=mock_handle_request)
+    mock_handle_request.side_effect = mock_handle_request_impl
 
     app = create_app(mock_server, "/fake/repo")
-    client = TestClient(app)
-
-    response = client.post("/mcp", headers={"Authorization": "Bearer valid"}, json={"test": "data"})
+    with TestClient(app) as client:
+        response = client.post("/mcp", headers={"Authorization": "Bearer valid"}, json={"test": "data"})
     assert response.status_code == 200
     assert response.text == "streamable http success"
     mock_validate.assert_called_with("valid")
+
+
+@patch("memex.mcp_server.http.validate_key")
+def test_mcp_lifespan_starts_session_manager_task_group(mock_validate, mock_server):
+    """02-RESEARCH.md Assumption A1, verified directly: FastAPI's `lifespan=`
+    must enter `session_manager.run()`'s async context manager exactly once
+    per app lifetime, driven by TestClient's context-manager protocol. If the
+    lifespan wiring were broken (e.g. `on_event`/`lifespan=` silently not
+    composing), `session_manager._task_group` would stay `None` and any real
+    call to `handle_request` would raise
+    `RuntimeError: Task group is not initialized.`"""
+    mock_validate.return_value = True
+    app = create_app(mock_server, "/fake/repo")
+
+    # Before entering the lifespan, the task group must not exist yet.
+    assert app.state.session_manager._task_group is None
+
+    with TestClient(app):
+        assert app.state.session_manager._task_group is not None
+
+    # After the lifespan exits, the task group is torn down again.
+    assert app.state.session_manager._task_group is None
 
 
 # --- SSE Fallback Tests (MEMEX_MCP_TRANSPORT=sse) ---

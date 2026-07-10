@@ -1,3 +1,4 @@
+import contextlib
 import logging
 import asyncio
 import json
@@ -39,13 +40,15 @@ def create_app(server: Server, repo_root: str):
     """
     Creates the FastAPI application for memex.
     """
-    app = FastAPI(
-        title="memex MCP Server",
-        description=f"Serving context for {repo_root}",
-        version="0.2.0"
-    )
-    
     transport_mode = os.environ.get("MEMEX_MCP_TRANSPORT", "streamable-http")
+
+    # session_manager is only set for the (default) streamable-http branch.
+    # SSE is deprecated (02-RESEARCH.md Open Question #3) and is explicitly
+    # left on its own, structurally different code path (SseServerTransport)
+    # — out of scope for this migration and for Task 3's new auth model
+    # (see threat_model T-02-09).
+    session_manager = None
+    sse = None
 
     if transport_mode == "sse":
         import warnings
@@ -57,23 +60,55 @@ def create_app(server: Server, repo_root: str):
         )
         sse = SseServerTransport("/mcp/messages")
     else:
-        from mcp.server.streamable_http import StreamableHTTPServerTransport
-        transport = StreamableHTTPServerTransport(mcp_session_id=None)
+        # Streamable HTTP transport (default). Migrated from a single,
+        # startup-created `StreamableHTTPServerTransport` + one persistent
+        # `asyncio.create_task(run_transport())` background task, to
+        # `StreamableHTTPSessionManager(stateless=True)`, which spins up a
+        # *fresh* transport + task per HTTP request, spawned via
+        # `task_group.start(...)` called directly from the request's own
+        # coroutine (`mcp_asgi_app`, below). This is a precondition (not
+        # optional) for ambient per-request identity (`principal_ctx`,
+        # Task 2) to propagate correctly into `handle_call_tool` — under the
+        # old wiring, the one persistent dispatch task was created once, at
+        # app startup, long before any request (and its Authorization
+        # header) existed, so a ContextVar set per-request could never be
+        # visible inside it (02-RESEARCH.md Pitfall #3). `stateless=True`
+        # preserves today's `mcp_session_id=None` / no-session-tracking
+        # behavior — this is a like-for-like transport swap, not a protocol
+        # change for existing clients.
+        from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
+        session_manager = StreamableHTTPSessionManager(app=server, stateless=True)
 
-        async def run_transport():
-            try:
-                async with transport.connect() as (read_stream, write_stream):
-                    await server.run(
-                        read_stream,
-                        write_stream,
-                        server.create_initialization_options()
-                    )
-            except Exception as e:
-                logger.error(f"Error in Streamable HTTP transport run loop: {e}", exc_info=True)
+    @contextlib.asynccontextmanager
+    async def lifespan(app: FastAPI):
+        # FastAPI's `lifespan=` context manager and the deprecated
+        # `@app.on_event("startup")` decorator do NOT compose the way one
+        # might assume from the deprecation warning alone: verified directly
+        # against this repo's installed fastapi==0.136.1 (not assumed —
+        # 02-RESEARCH.md Assumption A1) that once `lifespan=` is passed to
+        # `FastAPI(...)`, any `@app.on_event("startup")` handler registered
+        # afterward is silently NEVER invoked (only a DeprecationWarning
+        # fires; the handler itself does not run). `lifespan=` is therefore
+        # used exclusively for the whole app here — there is no other
+        # `on_event` usage left in this file needing separate migration.
+        if session_manager is not None:
+            async with session_manager.run():
+                yield
+        else:
+            yield
 
-        @app.on_event("startup")
-        async def startup_event():
-            asyncio.create_task(run_transport())
+    app = FastAPI(
+        title="memex MCP Server",
+        description=f"Serving context for {repo_root}",
+        version="0.2.0",
+        lifespan=lifespan,
+    )
+    # Exposed on app.state for direct testability of the lifespan wiring
+    # (Task 1's acceptance test asserts the session manager's task group is
+    # initialized once the TestClient context-manager protocol has entered
+    # the lifespan) and so future code (e.g. graceful shutdown hooks) has a
+    # single place to reach the manager without a closure.
+    app.state.session_manager = session_manager
 
     @app.get("/health")
     async def health_check():
@@ -286,8 +321,10 @@ def create_app(server: Server, repo_root: str):
                 response = JSONResponse(status_code=404, content={"detail": "Not Found"})
                 await response(scope, receive, send)
         else:
-            # Streamable HTTP transport
-            await transport.handle_request(scope, receive, send)
+            # Streamable HTTP transport — StreamableHTTPSessionManager creates
+            # a fresh transport + task for this request (see Task 1 comment
+            # on session_manager's construction above).
+            await session_manager.handle_request(scope, receive, send)
 
     app.mount("/mcp", mcp_asgi_app)
 
