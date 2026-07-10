@@ -10,9 +10,10 @@ from mcp.server import Server
 from mcp.server.sse import SseServerTransport
 import uvicorn
 
-from memex.watcher.registry import validate_key
+from memex.watcher.registry import validate_key, resolve_principal
 from memex.graph.client import get_graph_client
 from memex.config import canonical_repo_path
+from memex.mcp_server.principal_ctx import principal_ctx
 
 logger = logging.getLogger(__name__)
 
@@ -286,22 +287,29 @@ def create_app(server: Server, repo_root: str):
 
         logger.info(f"MCP ASGI request: {scope['method']} {scope['path']}")
         request = Request(scope, receive)
-        auth_header = request.headers.get("Authorization")
-        token = None
-        if auth_header and auth_header.startswith("Bearer "):
-            # Strip only the leading scheme — a token containing 'Bearer '
-            # as a substring must survive intact (B6).
-            token = auth_header.removeprefix("Bearer ")
-        
-        if not await verify_auth_token(token):
-            response = JSONResponse(
-                status_code=401,
-                content={"detail": "Missing or invalid Authorization header"}
-            )
-            await response(scope, receive, send)
-            return
 
         if transport_mode == "sse":
+            # SSE stays on the legacy boolean `validate_key`/`verify_auth_token`
+            # auth model — it is deliberately NOT extended to the new
+            # role-aware `resolve_principal`/`principal_ctx` design. SSE is
+            # already DeprecationWarning-marked and out of scope for both the
+            # Task 1 transport migration and this task's auth model (see
+            # threat_model T-02-09, 02-RESEARCH.md Open Question #3).
+            auth_header = request.headers.get("Authorization")
+            token = None
+            if auth_header and auth_header.startswith("Bearer "):
+                # Strip only the leading scheme — a token containing 'Bearer '
+                # as a substring must survive intact (B6).
+                token = auth_header.removeprefix("Bearer ")
+
+            if not await verify_auth_token(token):
+                response = JSONResponse(
+                    status_code=401,
+                    content={"detail": "Missing or invalid Authorization header"}
+                )
+                await response(scope, receive, send)
+                return
+
             if scope["path"].endswith("/sse") and scope["method"] == "GET":
                 try:
                     async with sse.connect_sse(scope, receive, send) as (read_stream, write_stream):
@@ -320,11 +328,42 @@ def create_app(server: Server, repo_root: str):
             else:
                 response = JSONResponse(status_code=404, content={"detail": "Not Found"})
                 await response(scope, receive, send)
-        else:
-            # Streamable HTTP transport — StreamableHTTPSessionManager creates
-            # a fresh transport + task for this request (see Task 1 comment
-            # on session_manager's construction above).
+            return
+
+        # Streamable HTTP transport (default). Resolve the caller's Principal
+        # and stash it in the ambient principal_ctx BEFORE handing off to the
+        # session manager. This is the first point in the call chain where
+        # task creation happens after principal_ctx.set() — and it only
+        # propagates correctly because of the Task 1 migration:
+        # StreamableHTTPSessionManager(stateless=True) spawns the per-request
+        # dispatch task via task_group.start(...) called directly from this
+        # same coroutine, so contextvars.Context (copied at task-creation
+        # time) carries principal_ctx's value into it (02-RESEARCH.md
+        # Architecture Pattern 3 / Pitfall #3).
+        auth_header = request.headers.get("Authorization")
+        token = None
+        if auth_header and auth_header.startswith("Bearer "):
+            # Strip only the leading scheme — a token containing 'Bearer '
+            # as a substring must survive intact (B6).
+            token = auth_header.removeprefix("Bearer ")
+
+        principal = await resolve_principal(token)
+        if principal is None:
+            response = JSONResponse(
+                status_code=401,
+                content={"detail": "Missing or invalid Authorization header"}
+            )
+            await response(scope, receive, send)
+            return
+
+        reset_token = principal_ctx.set(principal)
+        try:
+            # StreamableHTTPSessionManager creates a fresh transport + task
+            # for this request (see Task 1 comment on session_manager's
+            # construction above).
             await session_manager.handle_request(scope, receive, send)
+        finally:
+            principal_ctx.reset(reset_token)
 
     app.mount("/mcp", mcp_asgi_app)
 
