@@ -4,11 +4,14 @@ import asyncio
 import json
 import os
 
+from pathlib import Path
+
 from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 from mcp.server import Server
 from mcp.server.sse import SseServerTransport
 from starlette.middleware.sessions import SessionMiddleware
+from starlette.staticfiles import StaticFiles
 import uvicorn
 
 from memex.watcher.registry import validate_key, resolve_principal
@@ -382,6 +385,49 @@ def create_app(server: Server, repo_root: str):
             principal_ctx.reset(reset_token)
 
     app.mount("/mcp", mcp_asgi_app)
+
+    # Bare "/mcp" (no trailing slash) redirect shim — a deviation from the
+    # plan discovered while verifying Task 2 (Rule 1 - bug: fix caused by
+    # this task's own change; tests/test_http_transport.py caught it).
+    # Starlette's Mount("/mcp", ...) compiles its path_regex as
+    # "^/mcp/(?P<path>.*)$", which does NOT match the bare path "/mcp" —
+    # only "/mcp/" or deeper. Previously (no root-level Mount registered),
+    # an unmatched "/mcp" fell through to Starlette Router.app()'s built-in
+    # redirect_slashes fallback, which retries the match with a trailing
+    # slash appended and 307-redirects to "/mcp/", transparently reaching
+    # mcp_asgi_app. That fallback only runs when NO route produces a FULL
+    # match on the first pass. Once StaticFiles("/") below is registered,
+    # its path_regex "^/(?P<path>.*)$" fully matches ANY path — including
+    # the bare "/mcp" — on the very first pass, permanently pre-empting the
+    # redirect_slashes fallback and misrouting real MCP client requests
+    # into the static file server (405 for POST/PUT/etc., 404 for GET,
+    # since StaticFiles only serves GET/HEAD and has no file named "mcp").
+    # This explicit route restores the original client-observable behavior
+    # deterministically, without depending on redirect_slashes fallback
+    # ordering.
+    @app.api_route(
+        "/mcp",
+        methods=["GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS"],
+        include_in_schema=False,
+    )
+    async def _mcp_root_trailing_slash_redirect():
+        from fastapi.responses import RedirectResponse
+        return RedirectResponse(url="/mcp/", status_code=307)
+
+    # NET-19 (05-03-PLAN.md): static dashboard assets (login/index/
+    # confidence/conflicts HTML + forked dashboard.js/css). Registered LAST,
+    # after /mcp, the auth router, and the team router — StaticFiles is a
+    # catch-all Mount("/") that matches every path by prefix; registering it
+    # any earlier in Starlette's route-matching order would shadow every API
+    # route that comes after it (05-RESEARCH.md, T-05-11). Packaged inside
+    # memex/mcp_server/dashboard/ (not a top-level dashboard/ dir) because
+    # pyproject.toml's [tool.hatch.build.targets.wheel] only packages
+    # ["memex"] — a top-level directory would not ship in the built wheel.
+    app.mount(
+        "/",
+        StaticFiles(directory=str(Path(__file__).parent / "dashboard"), html=True),
+        name="dashboard",
+    )
 
     return app
 

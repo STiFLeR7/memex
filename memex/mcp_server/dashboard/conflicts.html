@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>memex Team Dashboard — Conflicts</title>
+    <link rel="stylesheet" href="dashboard.css">
+    <style>
+        table { border-collapse: collapse; width: 100%; margin: 16px; }
+        th, td { text-align: left; padding: 6px 12px; border-bottom: 1px solid var(--panel-border, #3c3c3c); }
+        th { color: var(--text-muted, #858585); font-weight: normal; }
+    </style>
+</head>
+<body>
+    <div id="app-container">
+        <div id="toolbar">
+            <span>memex Team Dashboard</span>
+            <nav style="margin-left: 16px;">
+                <a href="/index.html">Activity</a>
+                &nbsp;|&nbsp;
+                <a href="/confidence.html">Confidence</a>
+                &nbsp;|&nbsp;
+                <a href="/conflicts.html">Conflicts</a>
+            </nav>
+            <form method="post" action="/logout" style="margin-left: auto;">
+                <button type="submit">Logout</button>
+            </form>
+        </div>
+        <div id="workspace">
+            <table id="conflicts-table">
+                <thead>
+                    <tr>
+                        <th>Decision</th>
+                        <th>Module</th>
+                        <th>Conflicts With</th>
+                    </tr>
+                </thead>
+                <tbody id="conflicts-tbody"></tbody>
+            </table>
+        </div>
+    </div>
+    <script>
+        async function loadConflicts() {
+            const res = await fetch("/team/conflicts");
+            if (res.status === 401) {
+                window.location.href = "/login.html";
+                return;
+            }
+            const data = await res.json();
+            const tbody = document.getElementById("conflicts-tbody");
+            tbody.replaceChildren();
+            (data.conflicts || []).forEach(row => {
+                const tr = document.createElement("tr");
+
+                const textCell = document.createElement("td");
+                textCell.textContent = row.text;
+                tr.appendChild(textCell);
+
+                const moduleCell = document.createElement("td");
+                moduleCell.textContent = row.module;
+                tr.appendChild(moduleCell);
+
+                const conflictsCell = document.createElement("td");
+                conflictsCell.textContent = (row.conflicts_with || []).join(", ");
+                tr.appendChild(conflictsCell);
+
+                tbody.appendChild(tr);
+            });
+        }
+
+        loadConflicts();
+    </script>
+</body>
+</html>

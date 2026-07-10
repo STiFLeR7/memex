@@ -23,6 +23,49 @@ from memex.mcp_server.auth_session import create_auth_router, require_role, requ
 from memex.mcp_server.http import create_app
 
 
+# ---------------------------------------------------------------------------
+# NET-19 (05-03-PLAN.md) — static dashboard serving + mount-order regression
+# ---------------------------------------------------------------------------
+
+
+def test_dashboard_static_served():
+    """GET /login.html and GET / (StaticFiles(html=True) index fallback)
+    both return 200 with an HTML content-type — the dashboard's static
+    assets are reachable without any IDE/repo-clone dependency."""
+    mock_server = MagicMock(spec=Server)
+    app = create_app(mock_server, "/fake/repo")
+
+    with TestClient(app) as client:
+        login_response = client.get("/login.html")
+        root_response = client.get("/")
+
+    assert login_response.status_code == 200
+    assert "text/html" in login_response.headers["content-type"]
+
+    assert root_response.status_code == 200
+    assert "text/html" in root_response.headers["content-type"]
+
+
+def test_dashboard_mount_does_not_shadow_api_routes():
+    """The StaticFiles("/") mount is registered LAST in create_app() — if it
+    were registered earlier (or the ordering regressed), it would shadow
+    every API route that comes after it in Starlette's prefix-matching route
+    order (05-RESEARCH.md, T-05-11). POST /notify and GET /health must still
+    resolve to their real handlers, not a 404 from the static mount."""
+    mock_server = MagicMock(spec=Server)
+    app = create_app(mock_server, "/fake/repo")
+
+    with TestClient(app) as client:
+        notify_response = client.post("/notify")
+        health_response = client.get("/health")
+
+    assert notify_response.status_code == 200
+    assert notify_response.json() == {"status": "ok"}
+
+    assert health_response.status_code in (200, 503)
+    assert health_response.json()["status"] in ("ok", "error")
+
+
 @patch("memex.mcp_server.auth_session.validate_key")
 def test_login_sets_safe_session_cookie(mock_validate_key):
     """POST /login with a valid key returns a 303 redirect to /index.html

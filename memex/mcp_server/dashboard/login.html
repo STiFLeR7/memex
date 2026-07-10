@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>memex Team Dashboard — Login</title>
+    <link rel="stylesheet" href="dashboard.css">
+</head>
+<body>
+    <div id="app-container">
+        <div id="workspace" style="align-items: center; justify-content: center;">
+            <div style="max-width: 320px; width: 100%; padding: 24px;">
+                <h2>memex Team Dashboard</h2>
+                <form method="post" action="/login">
+                    <p>
+                        <label for="key">API key</label><br>
+                        <input id="key" name="key" type="password" autocomplete="off" required style="width: 100%; box-sizing: border-box;">
+                    </p>
+                    <button type="submit">Log in</button>
+                </form>
+            </div>
+        </div>
+    </div>
+</body>
+</html>

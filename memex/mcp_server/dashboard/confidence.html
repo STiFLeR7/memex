@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>memex Team Dashboard — Confidence</title>
+    <link rel="stylesheet" href="dashboard.css">
+    <style>
+        table { border-collapse: collapse; width: 100%; margin: 16px; }
+        th, td { text-align: left; padding: 6px 12px; border-bottom: 1px solid var(--panel-border, #3c3c3c); }
+        th { color: var(--text-muted, #858585); font-weight: normal; }
+    </style>
+</head>
+<body>
+    <div id="app-container">
+        <div id="toolbar">
+            <span>memex Team Dashboard</span>
+            <nav style="margin-left: 16px;">
+                <a href="/index.html">Activity</a>
+                &nbsp;|&nbsp;
+                <a href="/confidence.html">Confidence</a>
+                &nbsp;|&nbsp;
+                <a href="/conflicts.html">Conflicts</a>
+            </nav>
+            <form method="post" action="/logout" style="margin-left: auto;">
+                <button type="submit">Logout</button>
+            </form>
+        </div>
+        <div id="workspace">
+            <table id="confidence-table">
+                <thead>
+                    <tr>
+                        <th>Module</th>
+                        <th>Avg Confidence</th>
+                        <th>Node Count</th>
+                        <th>Stale Count</th>
+                    </tr>
+                </thead>
+                <tbody id="confidence-tbody"></tbody>
+            </table>
+        </div>
+    </div>
+    <script>
+        async function loadConfidence() {
+            const res = await fetch("/team/confidence");
+            if (res.status === 401) {
+                window.location.href = "/login.html";
+                return;
+            }
+            const data = await res.json();
+            const tbody = document.getElementById("confidence-tbody");
+            tbody.replaceChildren();
+            (data.by_module || []).forEach(row => {
+                const tr = document.createElement("tr");
+
+                const moduleCell = document.createElement("td");
+                moduleCell.textContent = row.module;
+                tr.appendChild(moduleCell);
+
+                const confCell = document.createElement("td");
+                confCell.textContent = row.avg_confidence;
+                tr.appendChild(confCell);
+
+                const countCell = document.createElement("td");
+                countCell.textContent = row.node_count;
+                tr.appendChild(countCell);
+
+                const staleCell = document.createElement("td");
+                staleCell.textContent = row.stale_count;
+                tr.appendChild(staleCell);
+
+                tbody.appendChild(tr);
+            });
+        }
+
+        loadConfidence();
+    </script>
+</body>
+</html>
