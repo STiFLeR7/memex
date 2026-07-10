@@ -523,7 +523,10 @@ async def test_resolve_problem_omits_project_id_when_unresolvable():
 async def test_get_or_create_session_threads_project_id_when_resolvable():
     import memex.mcp_server.tools_write as tw
 
-    tw._current_session_name = None
+    # Phase 01 — session caching is now keyed per (repo, agent, principal) in
+    # `_session_cache` rather than a single module-global; clear it so this
+    # test's key is guaranteed to miss the cache and exercise a real write.
+    tw._session_cache.clear()
     try:
         with patch(
             "memex.mcp_server.tools_write.resolve_project_id",
@@ -543,14 +546,14 @@ async def test_get_or_create_session_threads_project_id_when_resolvable():
                     assert params.get("project") == "github.com/acme/widgets"
             assert found
     finally:
-        tw._current_session_name = None
+        tw._session_cache.clear()
 
 
 @pytest.mark.asyncio
 async def test_get_or_create_session_omits_project_id_when_unresolvable():
     import memex.mcp_server.tools_write as tw
 
-    tw._current_session_name = None
+    tw._session_cache.clear()
     try:
         with patch("memex.mcp_server.tools_write.resolve_project_id", return_value=None):
             mock_client = AsyncMock()
@@ -564,7 +567,7 @@ async def test_get_or_create_session_omits_project_id_when_unresolvable():
                 assert "n.project_id" not in cypher
                 assert "project" not in params
     finally:
-        tw._current_session_name = None
+        tw._session_cache.clear()
 
 
 @pytest.mark.asyncio
@@ -593,3 +596,86 @@ async def test_invalidate_edge_unchanged_no_project_id_clause():
         for call in mock_client.driver.execute_query.call_args_list:
             cypher = call.args[0] if call.args else call.kwargs.get("query", "")
             assert "project_id" not in cypher
+
+
+# ---------------------------------------------------------------------------
+# Phase 01 Plan 01 — agent identity threading (NET-04/NET-07)
+#
+# These tests exercise `_get_or_create_session`'s real dict-keying logic
+# directly (unmocked), rather than patching the function away wholesale —
+# per 01-RESEARCH.md Pitfall 2, mocked tests elsewhere cannot catch a broken
+# rekeying implementation.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_get_or_create_session_two_agents_get_distinct_sessions():
+    """Two different agent identities against the same repo_path must NOT
+    collapse into one shared AgentSession (NET-07)."""
+    import memex.mcp_server.tools_write as tw
+
+    tw._session_cache.clear()
+    try:
+        with patch("memex.mcp_server.tools_write.resolve_project_id", return_value=None):
+            mock_client = AsyncMock()
+            mock_client.add_episode.return_value = MagicMock()
+
+            name_a = await _get_or_create_session(mock_client, "/tmp/repo", agent="claude-code")
+            name_b = await _get_or_create_session(mock_client, "/tmp/repo", agent="gemini-cli")
+
+            assert name_a != name_b
+            assert mock_client.add_episode.call_count == 2
+    finally:
+        tw._session_cache.clear()
+
+
+@pytest.mark.asyncio
+async def test_get_or_create_session_same_tuple_is_cached():
+    """The same (repo, agent, principal) tuple must reuse the cached session
+    name on a second call instead of writing a duplicate AgentSession node
+    (NET-07)."""
+    import memex.mcp_server.tools_write as tw
+
+    tw._session_cache.clear()
+    try:
+        with patch("memex.mcp_server.tools_write.resolve_project_id", return_value=None):
+            mock_client = AsyncMock()
+            mock_client.add_episode.return_value = MagicMock()
+
+            name_1 = await _get_or_create_session(mock_client, "/tmp/repo", agent="claude-code")
+            name_2 = await _get_or_create_session(mock_client, "/tmp/repo", agent="claude-code")
+
+            assert name_1 == name_2
+            assert mock_client.add_episode.call_count == 1
+    finally:
+        tw._session_cache.clear()
+
+
+@pytest.mark.asyncio
+async def test_record_decision_corroborates_threads_agent_to_session():
+    """record_decision(corroborates=..., agent=...) must not raise TypeError,
+    and the agent identity must reach `_get_or_create_session` via
+    `_corroborate_decision` (Pitfall 2 — the easy-to-miss private helper)."""
+    with (
+        patch("memex.mcp_server.tools_write.get_graph_client") as mock_get_client,
+        patch(
+            "memex.mcp_server.tools_write._get_or_create_session",
+            new_callable=AsyncMock,
+            return_value="session_xyz",
+        ) as mock_get_session,
+    ):
+        mock_client = AsyncMock()
+        mock_records = MagicMock()
+        mock_records.records = [{"name": "Switched to EdDSA"}]
+        mock_client.driver.execute_query.return_value = mock_records
+        mock_get_client.return_value = mock_client
+
+        result = await record_decision(text="any", corroborates="abc123", agent="gemini-cli")
+
+    assert "corroborated" in result
+    mock_get_session.assert_called_once()
+    call = mock_get_session.call_args
+    call_agent = call.kwargs.get("agent")
+    if call_agent is None and len(call.args) >= 3:
+        call_agent = call.args[2]
+    assert call_agent == "gemini-cli"

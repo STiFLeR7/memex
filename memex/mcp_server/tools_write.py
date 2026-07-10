@@ -17,7 +17,12 @@ from memex.watcher.handlers import notify_local_server
 
 logger = logging.getLogger(__name__)
 
-_current_session_name = None
+# Bounded per-(repo, agent, principal) session cache — replaces the old
+# single module-global `_current_session_name`, which collapsed every
+# concurrent agent hitting the same process into one shared AgentSession
+# (Phase 01 — NET-07). Evict-oldest-on-overflow via dict insertion order.
+_session_cache: Dict[str, str] = {}
+_SESSION_CACHE_MAX = 256
 
 # Locks to prevent duplicate problem creation during concurrent sessions
 _problem_write_locks: Dict[str, asyncio.Lock] = {}
@@ -98,30 +103,38 @@ async def _resolve_project(repo_path: str) -> Optional[str]:
     """
     return await asyncio.to_thread(resolve_project_id, repo_path)
 
-async def _get_or_create_session(client, repo_path: str) -> str:
-    """Gets or creates a stable AgentSession for this process."""
-    global _current_session_name
-    if _current_session_name:
-        return _current_session_name
+async def _get_or_create_session(
+    client, repo_path: str, agent: str = "unknown", principal_id: Optional[str] = None,
+) -> str:
+    """Gets or creates a stable AgentSession, keyed per (repo, agent, principal)
+    (Phase 01 — NET-07). Two different agents (e.g. claude-code, gemini-cli)
+    hitting the same repo no longer collapse into one shared session."""
+    key = f"{repo_path}:{agent}:{principal_id or 'local'}"
+    if key in _session_cache:
+        return _session_cache[key]
 
     start_time = int(time.time())
     repo_hash = hashlib.md5(repo_path.encode()).hexdigest()[:8]
-    session_name = f"session_{repo_hash}_{start_time}"
+    agent_slug = agent.replace(" ", "_")[:32]  # keep session names Cypher/log-friendly
+    session_name = f"session_{agent_slug}_{repo_hash}_{start_time}"
 
     now = datetime.now(UTC)
     await client.add_episode(
         name=session_name,
-        episode_body=f"Agent session {session_name} started for repository {repo_path}. Type: AgentSession. Repo: {repo_path}",
+        episode_body=(
+            f"Agent session {session_name} started for repository {repo_path}. "
+            f"Type: AgentSession. Repo: {repo_path}. Harness: {agent}."
+        ),
         source_description="agent",
         reference_time=now
     )
 
-    # Force repo_path property on the session node, conditionally adding
-    # project_id alongside it when resolvable (NET-01/NET-02 — additive only,
-    # never SET to null).
+    # Force repo_path + harness properties on the session node, conditionally
+    # adding project_id alongside them when resolvable (NET-01/NET-02/NET-05 —
+    # additive only, never SET to null).
     project_id = await _resolve_project(repo_path)
-    session_set_clauses = ["n.repo_path = $repo"]
-    session_params = {"name": session_name, "repo": repo_path}
+    session_set_clauses = ["n.repo_path = $repo", "n.harness = $agent"]
+    session_params = {"name": session_name, "repo": repo_path, "agent": agent}
     if project_id:
         session_set_clauses.append("n.project_id = $project")
         session_params["project"] = project_id
@@ -130,8 +143,10 @@ async def _get_or_create_session(client, repo_path: str) -> str:
         params=session_params
     )
 
-    _current_session_name = session_name
-    return _current_session_name
+    if len(_session_cache) >= _SESSION_CACHE_MAX:
+        _session_cache.pop(next(iter(_session_cache)))  # evict oldest inserted
+    _session_cache[key] = session_name
+    return session_name
 
 def _sanitize_text(val: Optional[str]) -> Optional[str]:
     if not val:
@@ -234,14 +249,16 @@ def _format_intent_confirmation_response(candidate: Dict) -> str:
     )
 
 
-async def _corroborate_decision(client, target_id: str, repo_path: str, now: datetime) -> str:
+async def _corroborate_decision(
+    client, target_id: str, repo_path: str, now: datetime, agent: str = "unknown",
+) -> str:
     """Phase 9 — corroborates=<id>: do NOT write a new node. Update the
     existing node's `last_reinforced_at` and add a corroborating edge from
     the current AgentSession. Returns a short status string.
     """
     # Resolve the session so the corroborating edge has an origin
     try:
-        session_name = await _get_or_create_session(client, repo_path)
+        session_name = await _get_or_create_session(client, repo_path, agent)
     except Exception as e:
         logger.warning("Could not resolve session for corroboration: %s", e)
         session_name = None
@@ -308,6 +325,7 @@ async def record_decision(
     corroborates: Optional[str] = None,
     supersedes: Optional[str] = None,
     force: bool = False,
+    agent: str = "unknown",
 ) -> str:
     """
     Creates a Decision node in the graph.
@@ -351,7 +369,7 @@ async def record_decision(
     # ------------------------------------------------------------------
     if corroborates:
         async with _get_decision_lock(module, repo_path):
-            res = await _corroborate_decision(client, corroborates, repo_path, now)
+            res = await _corroborate_decision(client, corroborates, repo_path, now, agent)
             notify_local_server()
             return res
 
