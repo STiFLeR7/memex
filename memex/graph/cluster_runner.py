@@ -254,7 +254,14 @@ async def write_cluster_assignments(
     Returns ``{"clusters_written": N, "contains_edges_written": M}``.
     """
     # Layer A ACL — raises if the caller isn't allowed to mutate Cluster nodes.
-    check_write_policy("Cluster", CLUSTER_ACTOR)
+    # Explicit role="system": Cluster is a `locked` node type, and the new
+    # role-aware check_write_policy (Phase 02 / NET-09) defaults role to
+    # "contributor", which is NOT in the locked-tier allowlist
+    # ("admin", "system"). Without this explicit override, every
+    # `memex cluster` run would start raising MemexWritePolicyError post
+    # signature-migration (02-RESEARCH.md Pitfall #2). The cluster engine is
+    # a structurally-trusted, non-agent actor, hence "system".
+    check_write_policy("Cluster", CLUSTER_ACTOR, role="system")
 
     now = datetime.now(UTC)
     clusters_written = 0

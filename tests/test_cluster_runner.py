@@ -128,12 +128,12 @@ async def test_write_cluster_assignments_blocks_unauthorised_actor(monkeypatch) 
     """The CLUSTER_ACTOR constant must satisfy the Layer A ACL."""
     from memex.graph import schema as schema_mod
 
-    captured: list[tuple[str, str]] = []
+    captured: list[tuple[str, str, str]] = []
     original = schema_mod.check_write_policy
 
-    def _fake(node_type: str, caller: str, owner=None) -> None:
-        captured.append((node_type, caller))
-        return original(node_type, caller, owner)
+    def _fake(node_type: str, principal_id: str, role: str = "contributor", owner=None) -> None:
+        captured.append((node_type, principal_id, role))
+        return original(node_type, principal_id, role=role, owner=owner)
 
     monkeypatch.setattr(
         "memex.graph.cluster_runner.check_write_policy", _fake
@@ -144,7 +144,10 @@ async def test_write_cluster_assignments_blocks_unauthorised_actor(monkeypatch) 
         "/repo",
         [ClusterAssignment(name="a", members={"x.py"}, leiden_id=1)],
     )
-    assert ("Cluster", CLUSTER_ACTOR) in captured
+    # Pitfall #2 regression canary: the Cluster call site must pass
+    # role="system" explicitly (locked-tier default role "contributor"
+    # would otherwise raise MemexWritePolicyError post signature-migration).
+    assert ("Cluster", CLUSTER_ACTOR, "system") in captured
 
 
 # ---------------------------------------------------------------------------

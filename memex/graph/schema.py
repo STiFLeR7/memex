@@ -332,28 +332,42 @@ class MemexWritePolicyError(Exception):
     `write_policy` forbids the caller (e.g. agent writing a `locked` Module
     node, or one session writing another session's `self`-scoped data)."""
 
-    def __init__(self, node_type: str, caller: str, policy: str):
+    def __init__(self, node_type: str, principal_id: str, policy: str):
         self.node_type = node_type
-        self.caller = caller
+        self.caller = principal_id
+        self.principal_id = principal_id
         self.policy = policy
         super().__init__(
             f"{node_type} nodes have write_policy='{policy}' — caller "
-            f"'{caller}' is not permitted to modify them"
+            f"'{principal_id}' is not permitted to modify them"
         )
 
 
-def check_write_policy(node_type: str, caller: str, owner: Optional[str] = None) -> None:
-    """Enforces Layer A ACL from ARCHITECTURE §7.
+def check_write_policy(
+    node_type: str,
+    principal_id: str,
+    role: str = "contributor",
+    owner: Optional[str] = None,
+) -> None:
+    """Enforces Layer A ACL from ARCHITECTURE §7, with Phase 02 (NET-09) role
+    awareness layered on top of the pre-existing locked/open/self tiers.
 
-    - `locked` nodes: only watcher/cluster/summariser may mutate; agent denied.
-    - `open` nodes: anyone may mutate.
-    - `self` nodes: only the caller that owns the node may mutate it.
-      Pass `owner=<original_caller_id>` when the policy is `self`; if `owner`
-      is `None` and policy is `self`, the check is permissive (used at node
-      creation time where the caller IS the owner).
+    - `locked` nodes: only an `admin` or `system` role may mutate; any other
+      role (default `"contributor"`) is denied.
+    - `open` nodes: anyone may mutate, regardless of role.
+    - `self` nodes: only the principal that owns the node may mutate it,
+      UNLESS `role="admin"` is passed (admin may override self-ownership).
+      Pass `owner=<original_principal_id>` when the policy is `self`; if
+      `owner` is `None` and policy is `self`, the check is permissive (used
+      at node creation time where the principal IS the owner).
     """
     policy = WRITE_POLICIES.get(node_type, "open")
-    if policy == "locked" and caller == "agent":
-        raise MemexWritePolicyError(node_type, caller, policy)
-    if policy == "self" and owner is not None and caller != owner:
-        raise MemexWritePolicyError(node_type, caller, policy)
+    if policy == "locked" and role not in ("admin", "system"):
+        raise MemexWritePolicyError(node_type, principal_id, policy)
+    if (
+        policy == "self"
+        and owner is not None
+        and principal_id != owner
+        and role != "admin"
+    ):
+        raise MemexWritePolicyError(node_type, principal_id, policy)

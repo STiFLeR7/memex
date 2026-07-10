@@ -52,13 +52,19 @@ def _get_decision_lock(module: str | None, repo_path: str) -> asyncio.Lock:
 # ---------------------------------------------------------------------------
 
 
-def check_write_policy(node_type: str, caller: str = "agent", owner: Optional[str] = None) -> None:
-    """Enforces the Layer A node-type ACL from ARCHITECTURE-v0.3.0.md §7.
+def check_write_policy(
+    node_type: str,
+    principal_id: str = "agent",
+    role: str = "contributor",
+    owner: Optional[str] = None,
+) -> None:
+    """Enforces the Layer A node-type ACL from ARCHITECTURE-v0.3.0.md §7,
+    with Phase 02 (NET-09) role awareness.
 
     Re-exported from `memex.graph.schema` so callers in `tools_write.py` can
     import it from one place. Raises `MemexWritePolicyError` on violation.
     """
-    _schema_check_write_policy(node_type, caller, owner=owner)
+    _schema_check_write_policy(node_type, principal_id, role=role, owner=owner)
 
 
 def _get_intent_confirm_threshold() -> float:
@@ -343,7 +349,7 @@ async def record_decision(
     # Layer A — Decision is "open", but enforce the policy explicitly so a
     # future change to WRITE_POLICIES is honoured without code edits here.
     try:
-        check_write_policy("Decision", caller=agent)
+        check_write_policy("Decision", principal_id=agent)
     except MemexWritePolicyError as e:
         return f"Error: {e}"
 
@@ -518,7 +524,7 @@ async def record_problem(
     # Layer A ACL — Problem is "open" for agents; check anyway to honour
     # any future policy change in WRITE_POLICIES.
     try:
-        check_write_policy("Problem", caller=agent)
+        check_write_policy("Problem", principal_id=agent)
     except MemexWritePolicyError as e:
         return f"Error: {e}"
 
@@ -637,7 +643,7 @@ async def resolve_problem(
     """
     # Layer A — Problem is "open"; explicit check for future-proofing.
     try:
-        check_write_policy("Problem", caller=agent)
+        check_write_policy("Problem", principal_id=agent)
     except MemexWritePolicyError as e:
         return f"Error: {e}"
 

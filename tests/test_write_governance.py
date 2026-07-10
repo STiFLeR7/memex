@@ -21,38 +21,67 @@ from memex.mcp_server.tools_write import record_decision, record_problem, resolv
 
 
 def test_locked_node_cannot_be_written_by_agent():
-    """Module, Symbol, Cluster etc. are `locked` — only watcher/cluster/
-    summariser callers may mutate them. Agent calls must raise."""
+    """Module, Symbol, Cluster etc. are `locked` — only an admin/system role
+    may mutate them. Default-role (`contributor`) calls must raise."""
     for locked_type in ("Module", "Symbol", "Cluster", "ClusterSummary", "Dependency", "Repository"):
         with pytest.raises(MemexWritePolicyError) as exc:
-            check_write_policy(locked_type, caller="agent")
+            check_write_policy(locked_type, principal_id="agent")
         assert locked_type in str(exc.value)
         assert "locked" in str(exc.value)
 
 
-def test_open_node_can_be_written_by_agent():
-    """Decision and Problem are `open` — agent calls must pass cleanly."""
+def test_locked_node_admin_role_permitted():
+    """NET-09 new capability: an `admin` role may write `locked` nodes."""
     # Should not raise
-    check_write_policy("Decision", caller="agent")
-    check_write_policy("Problem", caller="agent")
+    check_write_policy("Module", principal_id="admin-user", role="admin")
+
+
+def test_locked_node_system_role_permitted():
+    """`system` role (structurally-trusted actors like the cluster engine)
+    may also write `locked` nodes."""
+    # Should not raise
+    check_write_policy("Cluster", principal_id="cluster", role="system")
+
+
+def test_open_node_can_be_written_by_agent():
+    """Decision and Problem are `open` — agent calls must pass cleanly
+    regardless of role."""
+    # Should not raise
+    check_write_policy("Decision", principal_id="agent")
+    check_write_policy("Problem", principal_id="agent")
+
+
+def test_open_node_unaffected_by_role():
+    """`open` tier ignores role entirely — even the least-privileged role
+    may write open nodes."""
+    check_write_policy("Decision", principal_id="agent", role="viewer")
 
 
 def test_self_policy_blocks_other_session():
-    """AgentSession is `self` — only the owning caller may mutate it.
+    """AgentSession is `self` — only the owning principal may mutate it.
 
-    Helper-level test: check_write_policy("AgentSession", caller="session_b",
+    Helper-level test: check_write_policy("AgentSession", principal_id="session_b",
     owner="session_a") must raise. The MCP write path doesn't currently plumb
-    session identity (caller is hardcoded "agent"), so this is a unit test
-    of the ACL primitive that downstream phases will plug into.
+    session identity (principal_id is hardcoded "agent"), so this is a unit
+    test of the ACL primitive that downstream phases will plug into.
     """
     # Same owner — permitted
-    check_write_policy("AgentSession", caller="session_a", owner="session_a")
-    # No owner declared at creation time — permissive (caller IS the owner)
-    check_write_policy("AgentSession", caller="session_a", owner=None)
+    check_write_policy("AgentSession", principal_id="session_a", owner="session_a")
+    # No owner declared at creation time — permissive (principal IS the owner)
+    check_write_policy("AgentSession", principal_id="session_a", owner=None)
     # Different owner — blocked
     with pytest.raises(MemexWritePolicyError) as exc:
-        check_write_policy("AgentSession", caller="session_b", owner="session_a")
+        check_write_policy("AgentSession", principal_id="session_b", owner="session_a")
     assert "self" in str(exc.value)
+
+
+def test_self_policy_admin_role_overrides_ownership():
+    """NET-09 new capability: an `admin` role may override `self`-tier
+    ownership restrictions."""
+    # Different owner, but role="admin" — permitted
+    check_write_policy(
+        "AgentSession", principal_id="session_b", role="admin", owner="session_a"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -268,10 +297,10 @@ async def test_record_decision_passes_real_agent_to_check_write_policy():
     assert "decision recorded" in result
     mock_check_policy.assert_called_once()
     call = mock_check_policy.call_args
-    caller = call.kwargs.get("caller")
-    if caller is None and len(call.args) >= 2:
-        caller = call.args[1]
-    assert caller == "claude-code"
+    principal_id = call.kwargs.get("principal_id")
+    if principal_id is None and len(call.args) >= 2:
+        principal_id = call.args[1]
+    assert principal_id == "claude-code"
 
 
 @pytest.mark.asyncio
@@ -293,10 +322,10 @@ async def test_record_problem_passes_real_agent_to_check_write_policy():
     assert "problem recorded" in result
     mock_check_policy.assert_called_once()
     call = mock_check_policy.call_args
-    caller = call.kwargs.get("caller")
-    if caller is None and len(call.args) >= 2:
-        caller = call.args[1]
-    assert caller == "claude-code"
+    principal_id = call.kwargs.get("principal_id")
+    if principal_id is None and len(call.args) >= 2:
+        principal_id = call.args[1]
+    assert principal_id == "claude-code"
 
 
 @pytest.mark.asyncio
@@ -329,7 +358,7 @@ async def test_resolve_problem_passes_real_agent_to_check_write_policy():
     assert "problem resolved" in result
     mock_check_policy.assert_called_once()
     call = mock_check_policy.call_args
-    caller = call.kwargs.get("caller")
-    if caller is None and len(call.args) >= 2:
-        caller = call.args[1]
-    assert caller == "codex"
+    principal_id = call.kwargs.get("principal_id")
+    if principal_id is None and len(call.args) >= 2:
+        principal_id = call.args[1]
+    assert principal_id == "codex"
