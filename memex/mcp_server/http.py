@@ -17,6 +17,8 @@ from memex.graph.schema import Principal
 from memex.config import canonical_repo_path
 from memex.mcp_server.principal_ctx import principal_ctx
 from memex.mcp_server.auth_session import create_auth_router, get_session_secret
+from memex.mcp_server.graph_query import fetch_graph_payload
+from memex.mcp_server.team import create_team_router
 
 logger = logging.getLogger(__name__)
 
@@ -172,6 +174,12 @@ def create_app(server: Server, repo_root: str):
     )
     app.include_router(create_auth_router())
 
+    # NET-18 (05-02-PLAN.md): /team/* read endpoints (activity, confidence,
+    # conflicts, graph), all gated by Depends(require_role("viewer")) —
+    # added after the auth router since they depend on its session
+    # middleware being registered first.
+    app.include_router(create_team_router(repo_root))
+
     @app.get("/health")
     async def health_check():
         # /health is unauthenticated — don't leak the absolute repo path (B5).
@@ -193,90 +201,8 @@ def create_app(server: Server, repo_root: str):
         client = await get_graph_client()
         canonical_repo = canonical_repo_path(repo_root)
 
-        # Query nodes
-        nodes_query = """
-        MATCH (n:Entity)
-        WHERE ($project IS NOT NULL AND n.project_id = $project) OR ($project IS NULL AND n.repo_path = $repo)
-        RETURN
-          elementId(n) as id,
-          n.name as name,
-          coalesce(n.type, '') as raw_type,
-          coalesce(n.summary, n.description, '') as summary,
-          coalesce(n.created_at, '') as created_at,
-          coalesce(n.status, '') as status,
-          coalesce(n.scope, '') as scope,
-          coalesce(n.source_commit, '') as source_commit
-        """
-
-        # Query relationships
-        edges_query = """
-        MATCH (n1:Entity)-[r]->(n2:Entity)
-        WHERE (($project IS NOT NULL AND n1.project_id = $project) OR ($project IS NULL AND n1.repo_path = $repo))
-          AND (($project IS NOT NULL AND n2.project_id = $project) OR ($project IS NULL AND n2.repo_path = $repo))
-          AND r.expired_at IS NULL
-          AND r.valid_until IS NULL
-        RETURN
-          elementId(n1) as source,
-          elementId(n2) as target,
-          type(r) as type,
-          coalesce(r.created_at, '') as created_at
-        """
-
         try:
-            nodes_res = await client.driver.execute_query(nodes_query, params={"repo": canonical_repo, "project": project})
-            edges_res = await client.driver.execute_query(edges_query, params={"repo": canonical_repo, "project": project})
-            
-            nodes = []
-            for record in nodes_res.records:
-                data = record.data()
-                name = data["name"]
-                raw_type = data["raw_type"]
-                
-                # Determine classification
-                if raw_type == 'Decision' or 'Decision' in name:
-                    node_type = 'Decision'
-                elif raw_type == 'Problem':
-                    node_type = 'Problem'
-                elif raw_type == 'Module' or any(name.endswith(ext) for ext in ['.py', '.js', '.ts', '.tsx', '.jsx', '.html', '.css', '.json']):
-                    node_type = 'Module'
-                else:
-                    node_type = 'Symbol'
-                    
-                # Format timestamps/datetimes to string if they are datetime objects
-                created_at_val = data["created_at"]
-                if hasattr(created_at_val, "isoformat"):
-                    created_at_val = created_at_val.isoformat()
-                elif created_at_val and not isinstance(created_at_val, str):
-                    created_at_val = str(created_at_val)
-                    
-                nodes.append({
-                    "id": data["id"],
-                    "name": name,
-                    "type": node_type,
-                    "summary": data["summary"],
-                    "created_at": created_at_val,
-                    "status": data["status"],
-                    "scope": data["scope"],
-                    "source_commit": data["source_commit"]
-                })
-                
-            edges = []
-            for record in edges_res.records:
-                data = record.data()
-                created_at_val = data["created_at"]
-                if hasattr(created_at_val, "isoformat"):
-                    created_at_val = created_at_val.isoformat()
-                elif created_at_val and not isinstance(created_at_val, str):
-                    created_at_val = str(created_at_val)
-                    
-                edges.append({
-                    "source": data["source"],
-                    "target": data["target"],
-                    "type": data["type"],
-                    "created_at": created_at_val
-                })
-                
-            return {"nodes": nodes, "edges": edges}
+            return await fetch_graph_payload(client, canonical_repo, project)
         except Exception as e:
             logger.error(f"Failed to fetch graph data: {e}", exc_info=True)
             return JSONResponse(
