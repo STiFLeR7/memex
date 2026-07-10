@@ -95,13 +95,18 @@ def test_cli_remove_repo():
             mock_remove.assert_called_with("/fake/repo")
 
 def test_cli_keys_add():
+    """Phase 02 Plan 01 Task 2 — add_key() is now called with role/
+    principal_id (default 'admin'/name), and the Principal bootstrap write
+    is dispatched via asyncio.run (mocked here to stay Neo4j-free)."""
     with patch("memex.cli.add_key", return_value="mx_test") as mock_add:
-        with patch("builtins.print") as mock_print:
-            with patch.object(sys, "argv", ["memex", "keys", "add", "test-user"]):
-                cli.main()
-                mock_add.assert_called_with("test-user")
-                printed = "".join([str(call.args[0]) for call in mock_print.call_args_list])
-                assert "mx_test" in printed
+        with patch("memex.cli.asyncio.run") as mock_asyncio_run:
+            with patch("builtins.print") as mock_print:
+                with patch.object(sys, "argv", ["memex", "keys", "add", "test-user"]):
+                    cli.main()
+                    mock_add.assert_called_with("test-user", role="admin", principal_id="test-user")
+                    assert mock_asyncio_run.called
+                    printed = "".join([str(call.args[0]) for call in mock_print.call_args_list])
+                    assert "mx_test" in printed
 
 def test_cli_keys_list():
     mock_keys = [{"name": "test", "key": "mx_...", "created_at": "now"}]

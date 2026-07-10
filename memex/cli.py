@@ -29,6 +29,22 @@ logging.basicConfig(
 )
 logger = logging.getLogger("memex.cli")
 
+async def _bootstrap_principal_node(principal_id: str, display_name: str, role: str) -> None:
+    """Best-effort Principal node write for `memex keys add`.
+
+    Mirrors the `init` command's cluster-pass pattern: this is supplementary
+    team-visibility metadata for later phases (04/05), not required for
+    auth to function — the registry-file key IS the actual authentication
+    mechanism. Callers must wrap this in try/except so key creation always
+    succeeds even when Neo4j is unreachable.
+    """
+    from memex.graph.client import get_graph_client
+    from memex.graph.principal import write_principal_node
+
+    client = await get_graph_client()
+    await write_principal_node(client, principal_id=principal_id, display_name=display_name, role=role)
+
+
 async def get_node_counts_safe():
     try:
         return await get_node_counts()
@@ -273,6 +289,17 @@ def main(args=None):
     # keys add
     keys_add_parser = keys_subparsers.add_parser("add", help="Add a new key")
     keys_add_parser.add_argument("name", help="Name for the key")
+    keys_add_parser.add_argument(
+        "--role",
+        choices=["viewer", "contributor", "admin"],
+        default="admin",
+        help="Role for the key's Principal (default: admin, matching today's full-access behavior)",
+    )
+    keys_add_parser.add_argument(
+        "--principal-id",
+        dest="principal_id",
+        help="Explicit principal_id for the new key (default: the key name)",
+    )
     
     # keys list
     keys_subparsers.add_parser("list", help="List all keys")
@@ -446,10 +473,23 @@ def main(args=None):
 
     elif parsed_args.command == "keys":
         if parsed_args.keys_command == "add":
-            key = add_key(parsed_args.name)
+            principal_id = parsed_args.principal_id or parsed_args.name
+            key = add_key(parsed_args.name, role=parsed_args.role, principal_id=principal_id)
             print(f"Key '{parsed_args.name}' added successfully:")
             print(f"  {key}")
             print("\nIMPORTANT: This is the only time the full key will be shown. Store it securely.")
+
+            # Best-effort Principal bootstrap write (Open Question #1,
+            # 02-RESEARCH.md) — non-fatal if Neo4j is unreachable, mirrors
+            # the `init` command's cluster-pass pattern above.
+            try:
+                asyncio.run(_bootstrap_principal_node(principal_id, parsed_args.name, parsed_args.role))
+            except Exception:
+                logger.warning(
+                    "keys add: Principal bootstrap write failed (non-fatal — the key is "
+                    "still valid; re-run once Neo4j is reachable to sync Principal metadata)",
+                    exc_info=True,
+                )
 
         elif parsed_args.keys_command == "list":
             keys = list_keys()
@@ -457,11 +497,14 @@ def main(args=None):
                 print("No keys found.")
             else:
                 print("\nAuthentication Keys:")
-                print(f"{'Name':<20} {'Key (Truncated)':<20} {'Created At':<30}")
-                print("-" * 70)
+                print(f"{'Name':<20} {'Principal ID':<20} {'Role':<12} {'Key':<14} {'Created At':<30}")
+                print("-" * 96)
                 for k in keys:
-                    key_display = k.get('key_prefix') or k.get('key', '')
-                    print(f"{k['name']:<20} {key_display:<20} {k['created_at']:<30}")
+                    key_display = k.get('key_prefix') or k.get('key', '') or ''
+                    print(
+                        f"{k.get('name', ''):<20} {k.get('principal_id', ''):<20} "
+                        f"{k.get('role', ''):<12} {key_display:<14} {k.get('created_at', ''):<30}"
+                    )
 
         elif parsed_args.keys_command == "revoke":
             if revoke_key(parsed_args.name):
