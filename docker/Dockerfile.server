@@ -1,0 +1,33 @@
+# memex production server image — built from local source, tagged per-release.
+#
+# This is a from-scratch file, NOT based on or derived from the root
+# Dockerfile (../Dockerfile), which is explicitly introspection-only
+# (MEMEX_INTROSPECTION_ONLY=1, stdio-only CMD, no Neo4j/HTTP wiring at
+# all -- confirmed by direct read). See
+# .planning/phases/06-deployment/06-RESEARCH.md Pitfall 4 for why that
+# image cannot be repurposed for real deployments.
+FROM python:3.12-slim
+
+ENV PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1
+
+WORKDIR /app
+
+# Build from local source (not `pip install memex-mcp` from PyPI) so the
+# image content matches the exact commit/tag under release, not whatever
+# is currently propagated to PyPI.
+COPY pyproject.toml README.md LICENSE ./
+COPY memex/ ./memex/
+RUN pip install --upgrade pip && pip install .
+
+COPY docker/entrypoint-server.sh /usr/local/bin/entrypoint-server.sh
+RUN chmod +x /usr/local/bin/entrypoint-server.sh
+
+EXPOSE 8000
+
+# python:3.12-slim has no curl/wget by default -- use Python's stdlib
+# instead of adding a package, keeping the image minimal.
+HEALTHCHECK --interval=10s --timeout=5s --start-period=15s --retries=5 \
+  CMD python3 -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')" || exit 1
+
+ENTRYPOINT ["/usr/local/bin/entrypoint-server.sh"]
