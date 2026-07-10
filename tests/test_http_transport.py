@@ -464,6 +464,66 @@ def test_stats_endpoint_requires_auth(mock_resolve, client):
     assert response.json() == {"detail": "Missing or invalid Authorization header"}
 
 
+# --- Phase 04 / NET-17: GET /report ---
+
+
+@patch("memex.mcp_server.http.resolve_principal")
+def test_report_endpoint_requires_auth(mock_resolve, client):
+    """GET /report with no Authorization header returns 401, matching
+    /graph and /stats (Depends(require_principal))."""
+    mock_resolve.return_value = None
+    response = client.get("/report")
+    assert response.status_code == 401
+    assert response.json() == {"detail": "Missing or invalid Authorization header"}
+
+
+@patch("memex.graph.governance_report.find_latest_report")
+@patch("memex.mcp_server.http.resolve_principal")
+def test_report_endpoint_returns_404_when_no_report_yet(mock_resolve, mock_find_latest, client):
+    """No report file on disk yet -> 404, not 403 (don't leak existence
+    info, matching /health's precedent)."""
+    mock_resolve.return_value = Principal(principal_id="good-token-user", role="admin")
+    mock_find_latest.return_value = None
+
+    response = client.get("/report", headers={"Authorization": "Bearer good-token"})
+    assert response.status_code == 404
+    assert response.json() == {"detail": "No report generated yet"}
+
+
+@patch("memex.graph.governance_report.find_latest_report")
+@patch("memex.mcp_server.http.resolve_principal")
+def test_report_endpoint_success(mock_resolve, mock_find_latest, client, tmp_path):
+    """Authenticated request with an existing report file returns 200 and
+    the file's JSON content verbatim."""
+    mock_resolve.return_value = Principal(principal_id="good-token-user", role="admin")
+
+    import json as _json
+    report_file = tmp_path / "2026-07-10.json"
+    payload = {"repo_path": "/x", "confidence_distribution": {"high": 1}}
+    report_file.write_text(_json.dumps(payload))
+    mock_find_latest.return_value = report_file
+
+    response = client.get("/report", headers={"Authorization": "Bearer good-token"})
+    assert response.status_code == 200
+    assert response.json() == payload
+
+
+@patch("memex.mcp_server.http.resolve_principal")
+def test_report_endpoint_path_traversal_does_not_read_arbitrary_file(mock_resolve, client):
+    """A crafted `repo` query param must never escape .memex/reports/ --
+    exercises the REAL find_latest_report() canonicalization path from Plan
+    04-02 (no mocking here). Expect 404 (report not found for the
+    traversal-resolved path), never a 200 with unexpected file contents."""
+    mock_resolve.return_value = Principal(principal_id="good-token-user", role="admin")
+
+    response = client.get(
+        "/report?repo=../../../../etc",
+        headers={"Authorization": "Bearer good-token"},
+    )
+    assert response.status_code == 404
+    assert response.json() == {"detail": "No report generated yet"}
+
+
 def test_notify_and_events(client):
     response = client.post("/notify")
     assert response.status_code == 200

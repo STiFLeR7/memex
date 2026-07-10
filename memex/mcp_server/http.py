@@ -324,6 +324,37 @@ def create_app(server: Server, repo_root: str):
                 content={"detail": f"Failed to generate stats: {str(e)}"}
             )
 
+    @app.get("/report")
+    async def get_report_endpoint(
+        repo: str = None,
+        principal: Principal = Depends(require_principal),
+    ):
+        # Bearer-token gated via the same require_principal dependency as
+        # /graph and /stats (Phase 02 has landed since this endpoint was
+        # originally researched -- verify_auth_token() is legacy now, kept
+        # only for the deprecated SSE branch below). Role-gating (e.g.
+        # restricting this manager-facing endpoint to principal.role ==
+        # "admin") is not implemented here -- it would be a scope increase
+        # beyond this plan and beyond /graph's and /stats's current
+        # behavior, which also don't role-gate today.
+        try:
+            from memex.graph.governance_report import find_latest_report
+
+            path = repo or repo_root
+            latest = find_latest_report(path)
+            if latest is None:
+                return JSONResponse(
+                    status_code=404,
+                    content={"detail": "No report generated yet"},
+                )
+            return JSONResponse(content=json.loads(latest.read_text()))
+        except Exception as e:
+            logger.error(f"Failed to fetch report in /report endpoint: {e}", exc_info=True)
+            return JSONResponse(
+                status_code=500,
+                content={"detail": "Failed to fetch report"},
+            )
+
     # Custom ASGI app for MCP to handle raw send/receive
     async def mcp_asgi_app(scope, receive, send):
         if scope["type"] != "http":
