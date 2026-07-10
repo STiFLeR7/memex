@@ -256,6 +256,39 @@ class ClusterSummary(BaseModel):
         return max(0.0, min(1.0, float(v)))
 
 
+class Principal(BaseModel):
+    """A human developer (or CI/service account acting as one) — Phase 02
+    identity core (NET-08). Distinct from `harness`/agent-type identity
+    (Phase 01, e.g. Decision.harness) — do not conflate the two.
+
+    `role` defaults to "contributor" here at the Pydantic-model level, for
+    records created explicitly (e.g. by future admin tooling) with no role
+    specified. This is NOT the same as the migration sentinel used by
+    `resolve_principal()` for pre-Phase-02 legacy key records that have no
+    `role` field at all — those resolve to "admin" instead, via an explicit
+    presence check in `memex/watcher/registry.py` (see 02-RESEARCH.md
+    Common Pitfalls #1). Conflating these two "missing role" cases would
+    silently downgrade every pre-upgrade admin-equivalent key to
+    "contributor" on upgrade — exactly what NET-11 exists to prevent.
+    """
+
+    model_config = ConfigDict(extra="ignore")
+
+    principal_id: str
+    display_name: Optional[str] = None
+    role: str = "contributor"
+    created_at: Optional[datetime] = None
+    active: bool = True
+    write_policy: str = "locked"
+
+    @field_validator("role")
+    @classmethod
+    def role_must_be_valid(cls, v):
+        if v not in ("viewer", "contributor", "admin"):
+            return "viewer"  # Fail-safe: coerce to least-privilege, don't raise (T-02-03)
+        return v
+
+
 # Aliases for prompt compatibility
 SymbolNode = Symbol
 ModuleNode = Module
@@ -266,6 +299,7 @@ DependencyNode = Dependency
 RepositoryNode = Repository
 ClusterNode = Cluster
 ClusterSummaryNode = ClusterSummary
+PrincipalNode = Principal
 
 
 # ---------------------------------------------------------------------------
@@ -282,6 +316,7 @@ WRITE_POLICIES: dict[str, str] = {
     "Decision":        "open",
     "Problem":         "open",
     "AgentSession":    "self",
+    "Principal":       "locked",
 }
 
 

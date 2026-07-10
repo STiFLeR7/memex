@@ -460,7 +460,8 @@ def main(args=None):
                 print(f"{'Name':<20} {'Key (Truncated)':<20} {'Created At':<30}")
                 print("-" * 70)
                 for k in keys:
-                    print(f"{k['name']:<20} {k['key']:<20} {k['created_at']:<30}")
+                    key_display = k.get('key_prefix') or k.get('key', '')
+                    print(f"{k['name']:<20} {key_display:<20} {k['created_at']:<30}")
 
         elif parsed_args.keys_command == "revoke":
             if revoke_key(parsed_args.name):

@@ -1,10 +1,13 @@
+import hashlib
+import hmac
 import json
 import os
+import secrets
 from pathlib import Path
 from typing import List, Optional
 from datetime import datetime
 from pydantic import BaseModel, ConfigDict
-from memex.graph.schema import Repository
+from memex.graph.schema import Principal, Repository
 
 # Default registry path
 DEFAULT_REGISTRY_DIR = Path.home() / ".memex"
@@ -96,36 +99,60 @@ def toggle_repository_active(path: str, active: bool) -> None:
             break
     _save_registry(registry)
 
-def add_key(name: str) -> str:
-    """Generates and adds a new mx_... key to the registry."""
-    import secrets
+def add_key(name: str, role: str = "admin", principal_id: Optional[str] = None) -> str:
+    """Generates and adds a new mx_... key to the registry.
+
+    ``role`` default is "admin" here (CLI-invocation default) to match
+    today's v0.6.1 full-access behavior for anyone who runs `memex keys add`
+    without `--role` — NOT to be confused with the `Principal` model's own
+    field default used elsewhere (see 02-RESEARCH.md Common Pitfalls #1).
+
+    The bearer secret is stored as a SHA-256 hash (`key_hash`) only — never
+    plaintext (T-02-01). ``key_prefix`` (first 10 chars of the raw key, e.g.
+    `mx_ab12cd34`) is retained, non-secret, for `keys list` display.
+    """
     new_key = f"mx_{secrets.token_hex(16)}"
-    
+    key_hash = hashlib.sha256(new_key.encode()).hexdigest()
+
     registry = _load_registry()
-    
+
     # Remove existing key with same name if any
     registry.keys = [k for k in registry.keys if k.get("name") != name]
-    
+
     registry.keys.append({
-        "name": name, 
-        "key": new_key,
-        "created_at": datetime.now().isoformat()
+        "name": name,
+        "principal_id": principal_id or name,
+        "role": role,
+        "key_hash": key_hash,
+        "key_prefix": new_key[:10],
+        "created_at": datetime.now().isoformat(),
     })
     _save_registry(registry)
-    return new_key
+    return new_key  # plaintext returned ONCE to the operator, never stored
 
 def list_keys() -> List[dict]:
-    """Returns all named keys (truncated)."""
+    """Returns all named keys with secret material redacted.
+
+    New-format records (no plaintext `key` field) display `key_prefix`
+    instead. Legacy records (pre-Phase-02, plaintext `key`) fall back to a
+    truncated form of that plaintext field so `keys list` never raises or
+    silently drops them.
+    """
     keys = _load_registry().keys
-    # Return a copy with keys truncated for security
-    return [
-        {
+    result = []
+    for k in keys:
+        key_prefix = k.get("key_prefix")
+        if not key_prefix:
+            legacy_key = k.get("key")
+            key_prefix = (legacy_key[:10] + "...") if legacy_key else None
+        result.append({
             "name": k.get("name"),
-            "key": k.get("key")[:7] + "..." if k.get("key") else None,
-            "created_at": k.get("created_at")
-        }
-        for k in keys
-    ]
+            "principal_id": k.get("principal_id") or k.get("name"),
+            "role": k.get("role") or "admin",
+            "key_prefix": key_prefix,
+            "created_at": k.get("created_at"),
+        })
+    return result
 
 def revoke_key(name: str) -> bool:
     """Removes a key by name. Returns True if found and removed."""
@@ -137,21 +164,73 @@ def revoke_key(name: str) -> bool:
         return True
     return False
 
+def _match_key_record(token: str) -> Optional[dict]:
+    """Scans every stored key record for a match against ``token``.
+
+    Checks both the SHA-256 hash (new-format records, `key_hash`) and a
+    direct compare against a legacy plaintext `key` field, using
+    `hmac.compare_digest` for both and never short-circuiting on first
+    match — preserves the existing B6 timing-safety property (validation
+    time must not leak which, or how many, records matched). Shared by
+    `validate_key()` and `resolve_principal()` so both stay consistent.
+    """
+    token_hash = hashlib.sha256(str(token).encode()).hexdigest()
+    keys = _load_registry().keys
+    match = None
+    for k in keys:
+        stored_hash = k.get("key_hash") or ""
+        stored_plain = k.get("key") or ""
+        hash_match = hmac.compare_digest(stored_hash, token_hash)
+        plain_match = hmac.compare_digest(str(stored_plain), str(token))
+        if hash_match or plain_match:
+            match = k
+    return match
+
 def validate_key(key: str) -> bool:
-    """Checks if a key exists in the registry."""
+    """Checks if a key exists in the registry.
+
+    Hashes the presented key and compares against `key_hash` (new-format
+    records) OR falls back to a direct compare against the legacy plaintext
+    `key` field — both via `hmac.compare_digest`, scanning every record
+    without short-circuiting (B6 timing-safety, preserved).
+    """
     if not key:
         return False
-    import secrets
-    keys = _load_registry().keys
-    # Constant-time compare against every stored key without short-circuiting,
-    # so validation time doesn't leak which (or how many) prefixes matched (B6).
-    found = False
-    for k in keys:
-        stored = k.get("key") or ""
-        if secrets.compare_digest(str(stored), str(key)):
-            found = True
-    return found
+    return _match_key_record(key) is not None
+
+async def resolve_principal(token: str) -> Optional[Principal]:
+    """Resolves a bearer token to a `Principal`, or `None` if invalid.
+
+    This is the abstraction boundary consumed by untrusted remote HTTP
+    callers (Plan 02-02) — whatever storage backs it can change without
+    touching any call site. `async def` because future storage backends may
+    need I/O (today's implementation reads the local registry file only, no
+    actual `await` needed beyond the function being a coroutine).
+    """
+    if not token:
+        return None
+    match = _match_key_record(token)
+    if match is None:
+        return None
+
+    # Pitfall 1 (02-RESEARCH.md): explicit presence check, NOT
+    # `match.get("role", "contributor")` — a legacy key record (pre-Phase-02,
+    # no `role` field at all) must resolve to "admin" (the migration
+    # sentinel, T-02-04), which is semantically different from the
+    # `Principal` model's own creation-time default of "contributor" used
+    # for records where `role` IS present but empty/null.
+    if "role" not in match:
+        role = "admin"
+    else:
+        role = match.get("role") or "admin"
+
+    return Principal(
+        principal_id=match.get("principal_id") or match.get("name"),
+        display_name=match.get("name"),
+        role=role,
+        active=True,
+    )
 
 def get_keys() -> List[dict]:
-    """Returns all keys from the registry (full keys)."""
+    """Returns all keys from the registry (raw records, for internal use)."""
     return _load_registry().keys

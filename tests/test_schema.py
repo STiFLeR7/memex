@@ -1,7 +1,10 @@
 import pytest
 from pydantic import ValidationError
 from datetime import datetime, UTC
-from memex.graph.schema import SymbolNode, DecisionNode, ProblemNode, Repository
+from memex.graph.schema import (
+    SymbolNode, DecisionNode, ProblemNode, Repository, Principal, PrincipalNode,
+    WRITE_POLICIES,
+)
 
 def test_symbol_node_rejects_invalid_kind():
     with pytest.raises(ValidationError) as exc:
@@ -83,3 +86,32 @@ def test_repository_project_id_defaults_to_none(tmp_path):
     """Existing callers that don't pass project_id are unaffected."""
     r = Repository(path=str(tmp_path), name="repo", added_at=datetime.now())
     assert r.project_id is None
+
+
+# ---------------------------------------------------------------------------
+# Principal (Phase 02 / NET-08) — identity core
+# ---------------------------------------------------------------------------
+
+
+def test_principal_coerces_invalid_role_to_viewer():
+    """Fail-safe, least-privilege coercion — mirrors
+    Problem.severity_must_be_valid's coercion pattern, NOT a raise (T-02-03)."""
+    p = Principal(principal_id="x", role="bogus")
+    assert p.role == "viewer"
+
+
+def test_principal_defaults_role_to_contributor():
+    """Pydantic-level default for newly-created records with no role
+    specified — NOT the resolve_principal() migration sentinel ('admin')."""
+    p = Principal(principal_id="x")
+    assert p.role == "contributor"
+
+
+def test_principal_node_alias_is_principal():
+    assert PrincipalNode is Principal
+
+
+def test_principal_write_policy_is_locked():
+    p = Principal(principal_id="x")
+    assert p.write_policy == "locked"
+    assert WRITE_POLICIES["Principal"] == "locked"
