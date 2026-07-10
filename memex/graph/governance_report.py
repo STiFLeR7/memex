@@ -15,11 +15,13 @@ Plan 04-02's concern; scheduler + HTTP wiring is Plan 04-03's concern.
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass, field, asdict
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any, Optional
 
-from memex.config import get_config
+from memex.config import get_config, canonical_repo_path
 from memex.graph.stats import get_stats_data
 from memex.graph.confidence import current_confidence
 from memex.cli_review import _fetch_pending_decisions
@@ -99,3 +101,103 @@ async def generate_report(repo_path: str, period_days: Optional[int] = None) -> 
         unvalidated_decisions=pending,
         modules_touched=modules_touched,
     )
+
+
+def reports_dir_for(repo_path: str) -> Path:
+    """Return the canonicalized ``.memex/reports/`` directory for
+    ``repo_path``, creating it if needed. Follows the exact ``.memex/port``
+    file convention already established by
+    ``memex/mcp_server/http.py::run_http_server()`` (canonicalize first,
+    build the path from the canonical value, ``mkdir(parents=True,
+    exist_ok=True)``), extended with a ``reports`` subdirectory since reports
+    accumulate one pair per run rather than being a single ephemeral file."""
+    repo_canon = canonical_repo_path(repo_path)
+    reports_dir = Path(repo_canon) / ".memex" / "reports"
+    reports_dir.mkdir(parents=True, exist_ok=True)
+    return reports_dir
+
+
+def render_markdown(report: GovernanceReport) -> str:
+    """Render ``report`` as a plain-Markdown document via f-strings /
+    ``"\\n".join(...)`` only -- no templating library (a Jinja2 layer is
+    disproportionate to a single manager-facing digest; matches
+    ``stats.py::print_rich_stats``'s plain-formatting style, just targeting a
+    string instead of a ``rich.Console``). The ``REPORT_NOTICE`` is rendered
+    as a blockquote directly under the title (T-04-03 -- report files may be
+    shared more casually than the graph itself)."""
+    confidence = report.confidence_distribution
+    lines = [
+        "# Governance Report",
+        "",
+        f"> {REPORT_NOTICE}",
+        "",
+        "## Period",
+        "",
+        f"- Repo: {report.repo_path}",
+        f"- Period (days): {report.period_days}",
+        f"- Generated at: {report.generated_at}",
+        "",
+        "## Confidence Distribution",
+        "",
+        f"- High (>=0.7): {confidence.get('high', 0)}",
+        f"- Mid (0.3-0.7): {confidence.get('mid', 0)}",
+        f"- Stale (<0.3): {confidence.get('stale', 0)}",
+        "",
+        "## Modules Touched",
+        "",
+    ]
+    if report.modules_touched:
+        lines.extend(f"- {module}" for module in report.modules_touched)
+    else:
+        lines.append("- (none)")
+    lines.extend(
+        [
+            "",
+            "## Unvalidated Decisions",
+            "",
+            f"Count: {len(report.unvalidated_decisions)}",
+            "",
+        ]
+    )
+    for row in report.unvalidated_decisions:
+        text = str(row.get("name") or row.get("text") or row.get("content") or "")
+        lines.append(f"- {text[:120]}")
+    return "\n".join(lines) + "\n"
+
+
+def write_report(report: GovernanceReport) -> tuple[Path, Path]:
+    """Persist ``report`` as a JSON + Markdown pair under
+    ``.memex/reports/``. JSON is the machine-readable source of truth
+    (serialized with ``default=str`` since ``unvalidated_decisions`` rows may
+    carry non-JSON-native values such as ``datetime`` objects); Markdown is
+    the human-readable companion rendered from the same data. Returns
+    ``(json_path, md_path)``. No retention/pruning logic -- ship without it
+    for v0.7.0 per research's Open Question 1 (explicitly deferred, not an
+    oversight)."""
+    reports_dir = reports_dir_for(report.repo_path)
+    stamp = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    payload = {**asdict(report), "notice": REPORT_NOTICE}
+    json_path = reports_dir / f"{stamp}.json"
+    md_path = reports_dir / f"{stamp}.md"
+    json_path.write_text(json.dumps(payload, default=str, indent=2))
+    md_path.write_text(render_markdown(report))
+    return json_path, md_path
+
+
+def find_latest_report(repo_path: str) -> Optional[Path]:
+    """Read-only lookup of the most recently written report JSON file for
+    ``repo_path``. Canonicalizes ``repo_path`` via ``canonical_repo_path()``
+    BEFORE any ``Path``/glob construction -- this is the single choke point
+    Plan 04-03's ``GET /report`` endpoint will call with a caller-supplied
+    ``repo`` query parameter, so the path-traversal defense lives here once
+    rather than being duplicated at each call site (T-04-06). Does not create
+    the directory (read-only) -- returns ``None`` gracefully when the
+    directory or any report file is absent."""
+    repo_canon = canonical_repo_path(repo_path)
+    reports_dir = Path(repo_canon) / ".memex" / "reports"
+    if not reports_dir.exists():
+        return None
+    candidates = sorted(reports_dir.glob("*.json"))
+    if not candidates:
+        return None
+    return candidates[-1]
