@@ -528,8 +528,17 @@ def test_notify_and_events(client):
     response = client.post("/notify")
     assert response.status_code == 200
     assert response.json() == {"status": "ok"}
-    
-    routes = [r.path for r in client.app.routes]
+
+    # FastAPI 0.137.0 refactored `router.routes` from a flat list into an
+    # internal tree (05-RESEARCH.md Pitfall 3) — iterating `.routes`
+    # directly now yields opaque `_IncludedRouter` entries (no `.path`
+    # attribute) for any `app.include_router(...)`-mounted router (Task 1's
+    # `create_auth_router()`). Use `iter_route_contexts()` (added 0.137.2),
+    # which flattens included routers and exposes a `.path` property on
+    # every yielded `RouteContext`.
+    from fastapi.routing import iter_route_contexts
+
+    routes = [ctx.path for ctx in iter_route_contexts(client.app.routes)]
     assert "/events" in routes
 
 
