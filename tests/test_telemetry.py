@@ -113,13 +113,19 @@ def test_stats_endpoint_returns_json_and_requires_auth(temp_db_path):
     assert "detail" in response.json()
     
     # 2. Invalid Bearer Token
-    with patch("memex.mcp_server.http.validate_key", return_value=False):
+    with patch("memex.mcp_server.http.resolve_principal", return_value=None):
         response = client.get("/stats?days=30", headers={"Authorization": "Bearer bad-token"})
         assert response.status_code == 401
-        
+
     # 3. Success / stats schema check
-    # Patch registry validation and TelemetryDB to point to our test database
-    with patch("memex.mcp_server.http.validate_key", return_value=True):
+    # Patch principal resolution and TelemetryDB to point to our test database.
+    # /stats now shares require_principal/resolve_principal with /graph
+    # (Plan 02-02 Task 3) instead of the legacy boolean validate_key.
+    from memex.graph.schema import Principal
+    with patch(
+        "memex.mcp_server.http.resolve_principal",
+        return_value=Principal(principal_id="good-token-user", role="admin"),
+    ):
         with patch("memex.graph.telemetry.get_telemetry_db_path", return_value=temp_db_path):
             with patch("memex.graph.stats.get_graph_client") as mock_graph_client:
                 # Mock Neo4j query for validation health
