@@ -91,6 +91,13 @@ class Decision(BaseModel):
     write_policy: str = "open"
     access_count: int = 0
     last_reinforced_at: Optional[datetime] = None
+    # Phase 01 — which specific agent/harness wrote this node (e.g.
+    # "claude-code", "gemini-cli"), distinct from the `source` category
+    # field above ("agent" vs "watcher"). Documentation-only here: this
+    # class is never instantiated by the agent-write path in
+    # `tools_write.py` (raw Cypher SET instead); only `synthesizer/commit.py`
+    # constructs `Decision(...)` directly, for watcher-sourced nodes.
+    harness: Optional[str] = None
 
     @field_validator("text")
     @classmethod
@@ -125,6 +132,8 @@ class Problem(BaseModel):
     write_policy: str = "open"
     access_count: int = 0
     last_reinforced_at: Optional[datetime] = None
+    # Phase 01 — see Decision.harness docstring above; same rationale.
+    harness: Optional[str] = None
 
     @field_validator("severity")
     @classmethod

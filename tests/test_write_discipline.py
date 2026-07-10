@@ -287,5 +287,34 @@ async def test_record_decision_sets_configured_initial_confidence(mock_client):
     params = set_calls[0][1]["params"]
     assert params["base_confidence"] == 0.55
     assert params["validated"] is False
-    # The configured harness default (None -> default) must have been consulted.
+    # The configured harness default (no `agent` passed -> "unknown") must
+    # have been consulted.
     cfg.initial_confidence_for.assert_called()
+
+
+# --- Phase 01 Plan 01: real harness identity threading (NET-06) ------------
+
+
+@pytest.mark.asyncio
+async def test_record_decision_threads_real_agent_to_initial_confidence(mock_client):
+    """record_decision(agent="claude-code") must resolve base_confidence via
+    initial_confidence_for("claude-code"), not the hardcoded None every write
+    silently used before Phase 01 (NET-06)."""
+    mock_client.add_episode.return_value = MagicMock(episode=MagicMock(uuid="agent-dec-2"))
+    mock_client.driver.execute_query.return_value = MagicMock(records=[])
+
+    with patch("memex.mcp_server.tools_write.get_config") as mock_cfg:
+        cfg = MagicMock()
+        cfg.initial_confidence_for.return_value = 0.7
+        mock_cfg.return_value = cfg
+
+        res = await record_decision(
+            text="Adopt EdDSA token signing for rotation simplicity",
+            module="auth.py",
+            repo=".",
+            force=True,
+            agent="claude-code",
+        )
+
+    assert "decision recorded" in res
+    cfg.initial_confidence_for.assert_called_with("claude-code")

@@ -343,7 +343,7 @@ async def record_decision(
     # Layer A — Decision is "open", but enforce the policy explicitly so a
     # future change to WRITE_POLICIES is honoured without code edits here.
     try:
-        check_write_policy("Decision", caller="agent")
+        check_write_policy("Decision", caller=agent)
     except MemexWritePolicyError as e:
         return f"Error: {e}"
 
@@ -432,16 +432,19 @@ async def record_decision(
             # has no base_confidence and current_confidence() falls back to
             # coalesce(..., 1.0), silently treating every agent write as a
             # fully-trusted fact — the exact over-trust Signal exists to prevent.
-            # Harness identity isn't yet threaded from the MCP initialize
-            # handshake, so resolve the `default` harness (harness=None).
+            # Phase 01 (NET-06) — the real harness identity is now threaded
+            # from the MCP initialize handshake via `agent`, so per-harness
+            # confidence config (harnesses.<agent>.initial_decision_confidence)
+            # is live instead of every write silently resolving `default`.
             try:
-                initial_conf = get_config().initial_confidence_for(None)
+                initial_conf = get_config().initial_confidence_for(agent)
             except Exception:
                 initial_conf = 0.6  # never regress to the implicit 1.0 fallback
 
-            # Explicitly set repo_path + Signal confidence anchor + supersedes.
-            # validated stays False — only `memex review` (or corroboration)
-            # may raise an agent-written decision toward 1.0.
+            # Explicitly set repo_path + Signal confidence anchor + supersedes
+            # + harness identity (NET-05, distinct from the `source` category
+            # property below). validated stays False — only `memex review`
+            # (or corroboration) may raise an agent-written decision toward 1.0.
             set_clauses = [
                 "n.repo_path = $repo",
                 "n.type = coalesce(n.type, 'Decision')",
@@ -450,6 +453,7 @@ async def record_decision(
                 "n.source = coalesce(n.source, 'agent')",
                 "n.last_reinforced_at = coalesce(n.last_reinforced_at, $now)",
                 "n.access_count = coalesce(n.access_count, 0)",
+                "n.harness = $agent",
             ]
             params = {
                 "id": node_id,
@@ -457,6 +461,7 @@ async def record_decision(
                 "base_confidence": initial_conf,
                 "validated": False,
                 "now": now,
+                "agent": agent,
             }
             if supersedes:
                 set_clauses.append("n.supersedes = $supersedes")
@@ -505,6 +510,7 @@ async def record_problem(
     module: Optional[str] = None,
     severity: str = "medium",
     repo: Optional[str] = None,
+    agent: str = "unknown",
 ) -> str:
     """
     Creates a Problem node with duplicate detection and concurrent write safety.
@@ -512,7 +518,7 @@ async def record_problem(
     # Layer A ACL — Problem is "open" for agents; check anyway to honour
     # any future policy change in WRITE_POLICIES.
     try:
-        check_write_policy("Problem", caller="agent")
+        check_write_policy("Problem", caller=agent)
     except MemexWritePolicyError as e:
         return f"Error: {e}"
 
@@ -578,10 +584,10 @@ async def record_problem(
             )
 
             node_id = result.episode.uuid
-            # Explicitly set repo_path property, conditionally adding
-            # project_id alongside it when resolvable (NET-01/NET-02).
-            problem_set_clauses = ["n.repo_path = $repo"]
-            problem_params = {"id": node_id, "repo": repo_path}
+            # Explicitly set repo_path + harness identity (NET-05), conditionally
+            # adding project_id alongside it when resolvable (NET-01/NET-02).
+            problem_set_clauses = ["n.repo_path = $repo", "n.harness = $agent"]
+            problem_params = {"id": node_id, "repo": repo_path, "agent": agent}
             if project_id:
                 problem_set_clauses.append("n.project_id = $project")
                 problem_params["project"] = project_id

@@ -679,3 +679,67 @@ async def test_record_decision_corroborates_threads_agent_to_session():
     if call_agent is None and len(call.args) >= 3:
         call_agent = call.args[2]
     assert call_agent == "gemini-cli"
+
+
+# ---------------------------------------------------------------------------
+# Phase 01 Plan 01 Task 2 — n.harness node property (NET-05)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_record_decision_sets_harness_node_property():
+    """record_decision(agent="claude-code")'s node-update SET clause must
+    include n.harness and params must carry the real agent string (NET-05)."""
+    mock_result = MagicMock()
+    mock_result.episode.uuid = "uuid-harness-1"
+
+    with patch("memex.mcp_server.tools_write.get_graph_client") as mock_get_client:
+        mock_client = AsyncMock()
+        mock_client.add_episode.return_value = mock_result
+        mock_get_client.return_value = mock_client
+
+        result = await record_decision(
+            text="Use RS256 for JWT tokens.",
+            agent="claude-code",
+        )
+
+    assert "decision recorded" in result
+
+    found = False
+    for call in mock_client.driver.execute_query.call_args_list:
+        cypher = call.args[0] if call.args else call.kwargs.get("query", "")
+        params = call.kwargs.get("params", {})
+        if "n.harness" in cypher:
+            found = True
+            assert params.get("agent") == "claude-code"
+    assert found, "expected a SET clause containing n.harness with agent in params"
+
+
+@pytest.mark.asyncio
+async def test_record_problem_sets_harness_node_property():
+    """record_problem(agent="gemini-cli")'s node-update SET clause must
+    include n.harness and params must carry the real agent string (NET-05)."""
+    mock_result = MagicMock()
+    mock_result.episode.uuid = "prob-harness-1"
+
+    with patch("memex.mcp_server.tools_write.get_graph_client") as mock_get_client:
+        mock_client = AsyncMock()
+        mock_client.search.return_value = []
+        mock_client.add_episode.return_value = mock_result
+        mock_get_client.return_value = mock_client
+
+        result = await record_problem(
+            text="Memory leak in watcher daemon.",
+            agent="gemini-cli",
+        )
+
+    assert "problem recorded" in result
+
+    found = False
+    for call in mock_client.driver.execute_query.call_args_list:
+        cypher = call.args[0] if call.args else call.kwargs.get("query", "")
+        params = call.kwargs.get("params", {})
+        if "n.harness" in cypher:
+            found = True
+            assert params.get("agent") == "gemini-cli"
+    assert found, "expected a SET clause containing n.harness with agent in params"

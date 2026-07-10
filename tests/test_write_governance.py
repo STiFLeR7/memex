@@ -12,7 +12,7 @@ from memex.graph.schema import (
     MemexWritePolicyError,
     check_write_policy,
 )
-from memex.mcp_server.tools_write import record_decision
+from memex.mcp_server.tools_write import record_decision, record_problem
 
 
 # ---------------------------------------------------------------------------
@@ -241,3 +241,59 @@ async def test_record_decision_proceeds_when_no_similar_found():
     assert "decision recorded" in result
     assert "fresh-uuid" in result
     assert mock_client.add_episode.called
+
+
+# ---------------------------------------------------------------------------
+# Phase 01 Plan 01 Task 2 — real caller identity threaded into
+# check_write_policy (NET-04), not the literal string "agent" (NET-06/NET-07
+# make the value meaningful; this test covers the plumbing itself).
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_record_decision_passes_real_agent_to_check_write_policy():
+    mock_result = MagicMock()
+    mock_result.episode.uuid = "gov-dec-1"
+
+    with (
+        patch("memex.mcp_server.tools_write.get_graph_client") as mock_get_client,
+        patch("memex.mcp_server.tools_write.check_write_policy") as mock_check_policy,
+    ):
+        mock_client = AsyncMock()
+        mock_client.add_episode.return_value = mock_result
+        mock_get_client.return_value = mock_client
+
+        result = await record_decision(text="Adopt EdDSA for key rotation.", agent="claude-code")
+
+    assert "decision recorded" in result
+    mock_check_policy.assert_called_once()
+    call = mock_check_policy.call_args
+    caller = call.kwargs.get("caller")
+    if caller is None and len(call.args) >= 2:
+        caller = call.args[1]
+    assert caller == "claude-code"
+
+
+@pytest.mark.asyncio
+async def test_record_problem_passes_real_agent_to_check_write_policy():
+    mock_result = MagicMock()
+    mock_result.episode.uuid = "gov-prob-1"
+
+    with (
+        patch("memex.mcp_server.tools_write.get_graph_client") as mock_get_client,
+        patch("memex.mcp_server.tools_write.check_write_policy") as mock_check_policy,
+    ):
+        mock_client = AsyncMock()
+        mock_client.search.return_value = []
+        mock_client.add_episode.return_value = mock_result
+        mock_get_client.return_value = mock_client
+
+        result = await record_problem(text="Memory leak in watcher daemon.", agent="claude-code")
+
+    assert "problem recorded" in result
+    mock_check_policy.assert_called_once()
+    call = mock_check_policy.call_args
+    caller = call.kwargs.get("caller")
+    if caller is None and len(call.args) >= 2:
+        caller = call.args[1]
+    assert caller == "claude-code"
