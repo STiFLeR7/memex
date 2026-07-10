@@ -8,6 +8,7 @@ from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 from mcp.server import Server
 from mcp.server.sse import SseServerTransport
+from starlette.middleware.sessions import SessionMiddleware
 import uvicorn
 
 from memex.watcher.registry import validate_key, resolve_principal
@@ -15,6 +16,7 @@ from memex.graph.client import get_graph_client
 from memex.graph.schema import Principal
 from memex.config import canonical_repo_path
 from memex.mcp_server.principal_ctx import principal_ctx
+from memex.mcp_server.auth_session import create_auth_router, get_session_secret
 
 logger = logging.getLogger(__name__)
 
@@ -155,6 +157,20 @@ def create_app(server: Server, repo_root: str):
     # the lifespan) and so future code (e.g. graceful shutdown hooks) has a
     # single place to reach the manager without a closure.
     app.state.session_manager = session_manager
+
+    # NET-20 (05-01-PLAN.md): browser session auth, orthogonal to the
+    # bearer-token Principal auth above (Phase 02) — this gates the future
+    # team dashboard's /login-driven browser flow, not /graph, /stats,
+    # /report, or /mcp, which stay on Depends(require_principal).
+    app.add_middleware(
+        SessionMiddleware,
+        secret_key=get_session_secret(),
+        session_cookie="memex_session",
+        max_age=60 * 60 * 8,  # 8h — 05-RESEARCH.md Assumption A3
+        same_site="lax",
+        https_only=False,  # flip to True once deployed behind TLS (Phase 06)
+    )
+    app.include_router(create_auth_router())
 
     @app.get("/health")
     async def health_check():
