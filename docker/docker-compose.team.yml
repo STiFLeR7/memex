@@ -1,0 +1,98 @@
+# Self-hosted TEAM deployment stack (NET-22 / NET-23).
+#
+# This file is deliberately STANDALONE -- it is NOT a `-f` overlay of
+# docker/docker-compose.yml. Compose's overlay semantics REPLACE list-type
+# keys (like `ports:`) wholesale when a later file sets the key, but they do
+# NOT reliably let a later file *remove* a key the base file already set --
+# there is no `!reset`/`!override` primitive for "delete this key entirely".
+# Layering a "no ports" override on top of docker-compose.yml's `ports:`
+# mapping for neo4j is exactly the kind of security-relevant guarantee that
+# must not depend on subtle merge-semantics edge cases. See
+# .planning/phases/06-deployment/06-RESEARCH.md Open Question 1.
+#
+# Run `bash docker/bootstrap-team-env.sh` once before `docker compose up` --
+# it generates docker/.env with a random NEO4J_PASSWORD. See
+# docker/TEAM-DEPLOY.md for the full operator flow.
+
+services:
+  neo4j:
+    image: neo4j:5.26.0-community
+    container_name: memex-team-neo4j
+    # No `ports:` key here at all -- this is the entire NET-23 mechanism.
+    # memex-server reaches this container via Compose's internal DNS
+    # (bolt://neo4j:7687) without any port being published to the host.
+    # `expose` below is documentation-only (Compose already exposes every
+    # container port to other services on the same network by default) --
+    # it is not itself a security control and does not publish to the host.
+    expose:
+      - "7687"
+      - "7474"
+    environment:
+      - NEO4J_AUTH=${NEO4J_USER:-neo4j}/${NEO4J_PASSWORD:?Set NEO4J_PASSWORD in docker/.env -- run docker/bootstrap-team-env.sh first}
+      - NEO4J_PLUGINS=["apoc"]
+    volumes:
+      - neo4j_data:/data
+      - neo4j_logs:/logs
+    healthcheck:
+      # `neo4j status` is unreliable inside Docker -- it can report "not
+      # running" well after Neo4j is actually serving traffic (see
+      # 06-RESEARCH.md Pitfall 3). Use an HTTP probe against the browser
+      # port instead, which only responds once Neo4j is actually up.
+      test: ["CMD-SHELL", "wget -O /dev/null -q http://localhost:7474 || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 30s
+
+  memex-server:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.server
+    image: memex-server:0.7.0
+    container_name: memex-team-server
+    depends_on:
+      neo4j:
+        condition: service_healthy
+    environment:
+      # Service-name DNS (Compose internal network), never localhost --
+      # this container reaches neo4j over the internal network only.
+      - NEO4J_URI=bolt://neo4j:7687
+      - NEO4J_USER=${NEO4J_USER:-neo4j}
+      - NEO4J_PASSWORD=${NEO4J_PASSWORD:?Set NEO4J_PASSWORD in docker/.env -- run docker/bootstrap-team-env.sh first}
+      - GEMINI_API_KEY=${GEMINI_API_KEY:?Set GEMINI_API_KEY in docker/.env}
+      # Existing env var already read by memex/watcher/registry.py -- no
+      # code change needed. Points principal/role state at the dedicated
+      # principal_registry volume (separate from neo4j_data/neo4j_logs).
+      - MEMEX_REGISTRY_PATH=/data/registry.json
+    volumes:
+      - principal_registry:/data
+    ports:
+      # The ONLY service in this file with a `ports:` mapping -- the one
+      # sanctioned crossing point from the host into this stack.
+      - "8000:8000"
+
+  # ---------------------------------------------------------------------
+  # Future Phase 05 dashboard slot (structurally ready, INACTIVE).
+  # docker/Dockerfile.dashboard does not exist yet, and Phase 05 hasn't
+  # shipped, so this stays a comment rather than a live `profiles:`
+  # service -- keeps `docker compose config`/`up` on this file working
+  # today without depending on an unbuilt phase, while the file is already
+  # structured so the dashboard can be added without a rewrite.
+  #
+  # dashboard:
+  #   build: {context: .., dockerfile: docker/Dockerfile.dashboard}
+  #   depends_on: [memex-server]
+  #   ports: ["3000:3000"]
+  #   # Uncomment once Phase 05 ships docker/Dockerfile.dashboard.
+  # ---------------------------------------------------------------------
+
+volumes:
+  neo4j_data:
+  neo4j_logs:
+  # Deliberately its own named volume, separate from neo4j_data/neo4j_logs.
+  # `docker compose down` (without `-v`) and any future graph-only reset
+  # can never touch this volume -- it's the mechanism that keeps the
+  # team's access-control registry alive across a Neo4j-only reset.
+  # NOTE: `down -v` (WITH the flag) still removes ALL project volumes,
+  # including this one -- see docker/TEAM-DEPLOY.md for the full warning.
+  principal_registry:
