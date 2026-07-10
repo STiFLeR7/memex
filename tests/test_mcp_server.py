@@ -155,8 +155,22 @@ async def test_call_all_tools_smoke():
         ("invalidate_edge", {"edge_id": "1", "reason": "R"*10}),
         ("get_context_briefing", {"max_tokens": "1000"}),
     ]
+    write_tools = {"record_decision", "record_problem", "resolve_problem", "invalidate_edge"}
     for name, args in tools:
         with patch(f"memex.mcp_server.server.{name}", new_callable=AsyncMock) as mock_impl:
             mock_impl.return_value = "ok"
             await handle_call_tool(name, args)
             assert mock_impl.called
+            if name in write_tools:
+                assert mock_impl.call_args.kwargs.get("agent") is not None, (
+                    f"{name} did not receive agent kwarg"
+                )
+
+
+@pytest.mark.asyncio
+async def test_record_decision_receives_detected_agent():
+    with patch("memex.mcp_server.server.detect_agent", return_value="claude-code"):
+        with patch("memex.mcp_server.server.record_decision", new_callable=AsyncMock) as mock_impl:
+            mock_impl.return_value = "ok"
+            await handle_call_tool("record_decision", {"text": "D" * 10})
+            assert mock_impl.call_args.kwargs.get("agent") == "claude-code"

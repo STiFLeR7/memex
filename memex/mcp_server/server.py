@@ -10,6 +10,7 @@ from mcp.types import Tool, TextContent, ImageContent, EmbeddedResource
 
 from memex.config import get_config, canonical_repo_path
 from memex.graph.client import get_graph_client
+from memex.graph.telemetry import detect_agent
 from memex.mcp_server.tools_read import (
     get_project_context,
     get_symbol_context,
@@ -382,7 +383,6 @@ async def handle_call_tool(name: str, arguments: dict) -> list[TextContent | Ima
     Handle tool calls with argument validation and type coercion.
     """
     from memex.graph.otel import tool_span
-    from memex.graph.telemetry import detect_agent
 
     repo = str(arguments.get("repo")) if arguments.get("repo") else None
     project = str(arguments.get("project")) if arguments.get("project") else None
@@ -442,23 +442,24 @@ async def handle_call_tool(name: str, arguments: dict) -> list[TextContent | Ima
                 res = await record_decision(
                     text, module, symbol, rationale, repo=repo,
                     corroborates=corroborates, supersedes=supersedes, force=force,
+                    agent=agent,
                 )
                 result = [TextContent(type="text", text=res)]
             elif name == "record_problem":
                 text = str(arguments.get("text", ""))
                 module = str(arguments.get("module")) if arguments.get("module") else None
                 severity = str(arguments.get("severity", "medium"))
-                res = await record_problem(text, module, severity, repo=repo)
+                res = await record_problem(text, module, severity, repo=repo, agent=agent)
                 result = [TextContent(type="text", text=res)]
             elif name == "resolve_problem":
                 problem_id = str(arguments.get("problem_id", ""))
                 resolution_text = str(arguments.get("resolution_text", ""))
-                res = await resolve_problem(problem_id, resolution_text, repo=repo)
+                res = await resolve_problem(problem_id, resolution_text, repo=repo, agent=agent)
                 result = [TextContent(type="text", text=res)]
             elif name == "invalidate_edge":
                 edge_id = str(arguments.get("edge_id", ""))
                 reason = str(arguments.get("reason", ""))
-                res = await invalidate_edge(edge_id, reason, repo=repo)
+                res = await invalidate_edge(edge_id, reason, repo=repo, agent=agent)
                 result = [TextContent(type="text", text=res)]
             # Phase 9 — new tools
             elif name == "explain_change":
