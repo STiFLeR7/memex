@@ -2,7 +2,7 @@
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "io.github.STiFLeR7/memex",
   "description": "Temporal knowledge graph of your codebase (Graphiti + Neo4j), served to AI agents via MCP.",
-  "version": "0.6.1",
+  "version": "0.7.0",
   "repository": {
     "url": "https://github.com/STiFLeR7/memex",
     "source": "github"
@@ -11,7 +11,7 @@
     {
       "registryType": "npm",
       "identifier": "stifler-memex-mcp",
-      "version": "0.6.1",
+      "version": "0.7.0",
       "transport": {
         "type": "stdio"
       },
@@ -58,7 +58,7 @@
     {
       "registryType": "pypi",
       "identifier": "memex-mcp",
-      "version": "0.6.1",
+      "version": "0.7.0",
       "transport": {
         "type": "stdio"
       },
