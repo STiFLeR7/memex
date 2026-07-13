@@ -14,12 +14,9 @@ Security notes (05-RESEARCH.md Pattern 1/2, Pitfall 4; threat_model T-05-*):
   anyone holding the cookie, just not forgeable without the secret key.
   Therefore the raw `mx_...` bearer key is never placed in session state,
   only a truncated, non-sensitive prefix (`key[:11]`).
-- `require_role()` is an intentional permissive stub today (T-05-05,
-  accepted/documented risk) — Phase 02's RBAC has since landed in this
-  codebase, but as a SEPARATE bearer-token mechanism
-  (`Principal`/`resolve_principal()`). It was never intended to wire into
-  this session layer's `require_role()`; that remains a future integration
-  decision, not part of this plan's scope.
+- `require_role()` resolves the real role via Phase 02's `resolve_principal()`
+  at login time and caches it in the session — a key with no registered
+  Principal (or an unrecognized role) fails safe to "viewer".
 """
 
 import logging
@@ -29,7 +26,9 @@ import secrets
 from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from fastapi.responses import RedirectResponse
 
-from memex.watcher.registry import validate_key
+from memex.watcher.registry import resolve_principal, validate_key
+
+_ROLE_RANK = {"viewer": 0, "contributor": 1, "admin": 2}
 
 logger = logging.getLogger(__name__)
 
@@ -70,21 +69,17 @@ def require_session(request: Request) -> str:
 
 
 def require_role(min_role: str = "viewer"):
-    """Extension-point factory for a future role-gated dependency.
+    """FastAPI dependency factory gating a route on session + Phase 02 role.
 
-    TODO(Phase 02 / NET-09): today this is an intentionally permissive
-    stub — any authenticated session (any `require_session` principal)
-    satisfies `require_role(...)` regardless of `min_role`, with no actual
-    role resolution performed. This lets call sites elsewhere adopt
-    `Depends(require_role("viewer"))` now (instead of hardcoding
-    `Depends(require_session)`) so that when real role checks are wired in
-    later, only this one function needs to change — no call-site changes.
-    `test_require_role_is_permissive_stub` in tests/test_team_dashboard.py
-    is the explicit tripwire test that must be intentionally
-    updated/broken when real roles land.
+    Role is resolved once at `/login` (via `resolve_principal()`) and cached
+    in the session, so this stays a cheap in-memory rank comparison — no
+    registry lookup per request. Unknown ranks fail safe to "viewer".
     """
 
-    async def _dependency(principal: str = Depends(require_session)) -> str:
+    async def _dependency(request: Request, principal: str = Depends(require_session)) -> str:
+        role = request.session.get("role", "viewer")
+        if _ROLE_RANK.get(role, 0) < _ROLE_RANK.get(min_role, 0):
+            raise HTTPException(status_code=403, detail=f"Requires role '{min_role}' or higher")
         return principal
 
     return _dependency
@@ -104,6 +99,8 @@ def create_auth_router() -> APIRouter:
         # Never store the full key in session state — signed != encrypted
         # (05-RESEARCH.md Pitfall 4, T-05-04).
         request.session["principal"] = key[:11]
+        principal_obj = await resolve_principal(key)
+        request.session["role"] = principal_obj.role if principal_obj else "viewer"
         return RedirectResponse("/index.html", status_code=303)
 
     @router.post("/logout")

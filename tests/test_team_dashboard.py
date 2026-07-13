@@ -153,19 +153,42 @@ def test_require_session_gates_protected_route(mock_validate_key):
         assert response.json() == {"principal": posted_key[:11]}
 
 
+@patch("memex.mcp_server.auth_session.resolve_principal")
 @patch("memex.mcp_server.auth_session.validate_key")
-def test_require_role_is_permissive_stub(mock_validate_key):
-    """require_role() is an intentional permissive stub (T-05-05) until
-    Phase 02 wires real role checks in — any authenticated session (no
-    role/principal metadata beyond the truncated key prefix) passes.
-
-    This is the explicit tripwire test Phase 02 must intentionally
-    update/break when real roles land.
+def test_require_role_denies_insufficient_role(mock_validate_key, mock_resolve_principal):
+    """require_role("admin") rejects a session whose resolved role is below
+    admin — real role enforcement, not the old permissive stub (T-05-05
+    resolved: session role now comes from Phase 02's resolve_principal()).
     """
+    from memex.graph.schema import Principal
+
     app = _build_standalone_app()
 
     with TestClient(app) as client:
         mock_validate_key.return_value = True
+        mock_resolve_principal.return_value = Principal(principal_id="someuser", role="viewer")
+        login_response = client.post(
+            "/login",
+            data={"key": "mx_someuser12345"},
+            follow_redirects=False,
+        )
+        assert login_response.status_code == 303
+
+        response = client.get("/_protected_role")
+        assert response.status_code == 403
+
+
+@patch("memex.mcp_server.auth_session.resolve_principal")
+@patch("memex.mcp_server.auth_session.validate_key")
+def test_require_role_allows_sufficient_role(mock_validate_key, mock_resolve_principal):
+    """require_role("admin") allows a session whose resolved role is admin."""
+    from memex.graph.schema import Principal
+
+    app = _build_standalone_app()
+
+    with TestClient(app) as client:
+        mock_validate_key.return_value = True
+        mock_resolve_principal.return_value = Principal(principal_id="someuser", role="admin")
         login_response = client.post(
             "/login",
             data={"key": "mx_someuser12345"},
@@ -175,6 +198,22 @@ def test_require_role_is_permissive_stub(mock_validate_key):
 
         response = client.get("/_protected_role")
         assert response.status_code == 200
+
+
+@patch("memex.mcp_server.auth_session.resolve_principal")
+@patch("memex.mcp_server.auth_session.validate_key")
+def test_login_defaults_to_viewer_role_when_no_principal(mock_validate_key, mock_resolve_principal):
+    """A key with no registered Principal (e.g. legacy/unregistered) fails
+    safe to role="viewer" rather than crashing or defaulting to admin."""
+    app = _build_standalone_app()
+
+    with TestClient(app) as client:
+        mock_validate_key.return_value = True
+        mock_resolve_principal.return_value = None
+        client.post("/login", data={"key": "mx_someuser12345"}, follow_redirects=False)
+
+        response = client.get("/_protected_role")
+        assert response.status_code == 403
 
 
 # ---------------------------------------------------------------------------
