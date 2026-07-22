@@ -90,6 +90,6 @@
     "@types/vscode": "^1.75.0",
     "@types/node": "^26.1.1",
     "typescript": "^6.0.3",
-    "esbuild": "^0.28.0"
+    "esbuild": "^0.28.1"
   }
 }
