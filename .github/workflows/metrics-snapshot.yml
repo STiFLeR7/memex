@@ -17,7 +17,12 @@ jobs:
 
       - name: Snapshot traffic + downloads
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # The traffic/insights API (/repos/.../traffic/*) rejects the default
+          # GITHUB_TOKEN outright ("Resource not accessible by integration") -
+          # it only accepts a classic PAT with the `repo` scope from a human
+          # account, regardless of this workflow's `permissions:` block. See
+          # https://docs.github.com/rest/metrics/traffic.
+          GH_TOKEN: ${{ secrets.TRAFFIC_PAT }}
         run: |
           set -euo pipefail
           mkdir -p metrics
