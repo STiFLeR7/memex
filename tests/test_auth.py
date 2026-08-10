@@ -10,7 +10,8 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from memex.auth.providers import AuthProvider, OIDCAuthProvider, SessionAuthProvider
+from memex.auth.providers import OIDCAuthProvider, SessionAuthProvider
+from memex.config import Config
 
 
 @pytest.mark.asyncio
@@ -41,3 +42,35 @@ def test_auth_provider_is_a_protocol_with_required_methods():
         assert hasattr(cls, "resolve_principal_for_key")
         assert hasattr(cls, "login_redirect")
         assert hasattr(cls, "logout")
+
+
+def test_default_config_has_session_dashboard_provider():
+    """No auth: block in config.yaml == v0.7.0's only behavior (session),
+    per NET-11-style backward-compat: absence of new config must not change
+    existing deployments."""
+    config = Config(
+        neo4j_uri="bolt://x", neo4j_user="x", neo4j_password="x", gemini_api_key="x"
+    )
+    assert config.auth.dashboard_provider == "session"
+
+
+def test_config_accepts_oidc_dashboard_provider():
+    config = Config(
+        neo4j_uri="bolt://x",
+        neo4j_user="x",
+        neo4j_password="x",
+        gemini_api_key="x",
+        auth={"dashboard_provider": "oidc"},
+    )
+    assert config.auth.dashboard_provider == "oidc"
+
+
+def test_config_rejects_unknown_dashboard_provider():
+    with pytest.raises(Exception):
+        Config(
+            neo4j_uri="bolt://x",
+            neo4j_user="x",
+            neo4j_password="x",
+            gemini_api_key="x",
+            auth={"dashboard_provider": "carrier-pigeon"},
+        )

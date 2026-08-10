@@ -4,7 +4,7 @@ import subprocess
 import yaml
 from pathlib import Path
 from pydantic import BaseModel, Field
-from typing import Optional, List, Dict
+from typing import Optional, List, Dict, Literal
 from urllib.parse import urlparse
 from dotenv import load_dotenv
 
@@ -144,6 +144,14 @@ class RetrievalConfig(BaseModel):
     contradiction_similarity_threshold: float = 0.85  # MCP-write intent-confirmation threshold (Phase 9)
 
 
+class AuthConfig(BaseModel):
+    """v0.8.0 Pillar B — governs ONLY the dashboard's session/browser login
+    flow. Bearer-token auth (Depends(require_principal) in
+    memex/mcp_server/http.py) has no config knob here; it isn't a choice."""
+
+    dashboard_provider: Literal["session", "oidc"] = "session"
+
+
 class Config(BaseModel):
     neo4j_uri: str
     neo4j_user: str
@@ -189,6 +197,9 @@ class Config(BaseModel):
 
     # Phase 7 — composite-reranker / RRF / conflict-detection knobs.
     retrieval: RetrievalConfig = Field(default_factory=RetrievalConfig)
+
+    # v0.8.0 Pillar B — dashboard/browser auth provider selection.
+    auth: AuthConfig = Field(default_factory=AuthConfig)
 
     def harness_config(self, harness: Optional[str]) -> HarnessConfig:
         """Resolve the HarnessConfig for ``harness``, falling back to the
