@@ -87,6 +87,15 @@ def estimate_naive_tokens(
         logger.warning(f"Error during estimate_naive_tokens for {tool_name}: {e}")
     return None
 
+# v0.8.0 Pillar A — normalization for real clientInfo.name strings observed
+# from live MCP clients that don't exact-match a config.yaml harness key.
+# Deliberately starts near-empty: Config.harness_config()'s own `default`
+# fallback already handles any unmapped name safely, so entries are added
+# here only once a real client's exact string is confirmed to differ from
+# its harness key (e.g. if a client identifies itself as "Claude Code" with
+# different casing, or "gemini" instead of "gemini-cli") — not guessed.
+CLIENT_NAME_MAP: dict[str, str] = {}
+
 def detect_agent(client_info_name: Optional[str] = None) -> str:
     """
     1. If client_info_name is set and recognised → return it.
@@ -94,7 +103,8 @@ def detect_agent(client_info_name: Optional[str] = None) -> str:
     3. Return "unknown".
     """
     if client_info_name:
-        return client_info_name[:64]
+        normalized = CLIENT_NAME_MAP.get(client_info_name, client_info_name)
+        return normalized[:64]
 
     # Try context variable first if we are inside an MCP request
     try:
@@ -103,7 +113,8 @@ def detect_agent(client_info_name: Optional[str] = None) -> str:
         if ctx and ctx.session and ctx.session.client_params:
             name = ctx.session.client_params.clientInfo.name
             if name:
-                return name[:64]
+                logger.debug("MCP clientInfo.name observed: %r", name)
+                return CLIENT_NAME_MAP.get(name, name)[:64]
     except Exception:
         pass
 
