@@ -225,3 +225,73 @@ All four carry regression tests. No critical findings.
 3. **Pre-condition feedback window** — the plan's mandated triage of post-article issues
    (and a possible v0.5.2 patch) was not part of this engineering pass and remains a gate
    before the release is tagged and published.
+
+# memex Audit Report — v0.7.0 (Network)
+
+> Audit conducted 2026-08-10, ahead of scoping v0.8.0 "Trust". Verified every phase's
+> success criteria against the live codebase (not against `ROADMAP.md`'s own self-reported
+> checkmarks) and ran the full offline test suite end-to-end. Closes deferred item #2 from
+> the v0.6.0 section above, which had gone stale: per-client harness attribution shipped in
+> v0.7.0 Phase 01 and is verified live below, not deferred.
+
+## What was verified (not rebuilt)
+
+| v0.7.0 component | Location | Verdict |
+|---|---|---|
+| `project_id` three-step resolver (remote → `.memex/project_id` → none) | `config.py::resolve_project_id` | Present, dual-key scoping confirmed through `queries.py`/`tools_read.py`/`/graph`/`/stats` |
+| Per-harness attribution end-to-end (`clientInfo` → `Decision.harness`/`AgentSession`) | `graph/telemetry.py::detect_agent`, `config.py::harness_config` | **Live since Phase 01** — reads `request_ctx`'s `clientInfo.name` for both transports, resolves against `config.yaml` harness keys. Confirmed by direct code read, not assumed. |
+| `Principal`/role model, hashed bearer keys, `/graph` + `/stats` auth | `graph/schema.py`, `watcher/registry.py`, `mcp_server/http.py` | Present; `require_principal` gates all four bearer-auth routes |
+| `StreamableHTTPSessionManager(stateless=True)` transport migration | `mcp_server/http.py` | Present; per-request task creation confirmed at the call site |
+| `check_write_policy` role enforcement at all 4 write call sites | `tools_write.py`, `cluster_runner.py` | Present, including `role="system"` for the cluster engine |
+| Docker network isolation (no `ports:` on `neo4j` service) | `docker/docker-compose.team.yml` | **Verified structurally** — no `ports:` key present; only `memex-server` publishes `8000:8000` |
+| `principal_registry` volume separated from `neo4j_data`/`neo4j_logs` | `docker/docker-compose.team.yml` | Present, with an explicit comment documenting the rationale |
+| Session/role gating on `/team/*` dashboard routes | `mcp_server/auth_session.py`, `mcp_server/team.py` | Present — `require_role()` resolves real roles via `resolve_principal()` (fixed 2026-07-13, commit `38c9142`, closing the permissive-stub gap caught before release) |
+| `docker/smoke-test.sh` | — | Re-read, not re-run (requires a live Docker daemon); was live-verified 2026-07-13 per `ROADMAP.md` |
+| Publish pipeline on the `v0.7.0` tag | GitHub Actions | **Confirmed via `gh run list --workflow=publish.yml`** — green on first attempt, run `29227036640` |
+
+## Findings & fixes
+
+| ID | Severity | Finding | Resolution |
+|----|----------|---------|------------|
+| N1 | **High** | `pyproject.toml` pinned `fastapi>=0.136.1`, but Phase 05-01 (commit `ddc32b8`) made `mcp_server/http.py`'s test suite depend on `fastapi.routing.iter_route_contexts`, added in FastAPI **0.137.2**. A fresh install on the old floor pulls a FastAPI too old for code v0.7.0 itself shipped — reproduced locally: installed `0.136.1`, `ImportError: cannot import name 'iter_route_contexts'`. | Bumped floor to `fastapi>=0.137.2,<1.0.0`. |
+| N2 | Medium | `tests/test_extractor.py::test_extract_calls_resolves_caller_and_callee` fails with an empty result set (`extract_calls()` finds zero call sites) — not a Neo4j/environment failure like the rest of the suite's failures. Pre-existing v0.3.7 functionality, unrelated to any v0.7.0 phase; root cause not yet investigated (possible `tree-sitter-language-pack` version drift in this environment). | **Not fixed** — out of v0.7.0's scope and this audit's mandate. Flagged for separate triage; do not assume it's environment noise without checking. |
+| N3 | Low | Stale deferred claim in v0.6.0 section above (item #2, "per-client harness attribution... both write paths resolve the `default` harness") was never corrected after Phase 01 shipped it. It propagated into `WALKTHROUGH_v0.7.0.md`'s Phase 01 section and then into a hand-written `docs/PLAN-v0.8.0.md`'s "Gap 1," which assumed a much larger scope of missing work than actually existed. | Corrected here; v0.8.0's actual spec (`docs/superpowers/specs/2026-08-10-v0.8.0-trust-design.md`) rescoped Pillar A down accordingly before any code was written against the stale claim. |
+
+No critical findings. No regressions traced to any of the 7 phases' own changes.
+
+## Test posture (v0.7.0)
+
+- 541 test functions collected (up from 403 at v0.6.0).
+- Offline suite (system Python, no live Neo4j, `cluster` extra not installed):
+  **518 passed, 23 failed, 2 skipped** in 73 minutes.
+- Of the 23 failures, triaged individually:
+  - **7 require a live Neo4j instance** (`ServiceUnavailable`/connection-refused,
+    confirmed directly): `test_bidirectional`, `test_corroboration` (×3),
+    `test_mcp_queries_integration`, `test_phase1_e2e`, `test_pipeline_e2e`.
+  - **7 require the optional `cluster` extra** (`ModuleNotFoundError: graspologic`,
+    confirmed directly) — not installed in this environment; per `pyproject.toml`'s own
+    comment, needs MSVC Build Tools 2022 to compile on Windows: `test_cluster.py` (×5),
+    `test_cluster_runner.py` (×2).
+  - **5 timed out consistent with a Neo4j connection-retry hang** (not fully traced to
+    completion, but same failure shape as the confirmed 7 above): `test_phase2_e2e` (×2),
+    `test_predict_impact` (×3).
+  - **2 require live Neo4j by design** (Phase 03's own concurrent-write-safety tests
+    against a real database): `test_write_topology` (×2).
+  - **1 was N1 above** (`test_http_transport::test_notify_and_events`) — fixed.
+  - **1 is N2 above** (`test_extractor`) — flagged, not fixed, not environment-only.
+- No live-Neo4j corroboration/integration re-run was performed this session (no reachable
+  instance) — differs from v0.6.0's audit, which had one. Treat the 14 Neo4j-dependent
+  failures above as unverified-clean, not confirmed-passing, until re-run against a live
+  database.
+
+## Deferred (not in v0.7.0, carried into v0.8.0 scoping)
+
+1. **`tests/test_extractor.py` root cause (N2)** — needs investigation independent of any
+   v0.7.0/v0.8.0 phase before it can be called environment-only or a real regression.
+2. **Live-Neo4j re-verification of the 14 unverified-but-suspected-environment-only
+   failures** — this audit's biggest gap; do this before v0.8.0 ships, not just before
+   v0.9.0.
+3. Everything already listed as an explicit non-goal in `docs/internals/RBAC-v0.7.0.md`
+   (no SSO/OIDC, no cross-team federation, no fine-grained per-node ACLs, no
+   direct-Neo4j-bypass protection beyond network isolation, no key rotation) — unchanged,
+   re-confirmed still true by this audit, not re-litigated here.
