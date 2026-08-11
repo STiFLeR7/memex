@@ -139,24 +139,44 @@ class DecayScheduler:
         logger.info("Nightly graph maintenance task complete.")
 
     async def report_task(self) -> None:
-        """Generate and persist a governance report for every active repo.
+        """Generate and persist a governance report for every active repo,
+        then deliver it via any configured optional channels (v0.8.0).
 
         Weekly, best-effort, isolated per repo -- mirrors ``decay_task``'s
         existing per-repo ``tombstone_cold_nodes`` loop exactly (Phase 04 /
         NET-15): one repo's report-generation failure must not crash the
-        daemon or block this (or the nightly decay) job.
+        daemon or block this (or the nightly decay) job. Delivery failures
+        (Slack/email) are equally isolated -- a dead webhook must not stop
+        the local file from being written, and must not stop the NEXT
+        repo's report from generating. deliver_slack()/deliver_email() are
+        themselves already best-effort (never raise, see their own
+        docstrings in governance_report.py) -- this loop's try/except is a
+        second, outer layer of isolation for generate_report()/write_report()
+        specifically, not a substitute for those functions' own safety.
         """
         logger.info("Starting weekly governance report task...")
 
-        from memex.graph.governance_report import generate_report, write_report
+        from memex.config import get_config
+        from memex.graph.governance_report import (
+            deliver_email,
+            deliver_slack,
+            generate_report,
+            write_report,
+        )
         from memex.watcher.registry import get_active_repositories
 
+        config = get_config()
         succeeded = 0
         for repo in get_active_repositories():
             try:
                 report = await generate_report(repo.path)
                 await asyncio.to_thread(write_report, report)
                 succeeded += 1
+
+                if config.governance.slack_webhook:
+                    await deliver_slack(report, config.governance.slack_webhook)
+                if config.governance.email_smtp:
+                    await deliver_email(report, config.governance.email_smtp)
             except Exception:
                 logger.error(
                     "Report generation failed for repo %s", repo.path, exc_info=True

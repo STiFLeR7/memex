@@ -15,16 +15,24 @@ Plan 04-02's concern; scheduler + HTTP wiring is Plan 04-03's concern.
 
 from __future__ import annotations
 
+import asyncio
 import json
+import logging
+import smtplib
 from dataclasses import dataclass, field, asdict
 from datetime import datetime, timezone
+from email.mime.text import MIMEText
 from pathlib import Path
 from typing import Any, Optional
 
-from memex.config import get_config, canonical_repo_path
+import httpx
+
+from memex.config import get_config, canonical_repo_path, EmailSMTPConfig
 from memex.graph.stats import get_stats_data
 from memex.graph.confidence import current_confidence
 from memex.cli_review import _fetch_pending_decisions
+
+logger = logging.getLogger(__name__)
 
 # Consumed by Plan 04-02's file/markdown writers to flag the report as
 # containing aggregated, more-sensitive-than-any-single-node decision
@@ -201,3 +209,57 @@ def find_latest_report(repo_path: str) -> Optional[Path]:
     if not candidates:
         return None
     return candidates[-1]
+
+
+async def deliver_slack(report: GovernanceReport, webhook_url: str) -> bool:
+    """POSTs the report's Markdown rendering to a Slack incoming webhook.
+    Best-effort — returns False on any failure rather than raising, so a
+    dead webhook can never crash the weekly report_task() cron job
+    (mirrors decay_task's/report_task's own per-repo isolation pattern in
+    memex/graph/decay.py)."""
+    body = render_markdown(report)
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            response = await client.post(webhook_url, json={"text": body})
+            response.raise_for_status()
+        return True
+    except Exception:
+        logger.error(
+            "Slack governance-report delivery failed for %s", report.repo_path, exc_info=True
+        )
+        return False
+
+
+async def deliver_email(report: GovernanceReport, smtp_config: EmailSMTPConfig) -> bool:
+    """Sends the report's rendered Markdown via SMTP. Runs the blocking
+    smtplib call in a thread (asyncio.to_thread) so it never blocks the
+    event loop — same pattern report_task() already uses for
+    write_report() in memex/graph/decay.py. Best-effort, same as
+    deliver_slack: returns False rather than raising.
+
+    Takes the ``EmailSMTPConfig`` model directly (mirrors
+    ``deliver_slack(report, webhook_url: str)`` taking its config field's
+    type directly) rather than a plain dict, so callers pass
+    ``config.governance.email_smtp`` straight through with no
+    dict-bridging and no field-name drift."""
+
+    def _send() -> None:
+        body_md = render_markdown(report)
+        msg = MIMEText(body_md, "plain")
+        msg["Subject"] = f"memex Governance Report — {report.repo_path}"
+        msg["From"] = smtp_config.user
+        msg["To"] = ", ".join(smtp_config.to)
+
+        with smtplib.SMTP(smtp_config.host, smtp_config.port, timeout=10) as server:
+            server.starttls()
+            server.login(smtp_config.user, smtp_config.password)
+            server.sendmail(smtp_config.user, smtp_config.to, msg.as_string())
+
+    try:
+        await asyncio.to_thread(_send)
+        return True
+    except Exception:
+        logger.error(
+            "Email governance-report delivery failed for %s", report.repo_path, exc_info=True
+        )
+        return False

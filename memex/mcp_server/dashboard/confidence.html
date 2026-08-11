@@ -16,7 +16,9 @@
         <div id="toolbar">
             <span>memex Team Dashboard</span>
             <nav style="margin-left: 16px;">
-                <a href="/index.html">Activity</a>
+                <a href="/graph.html">Graph</a>
+                &nbsp;|&nbsp;
+                <a href="/activity.html">Activity</a>
                 &nbsp;|&nbsp;
                 <a href="/confidence.html">Confidence</a>
                 &nbsp;|&nbsp;
@@ -27,6 +29,12 @@
             </form>
         </div>
         <div id="workspace">
+            <div id="confidence-legend" style="margin: 16px; padding: 12px; border: 1px solid var(--panel-border, #3c3c3c);">
+                <strong>What this means:</strong> confidence decays over time unless a decision is
+                validated or corroborated by a later change. <span style="color: #4caf50;">&#9679; Green (&ge;0.8)</span>
+                — healthy. <span style="color: #ff9800;">&#9679; Amber (0.5&ndash;0.8)</span> — worth reviewing.
+                <span style="color: #f44336;">&#9679; Red (&lt;0.5)</span> — stale, validate or supersede it.
+            </div>
             <table id="confidence-table">
                 <thead>
                     <tr>
@@ -58,7 +66,10 @@
                 tr.appendChild(moduleCell);
 
                 const confCell = document.createElement("td");
-                confCell.textContent = row.avg_confidence;
+                confCell.textContent = row.avg_confidence.toFixed(2);
+                confCell.style.color = row.avg_confidence >= 0.8 ? "#4caf50"
+                    : row.avg_confidence >= 0.5 ? "#ff9800"
+                    : "#f44336";
                 tr.appendChild(confCell);
 
                 const countCell = document.createElement("td");

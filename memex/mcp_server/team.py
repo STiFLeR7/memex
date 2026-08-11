@@ -79,6 +79,15 @@ class ActivityByPrincipal(BaseModel):
 
 
 class TeamActivityResponse(BaseModel):
+    """WARNING for API consumers (incl. the v0.8.0 Task 7 dashboard):
+    `by_tool_client` and `by_principal` can reflect DIFFERENT time windows.
+    `by_tool_client` always uses the rolling `period_days` window — the
+    `since`/`until` query params never reach `TelemetryDB.get_stats()`.
+    `by_principal` uses `since`/`until` when either is given, and only falls
+    back to `period_days` otherwise. `period_days` itself only describes
+    `by_tool_client`'s window; when since/until are set it does not describe
+    `by_principal`'s actual range."""
+
     period_days: int
     attribution_available: bool
     by_tool_client: List[ActivityByTool]
@@ -154,12 +163,22 @@ def create_team_router(repo_root: str) -> APIRouter:
     @router.get("/activity", response_model=TeamActivityResponse)
     async def team_activity(
         days: int = 30,
+        # v0.8.0 Pillar C: explicit range narrows the per-principal query to
+        # a fixed window instead of the rolling `days` window, for teams with
+        # months of history who want e.g. "last sprint" rather than "last N days".
+        since: Optional[str] = None,
+        until: Optional[str] = None,
         principal: str = Depends(require_role("viewer")),
     ) -> TeamActivityResponse:
         canonical_repo = canonical_repo_path(repo_root)
 
         # Tool-client call volume (05-RESEARCH.md Pitfall 2 — this answers
-        # "which tool clients were used," not "who wrote what").
+        # "which tool clients were used," not "who wrote what"). Always uses
+        # the rolling `days` window — since/until intentionally do NOT reach
+        # get_stats() (out of scope; TelemetryDB has its own windowing
+        # semantics). See TeamActivityResponse's docstring: this means
+        # by_tool_client and by_principal can represent different windows
+        # when since/until are set.
         stats = TelemetryDB().get_stats(canonical_repo, days)
         by_tool_client = [
             ActivityByTool(
@@ -178,11 +197,26 @@ def create_team_router(repo_root: str) -> APIRouter:
         # explicit flag rather than a silently-empty chart passed off as
         # real data.
         client = await get_graph_client()
-        attribution_query = """
+
+        # Explicit since/until wins over the rolling `days` window when
+        # provided (v0.8.0 Pillar C). `n.created_at` is a native Neo4j
+        # datetime (same convention as the `days`-window clause below, which
+        # compares it directly against `datetime() - duration(...)`), so the
+        # incoming ISO date strings are cast with `datetime($since)` /
+        # `datetime($until)` rather than compared as raw strings.
+        if since or until:
+            time_filter = (
+                "AND ($since IS NULL OR n.created_at >= datetime($since))"
+                " AND ($until IS NULL OR n.created_at <= datetime($until))"
+            )
+        else:
+            time_filter = "AND coalesce(n.created_at, datetime()) >= datetime() - duration({days: $days})"
+
+        attribution_query = f"""
         MATCH (n:Entity)
         WHERE (n.type = 'Decision' OR n.name CONTAINS 'Decision' OR n.type = 'Problem' OR n.name CONTAINS 'Problem')
           AND n.repo_path = $repo
-          AND coalesce(n.created_at, datetime()) >= datetime() - duration({days: $days})
+          {time_filter}
           AND coalesce(n.harness, n.agent_id) IS NOT NULL
         RETURN
           coalesce(n.harness, n.agent_id) as principal,
@@ -191,7 +225,8 @@ def create_team_router(repo_root: str) -> APIRouter:
         ORDER BY principal ASC
         """
         attribution_res = await client.driver.execute_query(
-            attribution_query, params={"repo": canonical_repo, "days": days}
+            attribution_query,
+            params={"repo": canonical_repo, "days": days, "since": since, "until": until},
         )
         attribution_rows = [r.data() for r in attribution_res.records]
 
@@ -310,6 +345,10 @@ def create_team_router(repo_root: str) -> APIRouter:
     @router.get("/graph", response_model=GraphPayload)
     async def team_graph(
         project: Optional[str] = None,
+        # v0.8.0 Pillar C: cluster-level view is O(clusters) not O(modules) —
+        # keeps the dashboard graph responsive on large repos instead of
+        # rendering every Entity node.
+        cluster_only: bool = False,
         principal: str = Depends(require_role("viewer")),
     ) -> dict:
         # Session-gated equivalent of the unauthenticated /graph route
@@ -317,6 +356,6 @@ def create_team_router(repo_root: str) -> APIRouter:
         # must call this, never the bare /graph endpoint.
         client = await get_graph_client()
         canonical_repo = canonical_repo_path(repo_root)
-        return await fetch_graph_payload(client, canonical_repo, project)
+        return await fetch_graph_payload(client, canonical_repo, project, cluster_only=cluster_only)
 
     return router

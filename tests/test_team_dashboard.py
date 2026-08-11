@@ -520,3 +520,220 @@ def test_team_routes_use_require_role_viewer():
         ), f"{route.path} is not gated by require_role(...): {dependant_names}"
 
     assert seen_paths == expected_paths
+
+
+def test_activity_since_until_params_reach_cypher_query():
+    """?since=<ISO date>&until=<ISO date> narrows the per-principal
+    attribution Cypher query's created_at bound instead of the rolling
+    `days` window. Bypasses auth via a patched require_role so the test
+    exercises the query-building logic directly."""
+    mock_server = MagicMock(spec=Server)
+
+    async def _bypass_role(request=None):
+        return "test-principal"
+
+    with patch("memex.mcp_server.team.require_role", return_value=_bypass_role), patch(
+        "memex.mcp_server.team.TelemetryDB"
+    ) as mock_telemetry_cls, patch(
+        "memex.mcp_server.team.get_graph_client", new=AsyncMock()
+    ) as mock_get_client:
+        mock_telemetry_cls.return_value.get_stats.return_value = {"by_agent": []}
+        mock_client = AsyncMock()
+        mock_client.driver.execute_query = AsyncMock(return_value=MagicMock(records=[]))
+        mock_get_client.return_value = mock_client
+
+        app = create_app(mock_server, "/fake/repo")
+        with TestClient(app) as client:
+            client.get("/team/activity", params={"since": "2026-08-01", "until": "2026-08-10"})
+
+        called_params = mock_client.driver.execute_query.call_args.kwargs["params"]
+        assert called_params["since"] == "2026-08-01"
+        assert called_params["until"] == "2026-08-10"
+
+
+def test_activity_since_only_reaches_cypher_query():
+    """?since=<date> with no `until` still reaches the Cypher query params
+    (as since="...", until=None) — the asymmetric `IS NULL OR` clause must
+    not require both to be set."""
+    mock_server = MagicMock(spec=Server)
+
+    async def _bypass_role(request=None):
+        return "test-principal"
+
+    with patch("memex.mcp_server.team.require_role", return_value=_bypass_role), patch(
+        "memex.mcp_server.team.TelemetryDB"
+    ) as mock_telemetry_cls, patch(
+        "memex.mcp_server.team.get_graph_client", new=AsyncMock()
+    ) as mock_get_client:
+        mock_telemetry_cls.return_value.get_stats.return_value = {"by_agent": []}
+        mock_client = AsyncMock()
+        mock_client.driver.execute_query = AsyncMock(return_value=MagicMock(records=[]))
+        mock_get_client.return_value = mock_client
+
+        app = create_app(mock_server, "/fake/repo")
+        with TestClient(app) as client:
+            client.get("/team/activity", params={"since": "2026-08-01"})
+
+        called_params = mock_client.driver.execute_query.call_args.kwargs["params"]
+        assert called_params["since"] == "2026-08-01"
+        assert called_params["until"] is None
+
+
+def test_activity_until_only_reaches_cypher_query():
+    """?until=<date> with no `since` still reaches the Cypher query params
+    (as since=None, until="...") — the asymmetric `IS NULL OR` clause must
+    not require both to be set."""
+    mock_server = MagicMock(spec=Server)
+
+    async def _bypass_role(request=None):
+        return "test-principal"
+
+    with patch("memex.mcp_server.team.require_role", return_value=_bypass_role), patch(
+        "memex.mcp_server.team.TelemetryDB"
+    ) as mock_telemetry_cls, patch(
+        "memex.mcp_server.team.get_graph_client", new=AsyncMock()
+    ) as mock_get_client:
+        mock_telemetry_cls.return_value.get_stats.return_value = {"by_agent": []}
+        mock_client = AsyncMock()
+        mock_client.driver.execute_query = AsyncMock(return_value=MagicMock(records=[]))
+        mock_get_client.return_value = mock_client
+
+        app = create_app(mock_server, "/fake/repo")
+        with TestClient(app) as client:
+            client.get("/team/activity", params={"until": "2026-08-10"})
+
+        called_params = mock_client.driver.execute_query.call_args.kwargs["params"]
+        assert called_params["since"] is None
+        assert called_params["until"] == "2026-08-10"
+
+
+def test_graph_cluster_only_reduces_node_count():
+    """?cluster_only=true passes through to fetch_graph_payload and returns
+    only Cluster-level nodes/edges — O(clusters) not O(modules), matching
+    get_project_context's existing cluster hierarchy behaviour."""
+    mock_server = MagicMock(spec=Server)
+
+    async def _bypass_role(request=None):
+        return "test-principal"
+
+    with patch("memex.mcp_server.team.require_role", return_value=_bypass_role), patch(
+        "memex.mcp_server.team.fetch_graph_payload", new=AsyncMock(return_value={"nodes": [], "edges": []})
+    ) as mock_fetch:
+        app = create_app(mock_server, "/fake/repo")
+        with TestClient(app) as client:
+            client.get("/team/graph", params={"cluster_only": "true"})
+
+        assert mock_fetch.call_args.kwargs.get("cluster_only") is True
+
+
+async def test_fetch_graph_payload_cluster_only_filters_and_classifies():
+    """Lower-level test of fetch_graph_payload itself (not through the
+    router): (a) cluster_only=True adds the Cluster type filter to the raw
+    Cypher text sent to execute_query, and is absent when False; (b) a
+    Cluster-typed record returned by the mock is classified as
+    `"type": "Cluster"` in the final node output, not the 'Symbol' fallback
+    (the bug this commit fixes)."""
+    from memex.mcp_server.graph_query import fetch_graph_payload
+
+    mock_cluster_record = MagicMock()
+    mock_cluster_record.data.return_value = {
+        "id": "cluster-1",
+        "name": "auth-subsystem",
+        "raw_type": "Cluster",
+        "summary": "auth cluster",
+        "created_at": "2026-05-23T12:00:00",
+        "status": "",
+        "scope": "",
+        "source_commit": "",
+    }
+    mock_nodes_res = MagicMock()
+    mock_nodes_res.records = [mock_cluster_record]
+    mock_edges_res = MagicMock()
+    mock_edges_res.records = []
+
+    mock_client = MagicMock()
+    mock_client.driver.execute_query = AsyncMock(side_effect=[mock_nodes_res, mock_edges_res])
+
+    result = await fetch_graph_payload(mock_client, "/fake/repo", None, cluster_only=True)
+
+    nodes_query = mock_client.driver.execute_query.call_args_list[0].args[0]
+    edges_query = mock_client.driver.execute_query.call_args_list[1].args[0]
+    assert "n.type = 'Cluster'" in nodes_query
+    assert "n1.type = 'Cluster'" in edges_query
+    assert "n2.type = 'Cluster'" in edges_query
+
+    assert result["nodes"][0]["type"] == "Cluster"
+
+    mock_client2 = MagicMock()
+    mock_client2.driver.execute_query = AsyncMock(side_effect=[mock_nodes_res, mock_edges_res])
+    await fetch_graph_payload(mock_client2, "/fake/repo", None, cluster_only=False)
+    nodes_query_default = mock_client2.driver.execute_query.call_args_list[0].args[0]
+    edges_query_default = mock_client2.driver.execute_query.call_args_list[1].args[0]
+    assert "Cluster" not in nodes_query_default
+    assert "Cluster" not in edges_query_default
+
+
+# ---------------------------------------------------------------------------
+# Task 7 — /activity.html frontend page
+# ---------------------------------------------------------------------------
+
+
+def test_activity_page_served():
+    """GET /activity.html exists and serves HTML."""
+    mock_server = MagicMock(spec=Server)
+    app = create_app(mock_server, "/fake/repo")
+
+    with TestClient(app) as client:
+        response = client.get("/activity.html")
+
+    assert response.status_code == 200
+    assert "text/html" in response.headers["content-type"]
+
+
+# ---------------------------------------------------------------------------
+# Task 8 — confidence legend + health indicator
+# ---------------------------------------------------------------------------
+
+
+def test_confidence_page_includes_legend():
+    """The confidence page explains what the numbers mean — v0.8.0 Pillar C
+    fix for the source plan's identified friction point."""
+    mock_server = MagicMock(spec=Server)
+    app = create_app(mock_server, "/fake/repo")
+    with TestClient(app) as client:
+        response = client.get("/confidence.html")
+    assert response.status_code == 200
+    assert "healthy" in response.text.lower() or "confidence-legend" in response.text
+
+
+# ---------------------------------------------------------------------------
+# Task 9 — conflict resolution guidance
+# ---------------------------------------------------------------------------
+
+
+def test_conflicts_page_includes_resolution_guidance():
+    mock_server = MagicMock(spec=Server)
+    app = create_app(mock_server, "/fake/repo")
+    with TestClient(app) as client:
+        response = client.get("/conflicts.html")
+    assert response.status_code == 200
+    assert "record_decision" in response.text
+    # Lock in correct id placement — supersedes uses the OTHER conflicting
+    # decision's id, corroborates uses THIS row's own id. A future swap of
+    # these two variables must fail this test, not ship silently.
+    assert 'supersedes="${otherId}"' in response.text
+    assert 'corroborates="${row.decision_id}"' in response.text
+
+
+# ---------------------------------------------------------------------------
+# Task 10 — key-distribution UX on /login
+# ---------------------------------------------------------------------------
+
+
+def test_login_page_links_key_generation_docs():
+    mock_server = MagicMock(spec=Server)
+    app = create_app(mock_server, "/fake/repo")
+    with TestClient(app) as client:
+        response = client.get("/login.html")
+    assert response.status_code == 200
+    assert "TEAM-DEPLOY.md" in response.text

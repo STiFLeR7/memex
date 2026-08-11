@@ -16,7 +16,9 @@
         <div id="toolbar">
             <span>memex Team Dashboard</span>
             <nav style="margin-left: 16px;">
-                <a href="/index.html">Activity</a>
+                <a href="/graph.html">Graph</a>
+                &nbsp;|&nbsp;
+                <a href="/activity.html">Activity</a>
                 &nbsp;|&nbsp;
                 <a href="/confidence.html">Confidence</a>
                 &nbsp;|&nbsp;
@@ -33,6 +35,7 @@
                         <th>Decision</th>
                         <th>Module</th>
                         <th>Conflicts With</th>
+                        <th>How to resolve</th>
                     </tr>
                 </thead>
                 <tbody id="conflicts-tbody"></tbody>
@@ -63,6 +66,15 @@
                 const conflictsCell = document.createElement("td");
                 conflictsCell.textContent = (row.conflicts_with || []).join(", ");
                 tr.appendChild(conflictsCell);
+
+                const resolveCell = document.createElement("td");
+                resolveCell.style.fontFamily = "monospace";
+                resolveCell.style.fontSize = "0.85em";
+                const otherId = (row.conflicts_with || [])[0] || "<other_id>";
+                resolveCell.textContent =
+                    `record_decision(supersedes="${otherId}", text="<updated text>") ` +
+                    `or record_decision(corroborates="${row.decision_id}") to confirm one`;
+                tr.appendChild(resolveCell);
 
                 tbody.appendChild(tr);
             });

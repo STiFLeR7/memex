@@ -4,7 +4,7 @@ import subprocess
 import yaml
 from pathlib import Path
 from pydantic import BaseModel, Field
-from typing import Optional, List, Dict
+from typing import Optional, List, Dict, Literal
 from urllib.parse import urlparse
 from dotenv import load_dotenv
 
@@ -144,6 +144,32 @@ class RetrievalConfig(BaseModel):
     contradiction_similarity_threshold: float = 0.85  # MCP-write intent-confirmation threshold (Phase 9)
 
 
+class AuthConfig(BaseModel):
+    """v0.8.0 Pillar B — governs ONLY the dashboard's session/browser login
+    flow. Bearer-token auth (Depends(require_principal) in
+    memex/mcp_server/http.py) has no config knob here; it isn't a choice."""
+
+    dashboard_provider: Literal["session", "oidc"] = "session"
+
+
+class EmailSMTPConfig(BaseModel):
+    host: str
+    port: int = 587
+    user: str
+    password: str
+    to: List[str]
+
+
+class GovernanceConfig(BaseModel):
+    """v0.8.0 — optional delivery channels for the weekly governance report
+    (Phase 04's report_task, memex/graph/decay.py). Both fields optional;
+    when neither is set, report generation is byte-for-byte unchanged from
+    v0.7.0 (local .memex/reports/ file only)."""
+
+    slack_webhook: Optional[str] = None
+    email_smtp: Optional[EmailSMTPConfig] = None
+
+
 class Config(BaseModel):
     neo4j_uri: str
     neo4j_user: str
@@ -189,6 +215,12 @@ class Config(BaseModel):
 
     # Phase 7 — composite-reranker / RRF / conflict-detection knobs.
     retrieval: RetrievalConfig = Field(default_factory=RetrievalConfig)
+
+    # v0.8.0 Pillar B — dashboard/browser auth provider selection.
+    auth: AuthConfig = Field(default_factory=AuthConfig)
+
+    # v0.8.0 — governance report delivery (Slack webhook / SMTP email).
+    governance: GovernanceConfig = Field(default_factory=GovernanceConfig)
 
     def harness_config(self, harness: Optional[str]) -> HarnessConfig:
         """Resolve the HarnessConfig for ``harness``, falling back to the

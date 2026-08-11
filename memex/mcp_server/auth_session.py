@@ -86,14 +86,24 @@ def require_role(min_role: str = "viewer"):
 
 
 def create_auth_router() -> APIRouter:
-    """Builds the `/login` + `/logout` router, reusing the existing
-    `mx_...` bearer-key registry (`validate_key`) as the identity source —
-    no new credential type is introduced.
+    """Builds the `/login` + `/logout` router. Branches on
+    `Config.auth.dashboard_provider` (v0.8.0 Pillar B) — `"session"` (the
+    default) reuses the exact v0.7.0 `mx_...` bearer-key-as-credential flow
+    unchanged; `"oidc"` returns 501 with a clear message rather than
+    silently falling back to session auth or crashing.
     """
+    from memex.config import get_config
+
     router = APIRouter()
 
     @router.post("/login")
     async def login(request: Request, key: str = Form(...)):
+        provider = get_config().auth.dashboard_provider
+        if provider == "oidc":
+            raise HTTPException(
+                status_code=501,
+                detail="OIDC provider not yet implemented — coming in v0.9.0",
+            )
         if not validate_key(key):
             raise HTTPException(status_code=401, detail="Invalid key")
         # Never store the full key in session state — signed != encrypted
@@ -105,6 +115,12 @@ def create_auth_router() -> APIRouter:
 
     @router.post("/logout")
     async def logout(request: Request):
+        provider = get_config().auth.dashboard_provider
+        if provider == "oidc":
+            raise HTTPException(
+                status_code=501,
+                detail="OIDC provider not yet implemented — coming in v0.9.0",
+            )
         request.session.clear()
         return RedirectResponse("/login.html", status_code=303)
 

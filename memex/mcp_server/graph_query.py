@@ -17,6 +17,15 @@ signature: a third `project: Optional[str] = None` parameter was added
 `test_get_graph_with_project_query_param`, byte-for-byte). It defaults to
 `None`, so any caller written against the plan's two-argument shape still
 works unchanged.
+
+v0.8.0 Pillar C added a fourth `cluster_only: bool = False` parameter. When
+`True`, both queries are restricted to `(:Entity {type: 'Cluster'})` nodes
+(same convention as `memex/graph/cluster_runner.py` /
+`memex/graph/cluster_summary.py`) — inter-cluster edges only, i.e. an edge
+is included only when BOTH endpoints are Cluster nodes. Defaults to `False`,
+which produces byte-for-byte identical query text to before this parameter
+existed, so `/graph` (in `http.py`), which never passes this argument,
+needs no changes.
 """
 
 from __future__ import annotations
@@ -24,18 +33,33 @@ from __future__ import annotations
 from typing import Any, Optional
 
 
-async def fetch_graph_payload(client: Any, canonical_repo: str, project: Optional[str] = None) -> dict:
+async def fetch_graph_payload(
+    client: Any, canonical_repo: str, project: Optional[str] = None, cluster_only: bool = False
+) -> dict:
     """Fetches nodes + edges for the graph view, scoped by `project` (if
     given) or `canonical_repo` otherwise. Returns `{"nodes": [...], "edges": [...]}`.
+
+    When `cluster_only` is True, only `(:Entity {type: 'Cluster'})` nodes are
+    returned, and only inter-cluster edges (both endpoints are Cluster
+    nodes) — O(clusters) not O(modules), for large-graph dashboard
+    performance (v0.8.0 Pillar C).
 
     Raises on query failure — callers are responsible for their own
     try/except + error response shaping (matches the pre-extraction inline
     behavior in `http.py`'s `/graph` route).
     """
+    # Appended inline to the last WHERE-clause line of each query (rather
+    # than on their own line) so that cluster_only=False produces
+    # byte-for-byte identical query text to before this parameter existed —
+    # an empty string spliced onto the end of an existing line, not a new
+    # blank line.
+    cluster_filter_nodes = " AND n.type = 'Cluster'" if cluster_only else ""
+    cluster_filter_edges = " AND n1.type = 'Cluster' AND n2.type = 'Cluster'" if cluster_only else ""
+
     # Query nodes
-    nodes_query = """
+    nodes_query = f"""
     MATCH (n:Entity)
-    WHERE ($project IS NOT NULL AND n.project_id = $project) OR ($project IS NULL AND n.repo_path = $repo)
+    WHERE ($project IS NOT NULL AND n.project_id = $project) OR ($project IS NULL AND n.repo_path = $repo){cluster_filter_nodes}
     RETURN
       elementId(n) as id,
       n.name as name,
@@ -48,12 +72,12 @@ async def fetch_graph_payload(client: Any, canonical_repo: str, project: Optiona
     """
 
     # Query relationships
-    edges_query = """
+    edges_query = f"""
     MATCH (n1:Entity)-[r]->(n2:Entity)
     WHERE (($project IS NOT NULL AND n1.project_id = $project) OR ($project IS NULL AND n1.repo_path = $repo))
       AND (($project IS NOT NULL AND n2.project_id = $project) OR ($project IS NULL AND n2.repo_path = $repo))
       AND r.expired_at IS NULL
-      AND r.valid_until IS NULL
+      AND r.valid_until IS NULL{cluster_filter_edges}
     RETURN
       elementId(n1) as source,
       elementId(n2) as target,
@@ -75,6 +99,13 @@ async def fetch_graph_payload(client: Any, canonical_repo: str, project: Optiona
             node_type = 'Decision'
         elif raw_type == 'Problem':
             node_type = 'Problem'
+        elif raw_type == 'Cluster':
+            # v0.8.0 Pillar C: Cluster nodes have arbitrary summary-derived
+            # names (memex/graph/cluster_runner.py) — neither
+            # 'Decision'-containing nor file-extension-suffixed — so this
+            # must be checked before the Module/Symbol fallback chain, not
+            # left to fall through to 'Symbol'.
+            node_type = 'Cluster'
         elif raw_type == 'Module' or any(name.endswith(ext) for ext in ['.py', '.js', '.ts', '.tsx', '.jsx', '.html', '.css', '.json']):
             node_type = 'Module'
         else:
