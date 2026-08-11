@@ -120,3 +120,72 @@ async def test_no_delivery_config_generates_local_only():
     )
     assert config.governance.slack_webhook is None
     assert config.governance.email_smtp is None
+
+
+@pytest.mark.asyncio
+async def test_report_task_calls_slack_when_configured():
+    from memex.graph.decay import DecayScheduler
+
+    fake_repo = MagicMock(path="/fake/repo")
+    with patch("memex.watcher.registry.get_active_repositories", return_value=[fake_repo]), patch(
+        "memex.graph.governance_report.generate_report", new=AsyncMock(return_value=_sample_report())
+    ), patch("memex.graph.governance_report.write_report"), patch(
+        "memex.graph.governance_report.deliver_slack", new=AsyncMock(return_value=True)
+    ) as mock_slack, patch("memex.config.get_config") as mock_get_config:
+        mock_get_config.return_value.governance.slack_webhook = "https://hooks.slack.test/x"
+        mock_get_config.return_value.governance.email_smtp = None
+
+        scheduler = DecayScheduler()
+        await scheduler.report_task()
+
+    mock_slack.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_report_task_calls_email_when_configured():
+    from memex.graph.decay import DecayScheduler
+    from memex.config import EmailSMTPConfig
+
+    fake_repo = MagicMock(path="/fake/repo")
+    fake_smtp = EmailSMTPConfig(host="smtp.x.com", user="a@x.com", password="p", to=["b@x.com"])
+    with patch("memex.watcher.registry.get_active_repositories", return_value=[fake_repo]), patch(
+        "memex.graph.governance_report.generate_report", new=AsyncMock(return_value=_sample_report())
+    ), patch("memex.graph.governance_report.write_report"), patch(
+        "memex.graph.governance_report.deliver_email", new=AsyncMock(return_value=True)
+    ) as mock_email, patch("memex.config.get_config") as mock_get_config:
+        mock_get_config.return_value.governance.slack_webhook = None
+        mock_get_config.return_value.governance.email_smtp = fake_smtp
+
+        scheduler = DecayScheduler()
+        await scheduler.report_task()
+
+    mock_email.assert_called_once()
+    # Confirm the EmailSMTPConfig instance is passed through directly, not a dict.
+    call_args = mock_email.call_args
+    assert call_args.args[1] is fake_smtp or call_args.kwargs.get("smtp_config") is fake_smtp
+
+
+@pytest.mark.asyncio
+async def test_report_task_no_delivery_when_unconfigured():
+    """No governance.slack_webhook or governance.email_smtp configured ->
+    neither delivery function is called, write_report() alone runs, exactly
+    v0.7.0's behavior."""
+    from memex.graph.decay import DecayScheduler
+
+    fake_repo = MagicMock(path="/fake/repo")
+    with patch("memex.watcher.registry.get_active_repositories", return_value=[fake_repo]), patch(
+        "memex.graph.governance_report.generate_report", new=AsyncMock(return_value=_sample_report())
+    ), patch("memex.graph.governance_report.write_report") as mock_write, patch(
+        "memex.graph.governance_report.deliver_slack", new=AsyncMock()
+    ) as mock_slack, patch(
+        "memex.graph.governance_report.deliver_email", new=AsyncMock()
+    ) as mock_email, patch("memex.config.get_config") as mock_get_config:
+        mock_get_config.return_value.governance.slack_webhook = None
+        mock_get_config.return_value.governance.email_smtp = None
+
+        scheduler = DecayScheduler()
+        await scheduler.report_task()
+
+    mock_write.assert_called_once()
+    mock_slack.assert_not_called()
+    mock_email.assert_not_called()
