@@ -345,6 +345,10 @@ def create_team_router(repo_root: str) -> APIRouter:
     @router.get("/graph", response_model=GraphPayload)
     async def team_graph(
         project: Optional[str] = None,
+        # v0.8.0 Pillar C: cluster-level view is O(clusters) not O(modules) —
+        # keeps the dashboard graph responsive on large repos instead of
+        # rendering every Entity node.
+        cluster_only: bool = False,
         principal: str = Depends(require_role("viewer")),
     ) -> dict:
         # Session-gated equivalent of the unauthenticated /graph route
@@ -352,6 +356,6 @@ def create_team_router(repo_root: str) -> APIRouter:
         # must call this, never the bare /graph endpoint.
         client = await get_graph_client()
         canonical_repo = canonical_repo_path(repo_root)
-        return await fetch_graph_payload(client, canonical_repo, project)
+        return await fetch_graph_payload(client, canonical_repo, project, cluster_only=cluster_only)
 
     return router

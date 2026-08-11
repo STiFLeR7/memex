@@ -605,3 +605,22 @@ def test_activity_until_only_reaches_cypher_query():
         called_params = mock_client.driver.execute_query.call_args.kwargs["params"]
         assert called_params["since"] is None
         assert called_params["until"] == "2026-08-10"
+
+
+def test_graph_cluster_only_reduces_node_count():
+    """?cluster_only=true passes through to fetch_graph_payload and returns
+    only Cluster-level nodes/edges — O(clusters) not O(modules), matching
+    get_project_context's existing cluster hierarchy behaviour."""
+    mock_server = MagicMock(spec=Server)
+
+    async def _bypass_role(request=None):
+        return "test-principal"
+
+    with patch("memex.mcp_server.team.require_role", return_value=_bypass_role), patch(
+        "memex.mcp_server.team.fetch_graph_payload", new=AsyncMock(return_value={"nodes": [], "edges": []})
+    ) as mock_fetch:
+        app = create_app(mock_server, "/fake/repo")
+        with TestClient(app) as client:
+            client.get("/team/graph", params={"cluster_only": "true"})
+
+        assert mock_fetch.call_args.kwargs.get("cluster_only") is True
