@@ -723,3 +723,17 @@ def test_conflicts_page_includes_resolution_guidance():
     # these two variables must fail this test, not ship silently.
     assert 'supersedes="${otherId}"' in response.text
     assert 'corroborates="${row.decision_id}"' in response.text
+
+
+# ---------------------------------------------------------------------------
+# Task 10 — key-distribution UX on /login
+# ---------------------------------------------------------------------------
+
+
+def test_login_page_links_key_generation_docs():
+    mock_server = MagicMock(spec=Server)
+    app = create_app(mock_server, "/fake/repo")
+    with TestClient(app) as client:
+        response = client.get("/login.html")
+    assert response.status_code == 200
+    assert "TEAM-DEPLOY.md" in response.text
