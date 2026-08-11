@@ -152,6 +152,15 @@ class AuthConfig(BaseModel):
     dashboard_provider: Literal["session", "oidc"] = "session"
 
 
+class GovernanceConfig(BaseModel):
+    """v0.8.0 — optional delivery channels for the weekly governance report
+    (Phase 04's report_task, memex/graph/decay.py). Both fields optional;
+    when neither is set, report generation is byte-for-byte unchanged from
+    v0.7.0 (local .memex/reports/ file only)."""
+
+    slack_webhook: Optional[str] = None
+
+
 class Config(BaseModel):
     neo4j_uri: str
     neo4j_user: str
@@ -200,6 +209,9 @@ class Config(BaseModel):
 
     # v0.8.0 Pillar B — dashboard/browser auth provider selection.
     auth: AuthConfig = Field(default_factory=AuthConfig)
+
+    # v0.8.0 — governance report delivery (Slack webhook / SMTP email).
+    governance: GovernanceConfig = Field(default_factory=GovernanceConfig)
 
     def harness_config(self, harness: Optional[str]) -> HarnessConfig:
         """Resolve the HarnessConfig for ``harness``, falling back to the

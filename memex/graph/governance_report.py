@@ -16,10 +16,13 @@ Plan 04-02's concern; scheduler + HTTP wiring is Plan 04-03's concern.
 from __future__ import annotations
 
 import json
+import logging
 from dataclasses import dataclass, field, asdict
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
+
+import httpx
 
 from memex.config import get_config, canonical_repo_path
 from memex.graph.stats import get_stats_data
@@ -201,3 +204,22 @@ def find_latest_report(repo_path: str) -> Optional[Path]:
     if not candidates:
         return None
     return candidates[-1]
+
+
+async def deliver_slack(report: GovernanceReport, webhook_url: str) -> bool:
+    """POSTs the report's Markdown rendering to a Slack incoming webhook.
+    Best-effort — returns False on any failure rather than raising, so a
+    dead webhook can never crash the weekly report_task() cron job
+    (mirrors decay_task's/report_task's own per-repo isolation pattern in
+    memex/graph/decay.py)."""
+    body = render_markdown(report)
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            response = await client.post(webhook_url, json={"text": body})
+            response.raise_for_status()
+        return True
+    except Exception:
+        logging.getLogger(__name__).error(
+            "Slack governance-report delivery failed for %s", report.repo_path, exc_info=True
+        )
+        return False
