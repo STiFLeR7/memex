@@ -704,3 +704,17 @@ def test_confidence_page_includes_legend():
         response = client.get("/confidence.html")
     assert response.status_code == 200
     assert "healthy" in response.text.lower() or "confidence-legend" in response.text
+
+
+# ---------------------------------------------------------------------------
+# Task 9 — conflict resolution guidance
+# ---------------------------------------------------------------------------
+
+
+def test_conflicts_page_includes_resolution_guidance():
+    mock_server = MagicMock(spec=Server)
+    app = create_app(mock_server, "/fake/repo")
+    with TestClient(app) as client:
+        response = client.get("/conflicts.html")
+    assert response.status_code == 200
+    assert "record_decision" in response.text
