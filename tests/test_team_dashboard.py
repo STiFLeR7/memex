@@ -718,3 +718,8 @@ def test_conflicts_page_includes_resolution_guidance():
         response = client.get("/conflicts.html")
     assert response.status_code == 200
     assert "record_decision" in response.text
+    # Lock in correct id placement — supersedes uses the OTHER conflicting
+    # decision's id, corroborates uses THIS row's own id. A future swap of
+    # these two variables must fail this test, not ship silently.
+    assert 'supersedes="${otherId}"' in response.text
+    assert 'corroborates="${row.decision_id}"' in response.text
