@@ -15,10 +15,13 @@ Plan 04-02's concern; scheduler + HTTP wiring is Plan 04-03's concern.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
+import smtplib
 from dataclasses import dataclass, field, asdict
 from datetime import datetime, timezone
+from email.mime.text import MIMEText
 from pathlib import Path
 from typing import Any, Optional
 
@@ -223,5 +226,34 @@ async def deliver_slack(report: GovernanceReport, webhook_url: str) -> bool:
     except Exception:
         logger.error(
             "Slack governance-report delivery failed for %s", report.repo_path, exc_info=True
+        )
+        return False
+
+
+async def deliver_email(report: GovernanceReport, smtp_config: dict) -> bool:
+    """Sends the report's rendered Markdown via SMTP. Runs the blocking
+    smtplib call in a thread (asyncio.to_thread) so it never blocks the
+    event loop — same pattern report_task() already uses for
+    write_report() in memex/graph/decay.py. Best-effort, same as
+    deliver_slack: returns False rather than raising."""
+
+    def _send() -> None:
+        body_md = render_markdown(report)
+        msg = MIMEText(body_md, "plain")
+        msg["Subject"] = f"memex Governance Report — {report.repo_path}"
+        msg["From"] = smtp_config["user"]
+        msg["To"] = ", ".join(smtp_config["to"])
+
+        with smtplib.SMTP(smtp_config["host"], smtp_config["port"]) as server:
+            server.starttls()
+            server.login(smtp_config["user"], smtp_config["password"])
+            server.sendmail(smtp_config["user"], smtp_config["to"], msg.as_string())
+
+    try:
+        await asyncio.to_thread(_send)
+        return True
+    except Exception:
+        logger.error(
+            "Email governance-report delivery failed for %s", report.repo_path, exc_info=True
         )
         return False

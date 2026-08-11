@@ -152,6 +152,14 @@ class AuthConfig(BaseModel):
     dashboard_provider: Literal["session", "oidc"] = "session"
 
 
+class EmailSMTPConfig(BaseModel):
+    host: str
+    port: int = 587
+    user: str
+    password: str
+    to: List[str]
+
+
 class GovernanceConfig(BaseModel):
     """v0.8.0 — optional delivery channels for the weekly governance report
     (Phase 04's report_task, memex/graph/decay.py). Both fields optional;
@@ -159,6 +167,7 @@ class GovernanceConfig(BaseModel):
     v0.7.0 (local .memex/reports/ file only)."""
 
     slack_webhook: Optional[str] = None
+    email_smtp: Optional[EmailSMTPConfig] = None
 
 
 class Config(BaseModel):

@@ -59,3 +59,54 @@ def test_governance_config_defaults_to_no_delivery():
         neo4j_uri="bolt://x", neo4j_user="x", neo4j_password="x", gemini_api_key="x"
     )
     assert config.governance.slack_webhook is None
+
+
+@pytest.mark.asyncio
+async def test_email_sends_html_rendered_report():
+    from memex.graph.governance_report import deliver_email
+
+    report = _sample_report()
+    smtp_config = {
+        "host": "smtp.example.com",
+        "port": 587,
+        "user": "bot@example.com",
+        "password": "hunter2",
+        "to": ["eng-team@example.com"],
+    }
+    with patch("memex.graph.governance_report.smtplib.SMTP") as mock_smtp_cls:
+        mock_smtp = MagicMock()
+        mock_smtp_cls.return_value.__enter__.return_value = mock_smtp
+
+        result = await deliver_email(report, smtp_config)
+
+    assert result is True
+    mock_smtp.starttls.assert_called_once()
+    mock_smtp.login.assert_called_once_with("bot@example.com", "hunter2")
+    mock_smtp.sendmail.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_email_failure_returns_false_not_raise():
+    from memex.graph.governance_report import deliver_email
+
+    report = _sample_report()
+    smtp_config = {"host": "smtp.example.com", "port": 587, "user": "x", "password": "x", "to": ["x@x.com"]}
+    with patch("memex.graph.governance_report.smtplib.SMTP", side_effect=Exception("refused")):
+        result = await deliver_email(report, smtp_config)
+
+    assert result is False
+
+
+@pytest.mark.asyncio
+async def test_no_delivery_config_generates_local_only():
+    """When governance.slack_webhook and governance.email_smtp are both
+    unset, report_task() (memex/graph/decay.py, wired in a later task) calls
+    neither delivery function — write_report() alone, exactly v0.7.0's
+    behavior."""
+    from memex.config import Config
+
+    config = Config(
+        neo4j_uri="bolt://x", neo4j_user="x", neo4j_password="x", gemini_api_key="x"
+    )
+    assert config.governance.slack_webhook is None
+    assert config.governance.email_smtp is None
