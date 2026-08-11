@@ -688,3 +688,19 @@ def test_activity_page_served():
 
     assert response.status_code == 200
     assert "text/html" in response.headers["content-type"]
+
+
+# ---------------------------------------------------------------------------
+# Task 8 — confidence legend + health indicator
+# ---------------------------------------------------------------------------
+
+
+def test_confidence_page_includes_legend():
+    """The confidence page explains what the numbers mean — v0.8.0 Pillar C
+    fix for the source plan's identified friction point."""
+    mock_server = MagicMock(spec=Server)
+    app = create_app(mock_server, "/fake/repo")
+    with TestClient(app) as client:
+        response = client.get("/confidence.html")
+    assert response.status_code == 200
+    assert "healthy" in response.text.lower() or "confidence-legend" in response.text
