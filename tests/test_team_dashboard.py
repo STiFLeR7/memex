@@ -624,3 +624,50 @@ def test_graph_cluster_only_reduces_node_count():
             client.get("/team/graph", params={"cluster_only": "true"})
 
         assert mock_fetch.call_args.kwargs.get("cluster_only") is True
+
+
+async def test_fetch_graph_payload_cluster_only_filters_and_classifies():
+    """Lower-level test of fetch_graph_payload itself (not through the
+    router): (a) cluster_only=True adds the Cluster type filter to the raw
+    Cypher text sent to execute_query, and is absent when False; (b) a
+    Cluster-typed record returned by the mock is classified as
+    `"type": "Cluster"` in the final node output, not the 'Symbol' fallback
+    (the bug this commit fixes)."""
+    from memex.mcp_server.graph_query import fetch_graph_payload
+
+    mock_cluster_record = MagicMock()
+    mock_cluster_record.data.return_value = {
+        "id": "cluster-1",
+        "name": "auth-subsystem",
+        "raw_type": "Cluster",
+        "summary": "auth cluster",
+        "created_at": "2026-05-23T12:00:00",
+        "status": "",
+        "scope": "",
+        "source_commit": "",
+    }
+    mock_nodes_res = MagicMock()
+    mock_nodes_res.records = [mock_cluster_record]
+    mock_edges_res = MagicMock()
+    mock_edges_res.records = []
+
+    mock_client = MagicMock()
+    mock_client.driver.execute_query = AsyncMock(side_effect=[mock_nodes_res, mock_edges_res])
+
+    result = await fetch_graph_payload(mock_client, "/fake/repo", None, cluster_only=True)
+
+    nodes_query = mock_client.driver.execute_query.call_args_list[0].args[0]
+    edges_query = mock_client.driver.execute_query.call_args_list[1].args[0]
+    assert "n.type = 'Cluster'" in nodes_query
+    assert "n1.type = 'Cluster'" in edges_query
+    assert "n2.type = 'Cluster'" in edges_query
+
+    assert result["nodes"][0]["type"] == "Cluster"
+
+    mock_client2 = MagicMock()
+    mock_client2.driver.execute_query = AsyncMock(side_effect=[mock_nodes_res, mock_edges_res])
+    await fetch_graph_payload(mock_client2, "/fake/repo", None, cluster_only=False)
+    nodes_query_default = mock_client2.driver.execute_query.call_args_list[0].args[0]
+    edges_query_default = mock_client2.driver.execute_query.call_args_list[1].args[0]
+    assert "Cluster" not in nodes_query_default
+    assert "Cluster" not in edges_query_default

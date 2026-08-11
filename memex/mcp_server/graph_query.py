@@ -99,6 +99,13 @@ async def fetch_graph_payload(
             node_type = 'Decision'
         elif raw_type == 'Problem':
             node_type = 'Problem'
+        elif raw_type == 'Cluster':
+            # v0.8.0 Pillar C: Cluster nodes have arbitrary summary-derived
+            # names (memex/graph/cluster_runner.py) — neither
+            # 'Decision'-containing nor file-extension-suffixed — so this
+            # must be checked before the Module/Symbol fallback chain, not
+            # left to fall through to 'Symbol'.
+            node_type = 'Cluster'
         elif raw_type == 'Module' or any(name.endswith(ext) for ext in ['.py', '.js', '.ts', '.tsx', '.jsx', '.html', '.css', '.json']):
             node_type = 'Module'
         else:
