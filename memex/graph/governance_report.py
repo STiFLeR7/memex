@@ -27,7 +27,7 @@ from typing import Any, Optional
 
 import httpx
 
-from memex.config import get_config, canonical_repo_path
+from memex.config import get_config, canonical_repo_path, EmailSMTPConfig
 from memex.graph.stats import get_stats_data
 from memex.graph.confidence import current_confidence
 from memex.cli_review import _fetch_pending_decisions
@@ -230,24 +230,30 @@ async def deliver_slack(report: GovernanceReport, webhook_url: str) -> bool:
         return False
 
 
-async def deliver_email(report: GovernanceReport, smtp_config: dict) -> bool:
+async def deliver_email(report: GovernanceReport, smtp_config: EmailSMTPConfig) -> bool:
     """Sends the report's rendered Markdown via SMTP. Runs the blocking
     smtplib call in a thread (asyncio.to_thread) so it never blocks the
     event loop — same pattern report_task() already uses for
     write_report() in memex/graph/decay.py. Best-effort, same as
-    deliver_slack: returns False rather than raising."""
+    deliver_slack: returns False rather than raising.
+
+    Takes the ``EmailSMTPConfig`` model directly (mirrors
+    ``deliver_slack(report, webhook_url: str)`` taking its config field's
+    type directly) rather than a plain dict, so callers pass
+    ``config.governance.email_smtp`` straight through with no
+    dict-bridging and no field-name drift."""
 
     def _send() -> None:
         body_md = render_markdown(report)
         msg = MIMEText(body_md, "plain")
         msg["Subject"] = f"memex Governance Report — {report.repo_path}"
-        msg["From"] = smtp_config["user"]
-        msg["To"] = ", ".join(smtp_config["to"])
+        msg["From"] = smtp_config.user
+        msg["To"] = ", ".join(smtp_config.to)
 
-        with smtplib.SMTP(smtp_config["host"], smtp_config["port"]) as server:
+        with smtplib.SMTP(smtp_config.host, smtp_config.port) as server:
             server.starttls()
-            server.login(smtp_config["user"], smtp_config["password"])
-            server.sendmail(smtp_config["user"], smtp_config["to"], msg.as_string())
+            server.login(smtp_config.user, smtp_config.password)
+            server.sendmail(smtp_config.user, smtp_config.to, msg.as_string())
 
     try:
         await asyncio.to_thread(_send)

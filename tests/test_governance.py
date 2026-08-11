@@ -1,6 +1,6 @@
 """Governance report delivery tests (v0.8.0, Slack + SMTP delivery)."""
 
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, call, patch
 
 import pytest
 
@@ -63,16 +63,17 @@ def test_governance_config_defaults_to_no_delivery():
 
 @pytest.mark.asyncio
 async def test_email_sends_html_rendered_report():
+    from memex.config import EmailSMTPConfig
     from memex.graph.governance_report import deliver_email
 
     report = _sample_report()
-    smtp_config = {
-        "host": "smtp.example.com",
-        "port": 587,
-        "user": "bot@example.com",
-        "password": "hunter2",
-        "to": ["eng-team@example.com"],
-    }
+    smtp_config = EmailSMTPConfig(
+        host="smtp.example.com",
+        port=587,
+        user="bot@example.com",
+        password="hunter2",
+        to=["eng-team@example.com"],
+    )
     with patch("memex.graph.governance_report.smtplib.SMTP") as mock_smtp_cls:
         mock_smtp = MagicMock()
         mock_smtp_cls.return_value.__enter__.return_value = mock_smtp
@@ -83,14 +84,23 @@ async def test_email_sends_html_rendered_report():
     mock_smtp.starttls.assert_called_once()
     mock_smtp.login.assert_called_once_with("bot@example.com", "hunter2")
     mock_smtp.sendmail.assert_called_once()
+    # Ordering matters: login() must never precede starttls() (credentials
+    # would go over the wire unencrypted — a real SMTP protocol violation).
+    # Individual assert_called_once* calls above don't check relative order.
+    assert mock_smtp.mock_calls[0] == call.starttls()
+    assert mock_smtp.mock_calls[1] == call.login("bot@example.com", "hunter2")
+    assert mock_smtp.mock_calls[2][0] == "sendmail"
 
 
 @pytest.mark.asyncio
 async def test_email_failure_returns_false_not_raise():
+    from memex.config import EmailSMTPConfig
     from memex.graph.governance_report import deliver_email
 
     report = _sample_report()
-    smtp_config = {"host": "smtp.example.com", "port": 587, "user": "x", "password": "x", "to": ["x@x.com"]}
+    smtp_config = EmailSMTPConfig(
+        host="smtp.example.com", port=587, user="x", password="x", to=["x@x.com"]
+    )
     with patch("memex.graph.governance_report.smtplib.SMTP", side_effect=Exception("refused")):
         result = await deliver_email(report, smtp_config)
 
