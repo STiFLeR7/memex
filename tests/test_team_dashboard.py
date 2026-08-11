@@ -671,3 +671,20 @@ async def test_fetch_graph_payload_cluster_only_filters_and_classifies():
     edges_query_default = mock_client2.driver.execute_query.call_args_list[1].args[0]
     assert "Cluster" not in nodes_query_default
     assert "Cluster" not in edges_query_default
+
+
+# ---------------------------------------------------------------------------
+# Task 7 — /activity.html frontend page
+# ---------------------------------------------------------------------------
+
+
+def test_activity_page_served():
+    """GET /activity.html exists and serves HTML."""
+    mock_server = MagicMock(spec=Server)
+    app = create_app(mock_server, "/fake/repo")
+
+    with TestClient(app) as client:
+        response = client.get("/activity.html")
+
+    assert response.status_code == 200
+    assert "text/html" in response.headers["content-type"]

@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>memex Team Dashboard — Activity</title>
+    <link rel="stylesheet" href="dashboard.css">
+    <style>
+        table { border-collapse: collapse; width: 100%; margin: 16px; }
+        th, td { text-align: left; padding: 6px 12px; border-bottom: 1px solid var(--panel-border, #3c3c3c); }
+        th { color: var(--text-muted, #858585); font-weight: normal; }
+        #filters { margin: 16px; display: flex; gap: 12px; align-items: center; }
+        #attribution-note { margin: 0 16px; color: var(--text-muted, #858585); font-size: 0.9em; }
+    </style>
+</head>
+<body>
+    <div id="app-container">
+        <div id="toolbar">
+            <span>memex Team Dashboard</span>
+            <nav style="margin-left: 16px;">
+                <a href="/graph.html">Graph</a>
+                &nbsp;|&nbsp;
+                <a href="/activity.html">Activity</a>
+                &nbsp;|&nbsp;
+                <a href="/confidence.html">Confidence</a>
+                &nbsp;|&nbsp;
+                <a href="/conflicts.html">Conflicts</a>
+            </nav>
+            <form method="post" action="/logout" style="margin-left: auto;">
+                <button type="submit">Logout</button>
+            </form>
+        </div>
+        <div id="workspace">
+            <div id="filters">
+                <label for="since">Since</label>
+                <input type="date" id="since">
+                <label for="until">Until</label>
+                <input type="date" id="until">
+                <button id="apply-filter">Apply</button>
+            </div>
+            <p id="attribution-note"></p>
+            <h3 style="margin: 16px;">By tool client</h3>
+            <table id="tool-table">
+                <thead>
+                    <tr>
+                        <th>Tool client</th>
+                        <th>Calls</th>
+                        <th>Tokens returned</th>
+                        <th>Tokens saved</th>
+                    </tr>
+                </thead>
+                <tbody id="tool-tbody"></tbody>
+            </table>
+            <h3 style="margin: 16px;">By principal</h3>
+            <table id="principal-table">
+                <thead>
+                    <tr>
+                        <th>Principal</th>
+                        <th>Decisions</th>
+                        <th>Problems</th>
+                    </tr>
+                </thead>
+                <tbody id="principal-tbody"></tbody>
+            </table>
+        </div>
+    </div>
+    <script>
+        function defaultSince() {
+            const d = new Date();
+            d.setDate(d.getDate() - 7);
+            return d.toISOString().slice(0, 10);
+        }
+
+        async function loadActivity() {
+            const since = document.getElementById("since").value;
+            const until = document.getElementById("until").value;
+            const params = new URLSearchParams();
+            if (since) params.set("since", since);
+            if (until) params.set("until", until);
+
+            const res = await fetch("/team/activity?" + params.toString());
+            if (res.status === 401) {
+                window.location.href = "/login.html";
+                return;
+            }
+            const data = await res.json();
+
+            const note = document.getElementById("attribution-note");
+            note.textContent = data.attribution_available
+                ? ""
+                : "Per-principal attribution data is not yet available for this project.";
+
+            const toolTbody = document.getElementById("tool-tbody");
+            toolTbody.replaceChildren();
+            (data.by_tool_client || []).forEach(row => {
+                const tr = document.createElement("tr");
+                [row.tool_client, row.calls, row.tokens_returned, row.tokens_saved ?? "-"].forEach(val => {
+                    const td = document.createElement("td");
+                    td.textContent = val;
+                    tr.appendChild(td);
+                });
+                toolTbody.appendChild(tr);
+            });
+
+            const principalTbody = document.getElementById("principal-tbody");
+            principalTbody.replaceChildren();
+            (data.by_principal || []).forEach(row => {
+                const tr = document.createElement("tr");
+                [row.principal, row.decision_count, row.problem_count].forEach(val => {
+                    const td = document.createElement("td");
+                    td.textContent = val;
+                    tr.appendChild(td);
+                });
+                principalTbody.appendChild(tr);
+            });
+        }
+
+        document.getElementById("since").value = defaultSince();
+        document.getElementById("apply-filter").addEventListener("click", loadActivity);
+        loadActivity();
+    </script>
+</body>
+</html>
