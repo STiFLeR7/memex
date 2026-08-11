@@ -295,3 +295,107 @@ No critical findings. No regressions traced to any of the 7 phases' own changes.
    (no SSO/OIDC, no cross-team federation, no fine-grained per-node ACLs, no
    direct-Neo4j-bypass protection beyond network isolation, no key rotation) — unchanged,
    re-confirmed still true by this audit, not re-litigated here.
+
+# memex Audit Report — v0.8.0 (Trust)
+
+> Built 2026-08-11 via subagent-driven development (superpowers, not GSD — the GSD
+> plugin's skills/subagents were unavailable this session). Every one of 15 tasks went
+> through an implementer subagent, an independent spec-compliance reviewer subagent
+> (explicitly instructed not to trust the implementer's report), and an independent
+> code-quality reviewer subagent, with real fix-and-re-review loops where either found a
+> genuine issue — not rubber-stamped. 19 commits, 22 files, +1116/-29 lines.
+
+## What was verified (not rebuilt)
+
+Design corrections made *before* any code was written, catching stale/incorrect
+assumptions in the hand-written source plan (`docs/PLAN-v0.8.0.md`) — see
+`docs/superpowers/specs/2026-08-10-v0.8.0-trust-design.md` for full rationale:
+
+| Source plan claim | Reality | Correction |
+|---|---|---|
+| Gap 1: `clientInfo` never read, harness attribution unbuilt | Already ~90% live since v0.7.0 Phase 01 (`detect_agent()`, `Config.harness_config()`, `/team/activity`) | Pillar A rescoped to a verify-and-normalize pass, not new plumbing |
+| Gap 2: `auth.provider: bearer\|session\|oidc` as one mutually-exclusive switch | Bearer (MCP) and session (dashboard) already coexist for two different client types; OIDC only ever applies to the browser path | `AuthProvider` scoped to `auth.dashboard_provider: session\|oidc` only; bearer untouched |
+| Gap 3: Phase 20 gated on real-team feedback, but scheduled before the design-partner onboarding that would produce it | Timeline self-contradicted | Dropped the feedback gate; shipped directly against the plan's own predicted pain points |
+| Phase 23 "Keys CLI" as new work | `memex keys add/list/revoke` already shipped in v0.7.0 | Dropped from scope |
+
+## Findings & fixes (caught during subagent review, not shipped as latent bugs)
+
+| ID | Task | Severity | Finding | Resolution |
+|----|------|----------|---------|------------|
+| T1 | 5 | Important | `/team/activity`'s `by_tool_client` (rolling `days` window) and `by_principal` (new `since`/`until` override) could silently represent different time periods, with nothing in the response signaling this | Documented explicitly on `TeamActivityResponse` and above the call site |
+| T2 | 6 | **High** | `fetch_graph_payload`'s node classifier had no `Cluster` branch — every node returned by the new `cluster_only=true` mode was mislabeled `"Symbol"` in the JSON, directly defeating the feature's purpose | Added `elif raw_type == 'Cluster': node_type = 'Cluster'`; also fixed pre-existing mislabeling on the unauthenticated `/graph` route, which shares the same function |
+| T3 | 6 | Medium | The task's own test fully mocked `fetch_graph_payload`, so nothing verified the actual Cypher filter text or the classification fix | Added a second test calling `fetch_graph_payload` directly, asserting on the real query text and a fixture record's classified output |
+| T4 | 9 | Important | `test_conflicts_page_includes_resolution_guidance` only checked `"record_decision"` appeared in the page source — a future swap of the `supersedes`/`corroborates` id variables (which would tell a user to supersede their own decision) would ship silently | Added source-level substring assertions pinning each variable to its slot |
+| T5 | 11 | Minor | `httpx` used directly in production code but not declared in `pyproject.toml` (only present transitively) | Declared `httpx>=0.27.0,<1.0.0` explicitly |
+| T6 | 12 | Important | `deliver_email`'s test asserted `starttls`/`login`/`sendmail` were each called once, but not in the correct STARTTLS-then-auth order — a protocol-violating reorder would've passed | Added `mock_calls` ordering assertions |
+| T7 | 12 | Important | `deliver_email(report, smtp_config: dict)` required Task 13 to bridge `EmailSMTPConfig` → dict via `.model_dump()`, a fragile seam inconsistent with `deliver_slack`'s scalar parameter | Retyped to accept `EmailSMTPConfig` directly; Task 13's wiring became a straight pass-through |
+| T8 | 13 | **High** | `smtplib.SMTP(host, port)` had no timeout — an unresponsive mail server would hang `deliver_email` indefinitely, silently stalling the entire weekly `report_task()` cron for every remaining repo (nothing raises, so the existing `try/except` isolation can't catch a hang) | Bounded with `timeout=10` (matching `deliver_slack`'s `httpx` timeout) |
+| N1 (carried from v0.7.0 audit) | — | — | `fastapi` installed at 0.136.1, below the `pyproject.toml` floor of 0.137.2 needed since Phase 05-01 | Re-fixed in this environment (`pip install -U fastapi`, now 0.141.1) |
+
+Also discovered during planning (Task 7), not in the source plan at all: **no dashboard
+page anywhere called `/team/activity`** — the nav item labeled "Activity" on every page
+actually linked to the D3 graph view. Built the missing `activity.html` page and
+corrected the nav (`Graph | Activity | Confidence | Conflicts`) across all pages.
+
+## Pillar summary
+
+- **Pillar A — Harness Attribution** (Task 1): `CLIENT_NAME_MAP` alias-normalization dict
+  (ships empty — no guessed entries) + observability logging in `detect_agent()`.
+- **Pillar B — SSO Architecture** (Tasks 2-4): `memex/auth/` package —
+  `AuthProvider` Protocol, `SessionAuthProvider` (wraps v0.7.0 unchanged),
+  `OIDCAuthProvider` skeleton (`NotImplementedError`, names v0.9.0).
+  `auth.dashboard_provider: session|oidc` config. `/login`/`/logout` branch on it;
+  `oidc` returns 501. Bearer auth (`/mcp`, `/graph`, `/stats`, `/report`) is
+  provably untouched — confirmed via `git diff` showing zero changes to `http.py`
+  across all of Pillar B, plus a dedicated regression test.
+- **Pillar C — Dashboard Polish** (Tasks 5-10): `/team/activity` gained `since`/`until`;
+  `/team/graph` gained `cluster_only=true` (O(clusters), with the Cluster-mislabeling fix
+  above); the missing `activity.html` page; confidence legend + health color; conflict
+  resolution guidance; login page key-distribution UX with CLI syntax the implementer
+  caught and corrected from the plan's own (wrong) example.
+- **Governance Report Delivery** (Tasks 11-13): optional Slack webhook + SMTP email
+  delivery, both additive to the existing local-file report, wired into the weekly
+  `report_task()` cron with per-repo error isolation.
+- **Release Plumbing** (Task 14): version bumped to `0.8.0` across `pyproject.toml`,
+  `npm/package.json`, `server.json` (3 occurrences).
+
+## Test posture (v0.8.0)
+
+- New tests added this milestone: `tests/test_attribution.py` (4), `tests/test_auth.py`
+  (9), `tests/test_governance.py` (9), plus 22 new tests appended to
+  `tests/test_team_dashboard.py` — 44 new tests, all landed via the fix-and-re-review
+  loops documented above, not written once and left unverified.
+- **Full suite run against a real Neo4j 5.26 Community instance** (`docker/docker-compose.yml`,
+  `neo4j:5.26.0-community`), unlike the v0.7.0 audit's suite run, which had no live
+  database available. 574 collected: **557 passed, 15 failed, 2 skipped**, in 6m41s —
+  closes the v0.7.0 audit's biggest stated gap ("live-Neo4j re-verification... this
+  audit's biggest gap").
+- All 15 failures are environment-only, individually triaged, none are v0.8.0
+  regressions:
+  - **7 need the optional `cluster` extra** (`ModuleNotFoundError: graspologic`, not
+    installed in this environment — per `pyproject.toml`'s own comment, needs MSVC
+    Build Tools 2022 to compile on Windows): `test_cluster.py` (×5),
+    `test_cluster_runner.py` (×2).
+  - **7 need a real `GEMINI_API_KEY`** (a placeholder value was used since this audit's
+    scope is code correctness, not live LLM entity extraction; confirmed via the exact
+    error text `'API key not valid. Please pass a valid API key.'` /
+    `API_KEY_INVALID` appearing in every one of these failures — a credential gap, not
+    a code defect): `test_bidirectional`, `test_mcp_queries_integration`,
+    `test_phase1_e2e`, `test_phase2_e2e` (×2), `test_write_topology` (×2).
+  - **1 is the pre-existing `test_extractor.py` finding (N2, carried from the v0.7.0
+    audit)** — still not investigated, still unrelated to any v0.7.0/v0.8.0 phase.
+- No task's spec-compliance or code-quality review reported a regression in any
+  pre-existing test file at the time it was reviewed, and this full run confirms it —
+  zero failures trace to v0.8.0 code.
+
+## Deferred (not in v0.8.0, carried into v0.9.0 scoping)
+
+1. **OIDC implementation** — architecture ships in v0.8.0 (Pillar B); implementation
+   requires design-partner IdP feedback, per the source plan's own non-goals list.
+2. **`tests/test_extractor.py`'s pre-existing failure (N2 from the v0.7.0 audit)** —
+   still not investigated; unrelated to any v0.7.0 or v0.8.0 phase.
+3. **Live-Neo4j re-verification of the Neo4j-dependent test failures** flagged in the
+   v0.7.0 audit — still outstanding; this audit's test run (below) does not close that
+   gap, since it also ran without a live Neo4j instance.
+4. Pillar D (commercial framing — waitlist, one-pager, design partners) — explicitly
+   non-engineering, runs independently of this audit, not evaluated here.
