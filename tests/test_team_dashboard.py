@@ -520,3 +520,88 @@ def test_team_routes_use_require_role_viewer():
         ), f"{route.path} is not gated by require_role(...): {dependant_names}"
 
     assert seen_paths == expected_paths
+
+
+def test_activity_since_until_params_reach_cypher_query():
+    """?since=<ISO date>&until=<ISO date> narrows the per-principal
+    attribution Cypher query's created_at bound instead of the rolling
+    `days` window. Bypasses auth via a patched require_role so the test
+    exercises the query-building logic directly."""
+    mock_server = MagicMock(spec=Server)
+
+    async def _bypass_role(request=None):
+        return "test-principal"
+
+    with patch("memex.mcp_server.team.require_role", return_value=_bypass_role), patch(
+        "memex.mcp_server.team.TelemetryDB"
+    ) as mock_telemetry_cls, patch(
+        "memex.mcp_server.team.get_graph_client", new=AsyncMock()
+    ) as mock_get_client:
+        mock_telemetry_cls.return_value.get_stats.return_value = {"by_agent": []}
+        mock_client = AsyncMock()
+        mock_client.driver.execute_query = AsyncMock(return_value=MagicMock(records=[]))
+        mock_get_client.return_value = mock_client
+
+        app = create_app(mock_server, "/fake/repo")
+        with TestClient(app) as client:
+            client.get("/team/activity", params={"since": "2026-08-01", "until": "2026-08-10"})
+
+        called_params = mock_client.driver.execute_query.call_args.kwargs["params"]
+        assert called_params["since"] == "2026-08-01"
+        assert called_params["until"] == "2026-08-10"
+
+
+def test_activity_since_only_reaches_cypher_query():
+    """?since=<date> with no `until` still reaches the Cypher query params
+    (as since="...", until=None) — the asymmetric `IS NULL OR` clause must
+    not require both to be set."""
+    mock_server = MagicMock(spec=Server)
+
+    async def _bypass_role(request=None):
+        return "test-principal"
+
+    with patch("memex.mcp_server.team.require_role", return_value=_bypass_role), patch(
+        "memex.mcp_server.team.TelemetryDB"
+    ) as mock_telemetry_cls, patch(
+        "memex.mcp_server.team.get_graph_client", new=AsyncMock()
+    ) as mock_get_client:
+        mock_telemetry_cls.return_value.get_stats.return_value = {"by_agent": []}
+        mock_client = AsyncMock()
+        mock_client.driver.execute_query = AsyncMock(return_value=MagicMock(records=[]))
+        mock_get_client.return_value = mock_client
+
+        app = create_app(mock_server, "/fake/repo")
+        with TestClient(app) as client:
+            client.get("/team/activity", params={"since": "2026-08-01"})
+
+        called_params = mock_client.driver.execute_query.call_args.kwargs["params"]
+        assert called_params["since"] == "2026-08-01"
+        assert called_params["until"] is None
+
+
+def test_activity_until_only_reaches_cypher_query():
+    """?until=<date> with no `since` still reaches the Cypher query params
+    (as since=None, until="...") — the asymmetric `IS NULL OR` clause must
+    not require both to be set."""
+    mock_server = MagicMock(spec=Server)
+
+    async def _bypass_role(request=None):
+        return "test-principal"
+
+    with patch("memex.mcp_server.team.require_role", return_value=_bypass_role), patch(
+        "memex.mcp_server.team.TelemetryDB"
+    ) as mock_telemetry_cls, patch(
+        "memex.mcp_server.team.get_graph_client", new=AsyncMock()
+    ) as mock_get_client:
+        mock_telemetry_cls.return_value.get_stats.return_value = {"by_agent": []}
+        mock_client = AsyncMock()
+        mock_client.driver.execute_query = AsyncMock(return_value=MagicMock(records=[]))
+        mock_get_client.return_value = mock_client
+
+        app = create_app(mock_server, "/fake/repo")
+        with TestClient(app) as client:
+            client.get("/team/activity", params={"until": "2026-08-10"})
+
+        called_params = mock_client.driver.execute_query.call_args.kwargs["params"]
+        assert called_params["since"] is None
+        assert called_params["until"] == "2026-08-10"
