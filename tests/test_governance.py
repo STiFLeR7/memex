@@ -32,6 +32,7 @@ async def test_slack_webhook_posts_markdown():
         result = await deliver_slack(report, webhook_url="https://hooks.slack.test/x")
 
     assert result is True
+    assert mock_client.post.call_args.args[0] == "https://hooks.slack.test/x"
     posted_body = mock_client.post.call_args.kwargs["json"]
     assert "text" in posted_body
     assert "Governance Report" in posted_body["text"]

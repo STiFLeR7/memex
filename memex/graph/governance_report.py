@@ -29,6 +29,8 @@ from memex.graph.stats import get_stats_data
 from memex.graph.confidence import current_confidence
 from memex.cli_review import _fetch_pending_decisions
 
+logger = logging.getLogger(__name__)
+
 # Consumed by Plan 04-02's file/markdown writers to flag the report as
 # containing aggregated, more-sensitive-than-any-single-node decision
 # history (threat T-04-01). Not used for anything in this plan.
@@ -219,7 +221,7 @@ async def deliver_slack(report: GovernanceReport, webhook_url: str) -> bool:
             response.raise_for_status()
         return True
     except Exception:
-        logging.getLogger(__name__).error(
+        logger.error(
             "Slack governance-report delivery failed for %s", report.repo_path, exc_info=True
         )
         return False
