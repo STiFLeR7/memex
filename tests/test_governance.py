@@ -90,6 +90,11 @@ async def test_email_sends_html_rendered_report():
     assert mock_smtp.mock_calls[0] == call.starttls()
     assert mock_smtp.mock_calls[1] == call.login("bot@example.com", "hunter2")
     assert mock_smtp.mock_calls[2][0] == "sendmail"
+    # A hanging/unresponsive SMTP server must not block report_task()'s
+    # sequential per-repo loop indefinitely — smtplib.SMTP() needs a bounded
+    # timeout (mirrors deliver_slack's httpx.AsyncClient(timeout=10.0)).
+    _args, kwargs = mock_smtp_cls.call_args
+    assert kwargs.get("timeout") is not None
 
 
 @pytest.mark.asyncio

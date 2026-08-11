@@ -250,7 +250,7 @@ async def deliver_email(report: GovernanceReport, smtp_config: EmailSMTPConfig) 
         msg["From"] = smtp_config.user
         msg["To"] = ", ".join(smtp_config.to)
 
-        with smtplib.SMTP(smtp_config.host, smtp_config.port) as server:
+        with smtplib.SMTP(smtp_config.host, smtp_config.port, timeout=10) as server:
             server.starttls()
             server.login(smtp_config.user, smtp_config.password)
             server.sendmail(smtp_config.user, smtp_config.to, msg.as_string())
