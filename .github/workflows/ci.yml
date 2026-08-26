@@ -64,4 +64,4 @@ jobs:
               raise SystemExit(f"release version mismatch: {versions}")
           print(f"release version: {py_version}")
           PY
-          npm pack --dry-run --json >/dev/null
+          (cd npm && npm pack --dry-run --json >/dev/null)
