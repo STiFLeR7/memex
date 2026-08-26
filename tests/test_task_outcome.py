@@ -1,4 +1,5 @@
 from datetime import datetime, timezone
+from pathlib import Path
 
 import pytest
 from pydantic import ValidationError
@@ -71,7 +72,7 @@ def test_outcome_links_task_session_packet_and_verification():
 
 
 def test_local_evaluation_exposes_task_and_outcome_records():
-    evaluation = evaluate_local_vertical_slice(r"D:\memex")
+    evaluation = evaluate_local_vertical_slice(Path(__file__).parents[1])
 
     assert evaluation["task"]["task_id"] == "goal4-retrieval-pipeline"
     assert evaluation["outcomes"]["baseline"]["status"] == "partial"
@@ -80,7 +81,7 @@ def test_local_evaluation_exposes_task_and_outcome_records():
 
 
 def test_local_evaluation_preserves_task_execution_packet_outcome_join():
-    evaluation = evaluate_local_vertical_slice(r"D:\memex")
+    evaluation = evaluate_local_vertical_slice(Path(__file__).parents[1])
     task = evaluation["task"]
     treatment = evaluation["outcomes"]["treatment"]
 

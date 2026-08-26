@@ -1,3 +1,5 @@
+from pathlib import Path
+
 from memex.evaluation.harness import (
     INVALID_RUN,
     SUCCESS,
@@ -7,7 +9,7 @@ from memex.evaluation.harness import (
 
 
 def test_harness_maps_goal4_slice_into_a_paired_evaluation():
-    evaluation = evaluate_local_vertical_slice(r"D:\memex")
+    evaluation = evaluate_local_vertical_slice(Path(__file__).parents[1])
 
     assert evaluation["valid"] is True
     assert evaluation["task_id"] == "goal4-retrieval-pipeline"
