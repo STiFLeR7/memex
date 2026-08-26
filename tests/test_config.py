@@ -90,6 +90,7 @@ def test_normalize_git_remote_degenerate_inputs():
 
 
 def test_resolve_project_id_prefers_git_remote_over_file(tmp_path):
+    (tmp_path / ".git").mkdir()
     memex_dir = tmp_path / ".memex"
     memex_dir.mkdir()
     (memex_dir / "project_id").write_text("acme-widgets-team", encoding="utf-8")

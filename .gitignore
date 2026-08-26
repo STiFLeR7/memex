@@ -30,6 +30,9 @@ env/
 
 # Environment Variables
 .env
+CREDS.txt
+NVIDIA_NIM_API_KEY=*.txt
+.goal10-hermes-venv/
 
 # Neo4j & Docker
 docker/data/

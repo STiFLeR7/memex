@@ -3,6 +3,9 @@ from typing import Optional, List
 from graphiti_core import Graphiti
 from graphiti_core.cross_encoder.client import CrossEncoderClient
 from graphiti_core.embedder.gemini import GeminiEmbedder, GeminiEmbedderConfig
+from graphiti_core.embedder.openai import OpenAIEmbedder, OpenAIEmbedderConfig
+from graphiti_core.llm_client.config import LLMConfig
+from graphiti_core.llm_client.openai_generic_client import OpenAIGenericClient
 from memex.config import get_config
 from google.genai import types
 
@@ -46,21 +49,40 @@ class GraphClient:
     async def get_instance(cls) -> Graphiti:
         if cls._instance is None:
             config = get_config()
-            
-            from graphiti_core.llm_client.gemini_client import GeminiClient
-            from graphiti_core.llm_client.config import LLMConfig
-            from google import genai
-            
-            # Initialize common genai client
-            genai_client = genai.Client(api_key=config.gemini_api_key)
-            
-            # Configure LLM Client
-            llm_config = LLMConfig(model=config.gemini_model)
-            llm_client = GeminiClient(config=llm_config, client=genai_client)
-            
-            # Configure Embedder
-            embedder_config = GeminiEmbedderConfig(embedding_model=config.embedding_model)
-            embedder = FixedGeminiEmbedder(config=embedder_config, client=genai_client)
+
+            if config.llm_provider.lower() in {"nvidia", "nvidia-nim", "nim", "openai", "openai-compatible"}:
+                if not config.llm_api_key or not config.llm_base_url:
+                    raise ValueError("NIM/OpenAI-compatible memex configuration requires llm_api_key and llm_base_url")
+                llm_config = LLMConfig(
+                    api_key=config.llm_api_key,
+                    base_url=config.llm_base_url,
+                    model=config.llm_model or config.gemini_model,
+                )
+                llm_client = OpenAIGenericClient(
+                    config=llm_config,
+                    structured_output_mode="json_object",
+                )
+                embedder_config = OpenAIEmbedderConfig(
+                    embedding_dim=config.embedding_dim,
+                    api_key=config.llm_api_key,
+                    base_url=config.llm_base_url,
+                    embedding_model=config.embedding_model,
+                )
+                embedder = OpenAIEmbedder(config=embedder_config)
+            else:
+                from graphiti_core.llm_client.gemini_client import GeminiClient
+                from google import genai
+
+                # Initialize common genai client
+                genai_client = genai.Client(api_key=config.gemini_api_key)
+
+                # Configure LLM Client
+                llm_config = LLMConfig(model=config.gemini_model)
+                llm_client = GeminiClient(config=llm_config, client=genai_client)
+
+                # Configure Embedder
+                embedder_config = GeminiEmbedderConfig(embedding_model=config.embedding_model)
+                embedder = FixedGeminiEmbedder(config=embedder_config, client=genai_client)
             
             # Initialize Graphiti
             cls._instance = Graphiti(
@@ -71,7 +93,11 @@ class GraphClient:
                 embedder=embedder,
                 cross_encoder=NoOpCrossEncoder()
             )
-            logger.info("Graphiti client initialized with model %s", config.gemini_model)
+            logger.info(
+                "Graphiti client initialized with provider=%s model=%s",
+                config.llm_provider,
+                config.llm_model or config.gemini_model,
+            )
             
         return cls._instance
 

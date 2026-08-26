@@ -283,17 +283,13 @@ def test_render_markdown_contains_key_fields_and_no_jinja2():
     top_of_doc = "\n".join(markdown.splitlines()[:5])
     assert REPORT_NOTICE in top_of_doc
 
-    import subprocess
-
-    grep_result = subprocess.run(
-        ["grep", "-c", "jinja2", "memex/graph/governance_report.py"],
-        capture_output=True,
-        text=True,
-        cwd=Path(__file__).resolve().parent.parent,
-    )
-    # grep -c returns exit code 1 when count is 0 (no matches) — either way,
-    # stdout must report zero matches.
-    assert grep_result.stdout.strip() == "0"
+    source = (
+        Path(__file__).resolve().parent.parent
+        / "memex"
+        / "graph"
+        / "governance_report.py"
+    ).read_text(encoding="utf-8")
+    assert source.count("jinja2") == 0
 
 
 # ---------------------------------------------------------------------------

@@ -24,6 +24,7 @@ from memex.mcp_server.tools_read import (
     get_context_briefing,
 )
 from memex.mcp_server.tools_write import record_decision, record_problem, resolve_problem, invalidate_edge
+from memex.mcp_server.context_tools import get_engineering_context
 from memex.mcp_server.principal_ctx import principal_ctx
 
 logger = logging.getLogger(__name__)
@@ -44,7 +45,8 @@ class MemexStartupError(Exception):
 
 async def handle_list_tools() -> list[Tool]:
     """
-    Returns the list of 12 tools (6 v0.1 read + 4 v0.1 write + 2 Phase 9 read).
+    Returns the current read/write MCP tools, including the packet-aware
+    engineering-context fallback.
     """
     return [
         Tool(
@@ -167,6 +169,46 @@ async def handle_list_tools() -> list[Tool]:
                 },
                 "required": ["query"]
             }
+        ),
+        Tool(
+            name="get_engineering_context",
+            description="Returns a bounded, provenance-aware engineering ContextPacket projection using the shared memex selector.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "The engineering task or question to contextualize.",
+                    },
+                    "top_k": {
+                        "type": "integer",
+                        "description": "Maximum number of context items (1-8, default: 8).",
+                        "default": 8,
+                    },
+                    "repo": {
+                        "type": "string",
+                        "description": "Repository path to scope results.",
+                    },
+                    "project": {
+                        "type": "string",
+                        "description": "Project ID to scope results.",
+                    },
+                    "task_id": {
+                        "type": "string",
+                        "description": "Optional engineering task identifier for traceability.",
+                    },
+                    "session_id": {
+                        "type": "string",
+                        "description": "Optional execution session identifier for traceability.",
+                    },
+                    "allow_historical": {
+                        "type": "boolean",
+                        "description": "Include explicitly superseded historical knowledge.",
+                        "default": False,
+                    },
+                },
+                "required": ["query"],
+            },
         ),
         Tool(
             name="get_stale_context",
@@ -435,6 +477,25 @@ async def handle_call_tool(name: str, arguments: dict) -> list[TextContent | Ima
                 except (ValueError, TypeError):
                     top_k = 8
                 res = await search_context(query, top_k, repo=repo, project=project)
+                result = [TextContent(type="text", text=res)]
+            elif name == "get_engineering_context":
+                query = str(arguments.get("query", ""))
+                try:
+                    top_k = int(arguments.get("top_k", 8))
+                except (ValueError, TypeError):
+                    top_k = 8
+                task_id = str(arguments.get("task_id")) if arguments.get("task_id") else None
+                session_id = str(arguments.get("session_id")) if arguments.get("session_id") else None
+                allow_historical = bool(arguments.get("allow_historical", False))
+                res = await get_engineering_context(
+                    query,
+                    top_k,
+                    repo=repo,
+                    project=project,
+                    task_id=task_id,
+                    session_id=session_id,
+                    allow_historical=allow_historical,
+                )
                 result = [TextContent(type="text", text=res)]
             elif name == "get_stale_context":
                 try:

@@ -67,8 +67,11 @@ def _get_git_remote_url(repo_path: str) -> Optional[str]:
     matching the existing convention in
     `memex/watcher/git_hook.py::emit_commit_event` (Pitfall 4)."""
     try:
+        git_dir = Path(repo_path) / ".git"
+        if not git_dir.exists():
+            return None
         output = subprocess.check_output(
-            ["git", "remote", "get-url", "origin"],
+            ["git", "--git-dir", str(git_dir), "remote", "get-url", "origin"],
             cwd=repo_path,
             stderr=subprocess.DEVNULL,
         )
@@ -174,16 +177,21 @@ class Config(BaseModel):
     neo4j_uri: str
     neo4j_user: str
     neo4j_password: str
-    gemini_api_key: str
+    gemini_api_key: Optional[str] = None
     neo4j_database: str = "neo4j"
     
     # Model configuration
+    llm_provider: str = "gemini"
+    llm_api_key: Optional[str] = None
+    llm_base_url: Optional[str] = None
+    llm_model: Optional[str] = None
     gemini_model: str = "gemini-2.5-flash"
     # Phase 9 — Gemini Pro used for synthesis tools (explain_change). Flash
     # remains the default for extractive / classification tasks; Pro is used
     # only when the tool description explicitly calls for grounded synthesis.
     pro_model: str = "gemini-2.5-pro"
     embedding_model: str = "models/gemini-embedding-2"
+    embedding_dim: int = 1024
     
     # Performance & Timing
     debounce_window: float = 0.8
@@ -260,9 +268,22 @@ def load_config(repo_root: Optional[str] = None) -> Config:
         "neo4j_user": os.getenv("NEO4J_USER"),
         "neo4j_password": os.getenv("NEO4J_PASSWORD"),
         "gemini_api_key": os.getenv("GEMINI_API_KEY"),
+        "llm_provider": os.getenv("MEMEX_LLM_PROVIDER", "gemini"),
+        "llm_api_key": (
+            os.getenv("MEMEX_LLM_API_KEY")
+            or os.getenv("NVIDIA_NIM_API_KEY")
+            or os.getenv("NVIDIA_API_KEY")
+        ),
+        "llm_base_url": (
+            os.getenv("MEMEX_LLM_BASE_URL")
+            or os.getenv("NVIDIA_NIM_BASE_URL")
+            or os.getenv("NVIDIA_BASE_URL")
+        ),
+        "llm_model": os.getenv("MEMEX_LLM_MODEL"),
         "neo4j_database": os.getenv("NEO4J_DATABASE"),
         "gemini_model": os.getenv("GEMINI_MODEL"),
-        "embedding_model": os.getenv("EMBEDDING_MODEL"),
+        "embedding_model": os.getenv("MEMEX_EMBEDDING_MODEL") or os.getenv("EMBEDDING_MODEL"),
+        "embedding_dim": os.getenv("MEMEX_EMBEDDING_DIM"),
         "debounce_window": os.getenv("DEBOUNCE_WINDOW"),
         "poll_interval": os.getenv("POLL_INTERVAL"),
         "decay_hour": os.getenv("DECAY_HOUR"),
@@ -291,6 +312,7 @@ def load_config(repo_root: Optional[str] = None) -> Config:
     if "report_hour" in config_dict: config_dict["report_hour"] = int(config_dict["report_hour"])
     if "report_minute" in config_dict: config_dict["report_minute"] = int(config_dict["report_minute"])
     if "report_period_days" in config_dict: config_dict["report_period_days"] = int(config_dict["report_period_days"])
+    if "embedding_dim" in config_dict: config_dict["embedding_dim"] = int(config_dict["embedding_dim"])
 
     # Load from config.yaml if it exists (relative to repo_root when known).
     config_base = repo_root if repo_root else os.getcwd()
@@ -305,8 +327,10 @@ def load_config(repo_root: Optional[str] = None) -> Config:
         return Config(**config_dict)
     except Exception as e:
         # Re-raise with a more helpful message if required fields are missing.
-        required_vars = ["NEO4J_URI", "NEO4J_USER", "NEO4J_PASSWORD", "GEMINI_API_KEY"]
-        missing = [v for v in required_vars if v.lower() not in config_dict]
+        provider = str(config_dict.get("llm_provider", "gemini")).lower()
+        required_fields = ["neo4j_uri", "neo4j_user", "neo4j_password"]
+        required_fields.append("gemini_api_key" if provider in {"gemini", "google"} else "llm_api_key")
+        missing = [field for field in required_fields if not config_dict.get(field)]
         if missing:
             # Introspection-only mode: allow the server to start without a live
             # backend so MCP clients (and directory sandboxes like glama.ai) can
@@ -317,6 +341,8 @@ def load_config(repo_root: Optional[str] = None) -> Config:
                     "neo4j_user": "introspection",
                     "neo4j_password": "introspection",
                     "gemini_api_key": "introspection-only",
+                    "llm_api_key": "introspection-only",
+                    "llm_base_url": "http://introspection-only/v1",
                 }
                 for k, v in placeholders.items():
                     config_dict.setdefault(k, v)

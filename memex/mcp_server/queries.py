@@ -4,6 +4,16 @@ from memex.graph.client import get_graph_client
 
 logger = logging.getLogger(__name__)
 
+
+def _result_field(result: Any, name: str) -> Any:
+    value = getattr(result, name, None)
+    if value is not None:
+        return value
+    attributes = getattr(result, "attributes", None)
+    if isinstance(attributes, dict):
+        return attributes.get(name)
+    return None
+
 class MemexQueryError(Exception):
     """Custom error for Neo4j queries in memex."""
     def __init__(self, message: str, query: str, original_error: Exception):
@@ -400,9 +410,9 @@ async def composite_search(
     # don't waste rerank work on out-of-scope hits. `project` takes
     # precedence over `repo` when both are supplied.
     if project:
-        raw_results = [r for r in raw_results if getattr(r, "project_id", None) == project]
+        raw_results = [r for r in raw_results if _result_field(r, "project_id") == project]
     elif repo:
-        raw_results = [r for r in raw_results if getattr(r, "repo_path", None) == repo]
+        raw_results = [r for r in raw_results if _result_field(r, "repo_path") == repo]
 
     # Single-modality flow: score + sort, then run RRF (no-op for one list
     # but preserves the contract so plumbing the other 3 modalities later

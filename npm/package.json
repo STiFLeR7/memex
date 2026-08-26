@@ -1,8 +1,8 @@
 {
   "name": "stifler-memex-mcp",
-  "version": "0.8.0",
+  "version": "0.9.0",
   "mcpName": "io.github.STiFLeR7/memex",
-  "description": "Developer context continuity system — temporal knowledge graph for AI coding agents via MCP. Inspired by Vannevar Bush's 1945 concept of a machine that remembers everything.",
+  "description": "Trusted engineering context for agentic software engineering via Hermes MemoryProvider and MCP.",
   "bin": {
     "stifler-memex-mcp": "./bin/memex-mcp.js",
     "memex-mcp": "./bin/memex-mcp.js",

@@ -322,16 +322,25 @@ async def test_composite_search_filters_by_project_id():
             self.confidence = 1.0
             self.access_count = 0
 
+    class GraphitiResult:
+        def __init__(self, uuid, **attributes):
+            self.uuid = uuid
+            self.created_at = None
+            self.confidence = 1.0
+            self.access_count = 0
+            self.attributes = attributes
+
     fake_client = AsyncMock()
     fake_client.search = AsyncMock(return_value=[
         FakeResult("u1", project_id="github.com/acme/widgets"),
         FakeResult("u2", project_id="github.com/other/thing"),
         FakeResult("u3", repo_path="/fake/repo"),
+        GraphitiResult("u4", project_id="github.com/acme/widgets"),
     ])
 
     with patch("memex.mcp_server.queries.increment_access_count", new_callable=AsyncMock):
         result = await queries_mod.composite_search(
             "query text", project="github.com/acme/widgets", client=fake_client
         )
-    assert len(result) == 1
-    assert result[0].node_or_edge.uuid == "u1"
+    assert len(result) == 2
+    assert {item.node_or_edge.uuid for item in result} == {"u1", "u4"}

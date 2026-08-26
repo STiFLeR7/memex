@@ -307,12 +307,24 @@ def cluster_modules(
             -(i + 1): {node} for i, node in enumerate(sorted(graph.nodes))
         }
 
-    from graspologic.partition import hierarchical_leiden  # noqa: PLC0415
+    # ponytail: use the native Leiden binding directly; graspologic's package
+    # __init__ eagerly imports unrelated analysis modules and stalls on some
+    # Windows environments even though the native cluster engine is healthy.
+    from graspologic_native import hierarchical_leiden  # noqa: PLC0415
 
+    edges = [
+        (str(source), str(target), float(data.get("weight", 1.0)))
+        for source, target, data in graph.edges(data=True)
+    ]
     partitions = hierarchical_leiden(
-        graph,
-        max_cluster_size=max_cluster_size,
-        random_seed=seed,
+        edges,
+        None,
+        1.0,
+        0.001,
+        0,
+        True,
+        max_cluster_size,
+        seed,
     )
 
     # `hierarchical_leiden` returns a list of `HierarchicalCluster`

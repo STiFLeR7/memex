@@ -1,14 +1,20 @@
-# memex — temporal knowledge graph memory for AI coding agents
+# memex — trusted engineering context for agentic software engineering
 
 <!-- mcp-name: io.github.STiFLeR7/memex -->
 
-> Persistent memory and codebase context for AI coding agents, served over MCP. A bitemporal knowledge graph of your repository — modules, symbols, decisions, problems — for Claude Code, Cursor, Codex, Gemini CLI, and any MCP-compatible agent.
+> A protocol-neutral engineering-context layer for AI coding agents. memex
+> builds a bitemporal knowledge graph of your repository — modules, symbols,
+> decisions, problems, evidence, and code evolution — and exposes bounded,
+> provenance-aware context through Hermes MemoryProvider or MCP.
 
-A daemon and MCP server that turns every commit and every file change into structured graph state: modules, symbols, decisions, problems, lockfile facts. Sessions stop starting blind. Agents stop re-discovering the same refactor every time you `/clear`.
+A daemon and MCP server that turns commits and file changes into structured
+engineering knowledge. Agents can receive relevant repository context before a
+task, with freshness and provenance preserved, without making memex a source of
+personal memory or raw session state.
 
-[![PyPI](https://img.shields.io/pypi/v/memex-mcp?v=0.3.3)](https://pypi.org/project/memex-mcp/)
+[![PyPI](https://img.shields.io/pypi/v/memex-mcp?v=0.9.0)](https://pypi.org/project/memex-mcp/)
 [![PyPI downloads](https://img.shields.io/pypi/dm/memex-mcp)](https://pypistats.org/packages/memex-mcp)
-[![npm](https://img.shields.io/npm/v/stifler-memex-mcp?v=0.3.3)](https://www.npmjs.com/package/stifler-memex-mcp)
+[![npm](https://img.shields.io/npm/v/stifler-memex-mcp?v=0.9.0)](https://www.npmjs.com/package/stifler-memex-mcp)
 [![npm downloads](https://img.shields.io/npm/dm/stifler-memex-mcp)](https://www.npmjs.com/package/stifler-memex-mcp)
 [![Claude Code marketplace](https://img.shields.io/badge/Claude%20Code-marketplace-7c3aed)](https://github.com/STiFLeR7/claude-plugins)
 [![memex MCP server](https://glama.ai/mcp/servers/STiFLeR7/memex/badges/score.svg)](https://glama.ai/mcp/servers/STiFLeR7/memex)
@@ -24,9 +30,11 @@ A daemon and MCP server that turns every commit and every file change into struc
 flowchart LR
     A[Your repository<br/>files + git] --> B[memex watcher<br/>tree-sitter + Gemini]
     B --> C[Neo4j graph<br/>bitemporal facts]
-    C --> D[MCP server<br/>stdio / HTTP]
-    D --> E[AI agent<br/>Claude · Cursor · Codex · Gemini CLI]
-    E -.->|writes decisions back| C
+    C --> D[memex core<br/>ContextPacket selection]
+    D --> E[Hermes MemoryProvider<br/>automatic read-only prefetch]
+    D --> F[MCP fallback<br/>explicit lookup]
+    E --> G[AI coding agent]
+    F --> G
 
     style B fill:#cfe8ff,stroke:#0066cc,color:#000
     style C fill:#fff4cf,stroke:#cc9900,color:#000
@@ -59,6 +67,30 @@ npx stifler-memex-mcp watch --repo .
 npx stifler-memex-mcp serve --repo .
 ```
 
+### Hermes integration
+
+The v0.9 Hermes integration is read-only. Hermes retains personal memory, raw
+session state, and execution state. memex supplies repository engineering
+context through a bounded `ContextPacket`; it does not ingest Hermes
+`state.db`, transcripts, prompts, or tool results.
+
+Add the memex provider to Hermes' profile configuration:
+
+```yaml
+memory:
+  provider: memex
+plugins:
+  memex:
+    repo_path: /absolute/path/to/repository
+    prefetch_timeout_seconds: 7
+    max_items: 8
+    max_chars: 12000
+```
+
+If Hermes is not installed, use the same context selector through the MCP
+`get_engineering_context` tool. Both paths share the protocol-neutral memex
+core and fail open when retrieval is unavailable.
+
 | Channel | Command |
 |---|---|
 | Claude Code marketplace | `/plugin install memex-mcp@stifler-marketplace` |
@@ -86,13 +118,14 @@ initial admin key, and the `down -v` footgun to avoid.
 |---|---|
 | Output | A Neo4j graph populated continuously from your repo |
 | Storage | Neo4j via [Graphiti](https://github.com/getzep/graphiti). Bitemporal — every edge has `created_at` and optional `expired_at` |
-| Survives | `/clear`, terminal crashes, machine restarts, teammate handoffs |
-| Hands off to | Claude Code, Cursor, Codex, Gemini CLI, any MCP client |
+| Context | Bounded, ranked, provenance-aware `ContextPacket` |
+| Integrations | Hermes MemoryProvider, MCP resources/tools, Claude Code, Cursor, Codex, Gemini CLI |
+| Failure mode | Fail-open; agent execution continues without memex |
 | Granularity | Scales from 50 to 5000+ modules via hierarchical Leiden clusters |
 | Synthesis | Gemini Flash distills commits into `Decision` nodes; Pro for grounded synthesis |
 | Confidence | Computed at query time. Two-regime decay (validated half-life ~139d, unvalidated stale at 30d) |
 | Write governance | Per-node-type ACL, intent-confirmation on agent writes, explicit `corroborates` / `supersedes` semantics |
-| Tests | 333 passing, ~93% coverage |
+| Goal 10 evidence | 8/8 valid paired runs, 0 treatment failures, 0 treatment regressions |
 
 ## The lifecycle
 
@@ -340,7 +373,7 @@ memex/
 │   ├── memory_tool/      Anthropic memory_20250818 adapter
 │   ├── watcher/          daemon + git hooks
 │   └── cli.py            init / watch / serve / review / graph / cluster
-├── tests/                333 passing, ~93% coverage
+├── tests/                unit, integration, and objective evaluation suites
 ├── docker/               Neo4j compose
 ├── npm/                  npx wrapper (publishes as stifler-memex-mcp)
 └── Dockerfile            introspection-only image for MCP directory sandboxes
@@ -374,6 +407,12 @@ Hill Patel ([@STiFLeR7](https://github.com/STiFLeR7))
 
 ## Contributing
 
-Open an issue or PR. `uv sync --all-extras && uv run pytest tests/` is all the setup you need to run the suite. Version bumps must update **both** `pyproject.toml` and `npm/package.json` and they must agree.
+Open an issue or PR. `uv sync --all-extras` installs the development toolchain.
+Run `uv run pytest -m "not integration"` for the offline suite and `uv run ruff
+check .` before opening a PR. Version bumps must update `pyproject.toml`,
+`npm/package.json`, `server.json`, and the team Docker image tag together.
+
+The v0.9 release record is in [`CHANGELOG.md`](CHANGELOG.md), with the
+architecture and evaluation evidence under [`docs/architecture/v0.9/`](docs/architecture/v0.9/).
 
 > *Vannevar Bush, 1945:* "Consider a future device for individual use, which is a sort of mechanized private file and library. It needs a name, and to coin one at random, **memex** will do."

@@ -22,6 +22,10 @@ jobs:
         with:
           python-version: "3.12"
 
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+
       - name: Install dependencies
         # Sync all-extras to run graspologic + hdbscan cluster engine tests
         run: uv sync --all-extras
@@ -42,4 +46,22 @@ jobs:
             --ignore=tests/test_phase1_e2e.py \
             --ignore=tests/test_phase2_e2e.py \
             --ignore=tests/test_pipeline_e2e.py \
-            -m "not integration"
+          -m "not integration"
+
+      - name: Validate release metadata and npm package
+        shell: bash
+        run: |
+          python - <<'PY'
+          import json
+          import tomllib
+          from pathlib import Path
+
+          py_version = tomllib.loads(Path("pyproject.toml").read_text())["project"]["version"]
+          npm_version = json.loads(Path("npm/package.json").read_text())["version"]
+          server = json.loads(Path("server.json").read_text())
+          versions = [py_version, npm_version, server["version"], *(p["version"] for p in server["packages"])]
+          if len(set(versions)) != 1:
+              raise SystemExit(f"release version mismatch: {versions}")
+          print(f"release version: {py_version}")
+          PY
+          npm pack --dry-run --json >/dev/null

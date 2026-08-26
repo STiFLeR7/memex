@@ -27,6 +27,25 @@ jobs:
         # v0.3.1 cluster engine tests can collect and run.
         run: uv sync --all-extras
 
+      - name: Verify release metadata
+        run: |
+          uv run python - <<'PY'
+          import json
+          import tomllib
+          from pathlib import Path
+
+          py_version = tomllib.loads(Path("pyproject.toml").read_text())["project"]["version"]
+          npm_version = json.loads(Path("npm/package.json").read_text())["version"]
+          server = json.loads(Path("server.json").read_text())
+          versions = [py_version, npm_version, server["version"], *(p["version"] for p in server["packages"])]
+          if len(set(versions)) != 1:
+              raise SystemExit(f"release version mismatch: {versions}")
+          print(f"release version: {py_version}")
+          PY
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            test "${GITHUB_REF#refs/tags/v}" = "$(uv run python -c 'import tomllib; print(tomllib.load(open("pyproject.toml", "rb"))["project"]["version"])')"
+          fi
+
       - name: Run tests
         env:
           NEO4J_URI: "bolt://localhost:7687"
@@ -101,6 +120,10 @@ jobs:
       - name: Upgrade npm for OIDC trusted publishing
         # Trusted publishing requires npm >= 11.5.1; Node 22 ships an older npm.
         run: npm install -g npm@latest
+
+      - name: Validate npm package
+        working-directory: npm
+        run: npm pack --dry-run --json >/dev/null
 
       - name: Copy README and LICENSE into npm package
         run: |

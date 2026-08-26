@@ -11,11 +11,13 @@ log_level: INFO
 
 # Harness configurations for different AI agents
 # NOTE: this per-harness `initial_decision_confidence` config became LIVE in
-# v0.7.0 Phase 01 — previously dead since it was authored in v0.6.0 "Signal"
-# (see AUDIT.md finding V2), where every agent write silently resolved to the
-# `default` entry regardless of the actual harness. Deployments with existing
-# non-default `claude-code`/`gemini-cli` overrides will now see those values
-# actually applied to newly-written Decision.base_confidence.
+# v0.9 provider-aware configuration. This per-harness setting is live and is
+# applied to newly-written Decision.base_confidence.
+# For OpenAI-compatible services, set the provider, API key, base URL, model,
+# and embedding model through environment variables or the corresponding
+# config fields. Hermes provider settings belong in Hermes' own profile.
+# llm_provider: nvidia
+# llm_model: nvidia/llama-3.3-nemotron-super-49b-v1.5
 harnesses:
   gemini-cli:
     initial_decision_confidence: 0.6

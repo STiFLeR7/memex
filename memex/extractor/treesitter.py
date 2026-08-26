@@ -1,3 +1,4 @@
+import ast
 import logging
 from dataclasses import dataclass, field
 from typing import List, Optional, Dict, Tuple
@@ -25,16 +26,6 @@ class CallEdge:
     line: int
 
 
-# tree-sitter call-expression queries, per language. Captures the *callee*
-# name (the simple identifier, or the trailing attribute of `a.b.c()`).
-# v0.3.7 Layer 2 ships Python only — memex's own codebase is Python and the
-# grammars differ per language; others fall through to [] (no edges, no error).
-_CALL_QUERIES: Dict[str, str] = {
-    "python": "(call function: [(identifier) @callee "
-              "(attribute attribute: (identifier) @callee)])",
-}
-
-
 def _flatten_functions(items, acc: List[Tuple[str, int, int]]) -> None:
     """Collect (name, start_line, end_line) for every function/method symbol,
     recursing into class bodies. Lines are 0-indexed (tree-sitter convention)."""
@@ -42,8 +33,51 @@ def _flatten_functions(items, acc: List[Tuple[str, int, int]]) -> None:
         kind = str(it.kind).lower()
         if "function" in kind or "method" in kind:
             acc.append((it.name, it.span.start_line, it.span.end_line))
-        if it.children:
+    if it.children:
             _flatten_functions(it.children, acc)
+
+
+class _PythonCallVisitor(ast.NodeVisitor):
+    """Collect calls while retaining the enclosing Python function name."""
+
+    def __init__(self, file_path: str) -> None:
+        self.file_path = file_path
+        self.caller_stack: list[str] = []
+        self.edges: list[CallEdge] = []
+        self.seen: set[Tuple[str, str, int]] = set()
+
+    def visit_FunctionDef(self, node: ast.FunctionDef) -> None:
+        self._visit_function(node)
+
+    def visit_AsyncFunctionDef(self, node: ast.AsyncFunctionDef) -> None:
+        self._visit_function(node)
+
+    def _visit_function(self, node: ast.FunctionDef | ast.AsyncFunctionDef) -> None:
+        self.caller_stack.append(node.name)
+        self.generic_visit(node)
+        self.caller_stack.pop()
+
+    def visit_Call(self, node: ast.Call) -> None:
+        if self.caller_stack:
+            if isinstance(node.func, ast.Name):
+                callee = node.func.id
+            elif isinstance(node.func, ast.Attribute):
+                callee = node.func.attr
+            else:
+                callee = None
+            if callee is not None:
+                key = (self.caller_stack[-1], callee, node.lineno)
+                if key not in self.seen:
+                    self.seen.add(key)
+                    self.edges.append(
+                        CallEdge(
+                            caller=key[0],
+                            callee=callee,
+                            file=self.file_path,
+                            line=node.lineno,
+                        )
+                    )
+        self.generic_visit(node)
 
 
 def extract_calls(file_path: str, content: str, language: str = "python") -> List[CallEdge]:
@@ -53,55 +87,17 @@ def extract_calls(file_path: str, content: str, language: str = "python") -> Lis
     module scope (no enclosing function) are skipped — we don't fabricate a
     caller. Unsupported languages return ``[]``.
     """
-    query_src = _CALL_QUERIES.get(language)
-    if not query_src or not content:
+    if language != "python" or not content:
         return []
 
     try:
-        import tree_sitter as ts
-        lang = tslp.get_language(language)
-        parser = ts.Parser(lang)
-        tree = parser.parse(content.encode("utf-8", errors="ignore"))
-        query = ts.Query(lang, query_src)
-        cursor = ts.QueryCursor(query)
-        captures = cursor.captures(tree.root_node)
+        tree = ast.parse(content, filename=file_path)
     except Exception:
         logger.debug("call extraction failed for %s", file_path, exc_info=True)
         return []
-
-    # Enclosing-function spans (0-indexed) for caller resolution.
-    try:
-        result = tslp.process(content, config=tslp.ProcessConfig(language=language))
-        functions: List[Tuple[str, int, int]] = []
-        _flatten_functions(result.structure, functions)
-    except Exception:
-        return []
-
-    raw = content.encode("utf-8", errors="ignore")
-    edges: List[CallEdge] = []
-    seen: set[Tuple[str, str, int]] = set()
-
-    for node in captures.get("callee", []):
-        callee = raw[node.start_byte:node.end_byte].decode("utf-8", errors="ignore")
-        line0 = node.start_point[0]
-        # Innermost enclosing function: smallest span that contains the call.
-        caller = None
-        best = None
-        for name, s, e in functions:
-            if s <= line0 <= e:
-                span = e - s
-                if best is None or span < best:
-                    best = span
-                    caller = name
-        if caller is None:
-            continue  # module-level call — no caller symbol
-        key = (caller, callee, line0)
-        if key in seen:
-            continue
-        seen.add(key)
-        edges.append(CallEdge(caller=caller, callee=callee, file=file_path, line=line0 + 1))
-
-    return edges
+    visitor = _PythonCallVisitor(file_path)
+    visitor.visit(tree)
+    return visitor.edges
 
 def get_symbols_from_content(content: str, file_path: str, language_name: str) -> Dict[str, Symbol]:
     """

@@ -48,7 +48,7 @@ services:
     build:
       context: ..
       dockerfile: docker/Dockerfile.server
-    image: memex-server:0.7.0
+    image: memex-server:0.9.0
     container_name: memex-team-server
     depends_on:
       neo4j:

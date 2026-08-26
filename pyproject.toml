@@ -1,7 +1,7 @@
 [project]
 name = "memex-mcp"
-version = "0.8.0"
-description = "Developer context continuity system — builds and maintains a temporal knowledge graph of your codebase, served to AI coding agents via MCP. Inspired by Vannevar Bush's 1945 concept of a machine that remembers everything."
+version = "0.9.0"
+description = "Trusted engineering context for agentic software engineering — a temporal knowledge graph served through Hermes MemoryProvider and MCP."
 readme = "README.md"
 license = { text = "MIT" }
 requires-python = ">=3.11"
@@ -108,6 +108,16 @@ managed = true
 [tool.hatch.build.targets.wheel]
 packages = ["memex"]
 
+[tool.hatch.build.targets.sdist]
+include = [
+    "/memex",
+    "/README.md",
+    "/CHANGELOG.md",
+    "/CONTRIBUTING.md",
+    "/LICENSE",
+    "/pyproject.toml",
+]
+
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "module"
@@ -118,6 +128,9 @@ markers = [
 
 [project.scripts]
 memex = "memex.cli:main"
+
+[project.entry-points."hermes_agent.memory_providers"]
+memex = "memex.integrations.hermes_provider:register"
 
 [tool.ruff]
 line-length = 100

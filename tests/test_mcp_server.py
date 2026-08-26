@@ -4,7 +4,7 @@ from memex.mcp_server import server
 from memex.mcp_server.server import create_server, ConfigError, MemexStartupError, handle_list_tools, handle_call_tool
 
 @pytest.mark.asyncio
-async def test_server_registers_all_13_tools():
+async def test_server_registers_all_14_tools():
     # constructs the instance, validates config, checks Neo4j
     with patch("memex.mcp_server.server.get_graph_client") as mock_get_client:
         mock_client = AsyncMock()
@@ -17,7 +17,7 @@ async def test_server_registers_all_13_tools():
             expected = [
                 # 6 v0.1 read tools
                 "get_project_context", "get_symbol_context", "get_recent_decisions",
-                "get_open_problems", "search_context", "get_stale_context",
+                "get_open_problems", "search_context", "get_engineering_context", "get_stale_context",
                 # 4 v0.1 write tools
                 "record_decision", "record_problem", "resolve_problem", "invalidate_edge",
                 # 2 Phase 9 read tools
@@ -26,7 +26,7 @@ async def test_server_registers_all_13_tools():
                 "get_context_briefing",
             ]
 
-            assert len(tools) == 13
+            assert len(tools) == 14
             actual_names = [t.name for t in tools]
             for name in expected:
                 assert name in actual_names
@@ -68,7 +68,7 @@ async def test_introspection_only_mode_skips_neo4j(monkeypatch):
         srv = await create_server("/fake/repo")
 
     tools = await handle_list_tools()
-    assert len(tools) == 13
+    assert len(tools) == 14
 
 @pytest.mark.asyncio
 async def test_server_tool_returns_string_not_none():
@@ -103,7 +103,7 @@ async def test_read_tools_advertise_project_property():
     read_tools = {
         "get_project_context", "get_symbol_context", "get_recent_decisions",
         "get_open_problems", "search_context", "get_stale_context",
-        "get_context_briefing",
+        "get_engineering_context", "get_context_briefing",
     }
     write_tools = {"record_decision", "record_problem", "resolve_problem", "invalidate_edge"}
 
@@ -129,6 +129,7 @@ async def test_handle_call_tool_threads_project_kwarg():
         ("get_recent_decisions", {"project": "github.com/acme/widgets"}),
         ("get_open_problems", {"project": "github.com/acme/widgets"}),
         ("search_context", {"query": "test", "project": "github.com/acme/widgets"}),
+        ("get_engineering_context", {"query": "test", "project": "github.com/acme/widgets"}),
         ("get_stale_context", {"project": "github.com/acme/widgets"}),
         ("get_context_briefing", {"project": "github.com/acme/widgets"}),
     ]
@@ -148,6 +149,7 @@ async def test_call_all_tools_smoke():
         ("get_recent_decisions", {"days": "invalid"}), # tests coercion
         ("get_open_problems", {}),
         ("search_context", {"query": "test", "top_k": "5"}),
+        ("get_engineering_context", {"query": "test", "top_k": "5"}),
         ("get_stale_context", {"threshold": "0.3"}),
         ("record_decision", {"text": "D"*10}),
         ("record_problem", {"text": "P"*10}),
