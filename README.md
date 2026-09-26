@@ -24,6 +24,8 @@ personal memory or raw session state.
 [![OpenSSF Scorecard](https://api.securityscorecards.dev/projects/github.com/STiFLeR7/memex/badge)](https://securityscorecards.dev/viewer/?uri=github.com/STiFLeR7/memex)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
+[![Memex on AI Agents Listing](https://aiagentslisting.com/memex/badge.svg)](https://aiagentslisting.com/mcp/memex)
+
 ![memex — temporal knowledge graph MCP server for AI coding agents, built on Graphiti and Neo4j](https://raw.githubusercontent.com/STiFLeR7/memex/master/assets/memex.png)
 
 ```mermaid
