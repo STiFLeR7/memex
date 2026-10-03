@@ -26,10 +26,9 @@ const COLUMNS = [
     links: [
       { t: 'PyPI · memex-mcp', u: 'https://pypi.org/project/memex-mcp/' },
       { t: 'npm · stifler-memex-mcp', u: 'https://www.npmjs.com/package/stifler-memex-mcp' },
-      {
-        t: 'MCP Registry',
-        u: 'https://registry.modelcontextprotocol.io/v0/servers?search=memex',
-      },
+      // The registry has no per-server page, and its API returns raw JSON, so
+      // this points at the registry itself rather than at a payload.
+      { t: 'MCP Registry', u: 'https://registry.modelcontextprotocol.io/' },
     ],
   },
   {

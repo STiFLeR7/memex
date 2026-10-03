@@ -37,7 +37,7 @@ personal memory or raw session state.
 | Source | [github.com/STiFLeR7/memex](https://github.com/STiFLeR7/memex) |
 | Python package | [`memex-mcp` on PyPI](https://pypi.org/project/memex-mcp/) |
 | Node package | [`stifler-memex-mcp` on npm](https://www.npmjs.com/package/stifler-memex-mcp) |
-| MCP Registry | [`io.github.STiFLeR7/memex`](https://registry.modelcontextprotocol.io/v0/servers?search=memex) |
+| MCP Registry | [registry.modelcontextprotocol.io](https://registry.modelcontextprotocol.io/), listed as `io.github.STiFLeR7/memex` |
 | Claude Code plugin | [STiFLeR7/claude-plugins](https://github.com/STiFLeR7/claude-plugins) |
 | Directories | [Glama](https://glama.ai/mcp/servers/STiFLeR7/memex) · [AI Agents Listing](https://aiagentslisting.com/mcp/memex) |
 
