@@ -36,9 +36,13 @@ jobs:
           cache: npm
           cache-dependency-path: memex-site/package-lock.json
 
+      # `npm install`, not `npm ci`: workerd pulls in @emnapi/* as
+      # platform-gated optional deps, and a lockfile generated on Windows
+      # resolves them differently to Linux, so `npm ci` fails EUSAGE. The
+      # lockfile is still committed and respected where it is valid.
       - name: Install
         working-directory: memex-site
-        run: npm ci
+        run: npm install --no-audit --no-fund
 
       - name: Decay-regime assertions
         working-directory: memex-site
