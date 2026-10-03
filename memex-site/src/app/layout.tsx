@@ -38,18 +38,64 @@ const mono = DM_Mono({
   display: 'swap',
 });
 
+const SITE = 'https://memex.stifler.in';
+const TITLE = 'memex: engineering context infrastructure';
+const DESCRIPTION =
+  'memex builds a bitemporal knowledge graph of your repository (modules, symbols, decisions, problems) and serves bounded, provenance-aware context to coding agents over MCP.';
+
+/* SoftwareApplication, not SoftwareSourceCode: this page markets a thing you
+   install and run (pip/npm/MCP Registry), not a source tree you read. The
+   repository and the registries go in sameAs so the same entity resolves
+   across all four places. Every value here is sourced from pyproject.toml or
+   the published packages; fields that would need numbers we cannot source
+   (aggregateRating, downloadCount) are omitted rather than guessed. */
+const AUTHOR_ID = `${SITE}/#author`;
+
+const jsonLd = {
+  '@context': 'https://schema.org',
+  '@graph': [
+    {
+      '@type': 'SoftwareApplication',
+      '@id': `${SITE}/#memex`,
+      name: 'memex',
+      description: DESCRIPTION,
+      url: SITE,
+      applicationCategory: 'DeveloperApplication',
+      // "Operating System :: OS Independent" in pyproject.toml.
+      operatingSystem: 'Any',
+      softwareVersion: '0.9.0',
+      softwareRequirements: 'Python 3.11 or newer',
+      license: 'https://opensource.org/licenses/MIT',
+      identifier: 'io.github.STiFLeR7/memex',
+      sameAs: [
+        'https://github.com/STiFLeR7/memex',
+        'https://pypi.org/project/memex-mcp/',
+        'https://www.npmjs.com/package/stifler-memex-mcp',
+      ],
+      offers: { '@type': 'Offer', price: 0, priceCurrency: 'USD' },
+      author: { '@id': AUTHOR_ID },
+    },
+    {
+      '@type': 'Person',
+      '@id': AUTHOR_ID,
+      name: 'Hill Patel',
+      url: 'https://github.com/STiFLeR7',
+      sameAs: ['https://github.com/STiFLeR7', 'https://x.com/hillpatel07'],
+    },
+  ],
+};
+
 export const metadata: Metadata = {
-  metadataBase: new URL('https://memex.stifler.in'),
+  metadataBase: new URL(SITE),
   alternates: { canonical: '/' },
-  title: 'memex: engineering context infrastructure',
-  description:
-    'memex builds a bitemporal knowledge graph of your repository (modules, symbols, decisions, problems) and serves bounded, provenance-aware context to coding agents over MCP.',
+  title: TITLE,
+  description: DESCRIPTION,
   authors: [{ name: 'Hill Patel', url: 'https://github.com/STiFLeR7' }],
   openGraph: {
     type: 'website',
     url: '/',
     locale: 'en_US',
-    title: 'memex: engineering context infrastructure',
+    title: TITLE,
     description:
       'A bitemporal knowledge graph of a repository, served to coding agents as bounded, provenance-carrying context.',
     siteName: 'memex',
@@ -87,7 +133,13 @@ export default function RootLayout({
       lang="en"
       className={`${display.variable} ${body.variable} ${serif.variable} ${mono.variable}`}
     >
-      <body>{children}</body>
+      <body>
+        {/* A single string child of <script> is emitted verbatim by react-dom
+            (escapeEntireInlineScriptContent only rewrites </script), so the
+            JSON survives intact without dangerouslySetInnerHTML. */}
+        <script type="application/ld+json">{JSON.stringify(jsonLd)}</script>
+        {children}
+      </body>
     </html>
   );
 }

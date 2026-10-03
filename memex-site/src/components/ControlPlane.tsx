@@ -262,13 +262,20 @@ export default function ControlPlane() {
           <canvas id="planeCanvas" ref={cvRef} aria-hidden="true" />
         </div>
 
-        <div className="plane-legend" role="tablist" aria-label="Pipeline stages">
+        {/* Plain buttons, not an ARIA tablist. The tab pattern would mean a
+            roving tabIndex and arrow-key handling to get back the keyboard
+            behaviour native buttons already give for free, and it would fight
+            the scroll auto-advance: a tablist's focused tab is expected to be
+            the selected one, which scroll would keep yanking out from under
+            the user. Buttons plus aria-current plus a labelled region says
+            exactly what is true, and Enter/Space goes through the same
+            onClick, so keyboard selection counts as manual. */}
+        <div className="plane-legend" role="group" aria-label="Pipeline stages">
           {STAGES.map((s, i) => (
             <button
               key={s.n}
-              role="tab"
-              aria-selected={i === active}
               aria-current={i === active}
+              aria-controls="plane-detail"
               onClick={() => select(i, true)}
             >
               <span className="n">{s.n}</span>
@@ -278,7 +285,14 @@ export default function ControlPlane() {
           ))}
         </div>
 
-        <div className="plane-caption">
+        {/* No aria-live: scrolling auto-advances the selection, so a live
+            region would narrate all six stages on the way past. */}
+        <div
+          className="plane-caption"
+          id="plane-detail"
+          role="region"
+          aria-label={`Stage detail: ${stage.title}`}
+        >
           <p key={stage.n}>{stage.caption}</p>
           <p className="art">{stage.artifact}</p>
         </div>

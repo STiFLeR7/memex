@@ -15,7 +15,8 @@
   --ink:#E9F0FB;
   --soft:#A4B6D2;
   --muted:#65789B;
-  /* for small text sitting over the hero light, where --muted drops to 2.8:1 */
+  /* --muted is AA-clean on --bg and nowhere else: 2.8:1 over the hero light,
+     4.24:1 on --surface. This is the replacement for small text in both. */
   --muted-lit:#97A9CD;
   --faint:#3B4961;
   --blue:#2D6AFF;
@@ -66,6 +67,20 @@ h1,h2,h3{font-family:var(--display);font-weight:600;letter-spacing:-.032em;line-
 ::selection{background:var(--blue);color:#fff}
 
 /* ---------- 03 PRIMITIVES ---------- */
+/* First focusable element on the page. Parked off the top edge rather than
+   clipped to 1px, so it keeps its box and simply slides in on focus. Above
+   the nav's z-index:40, or the fixed header covers it. */
+.skip{
+  position:fixed;top:0;left:var(--edge);z-index:60;
+  transform:translateY(-130%);
+  padding:.85rem 1.2rem;border:1px solid var(--line-3);border-top:0;
+  background:var(--void);color:var(--ice);
+  font:500 .72rem/1 var(--mono);letter-spacing:.12em;text-transform:uppercase;
+  transition:transform var(--t-fast) var(--ease);
+}
+.skip:focus{transform:none}
+/* focus moves to <main>, which carries tabindex -1 purely as a focus target */
+#main:focus{outline:none}
 .edge{padding-left:var(--edge);padding-right:var(--edge)}
 .wrap{max-width:1560px;margin:0 auto}
 /* fixed nav is 68px — keep anchored headings clear of it */
@@ -157,26 +172,28 @@ code{font:.86em var(--mono);color:var(--ice)}
 @keyframes breathe{from{opacity:.78;transform:translateX(-50%) scale(1)}to{opacity:1;transform:translateX(-50%) scale(1.07)}}
 
 /* ---------- 04 MOTION ---------- */
-/* Hidden states are opt-in: only applied once the enhancement script has
-   marked the document. Without JS everything renders visible. */
-/* Hidden states are opt-in and gated on scripting being available: the
-   only thing that can undo them is JS. With scripting off, or in a browser
-   without this query, the page renders fully visible and simply does not
-   animate. No inline script, nothing for a CSP to allow. */
+/* Hidden states are opt-in, and the real gate is `.rv-ready` on <html>, which
+   RevealEngine adds on mount. `(scripting: enabled)` only proves the engine
+   is *allowed* to run; it says nothing about whether the bundle arrived or
+   hydration threw. Gating on the query alone meant a 404'd chunk or a
+   hydration error left every `.rv` at opacity:0 and the page blank. Content
+   is visible by default; only something that has actually mounted can hide
+   it, and the same thing can undo it. The query stays as a second condition
+   so a scripting-off browser never even computes these rules. */
 /* Structural, and NOT gated: `.wr > i` is a real <i>, so without this reset
-   it falls back to the UA's italic default whenever the query below does not
-   apply. Only the animated properties belong inside the gate. */
+   it falls back to the UA's italic default whenever the gate does not apply.
+   Only the animated properties belong inside the gate. */
 .wr{display:inline-block;overflow:hidden;vertical-align:bottom}
 .wr>i{display:inline-block;font-style:inherit}
 
 @media (scripting: enabled){
-  .rv{opacity:0;transform:translateY(26px);filter:blur(7px);
+  .rv-ready .rv{opacity:0;transform:translateY(26px);filter:blur(7px);
     transition:opacity var(--t-slow) var(--ease-out),transform var(--t-slow) var(--ease-out),filter var(--t-slow) var(--ease-out)}
-  .rv.in{opacity:1;transform:none;filter:blur(0)}
+  .rv-ready .rv.in{opacity:1;transform:none;filter:blur(0)}
 
-  .wr>i{transform:translateY(105%);opacity:.001;
+  .rv-ready .wr>i{transform:translateY(105%);opacity:.001;
     transition:transform .95s var(--ease-out),opacity .7s var(--ease-out)}
-  .in .wr>i,.wr.in>i{transform:none;opacity:1}
+  .rv-ready .in .wr>i,.rv-ready .wr.in>i{transform:none;opacity:1}
 }
 
 @media(prefers-reduced-motion:reduce){
@@ -201,8 +218,12 @@ code{font:.86em var(--mono);color:var(--ice)}
   transform:scaleX(0);transform-origin:left;transition:transform .34s var(--ease-out)}
 .navlinks a:hover{color:var(--ink)}
 .navlinks a:hover::after{transform:scaleX(1)}
-.menu-btn{display:none;border:1px solid var(--line-2);padding:.5rem .8rem;
+.menu-btn{display:none;position:relative;border:1px solid var(--line-2);padding:.5rem .8rem;
   font:500 var(--t-label) var(--mono);letter-spacing:.14em;text-transform:uppercase;color:var(--soft)}
+/* The box is ~30px tall by design. The target is 44px, centred over it, so
+   the hit area meets WCAG 2.5.5 without the button growing. */
+.menu-btn::after{content:"";position:absolute;top:50%;left:50%;
+  transform:translate(-50%,-50%);width:max(100%,44px);height:44px}
 .sheet{display:none}
 .sheet.open{display:flex;flex-direction:column;gap:2px;padding:8px var(--edge) 24px;
   background:rgba(5,8,15,.96);backdrop-filter:blur(16px);border-bottom:1px solid var(--line)}
@@ -372,14 +393,15 @@ code{font:.86em var(--mono);color:var(--ice)}
 .tool-list button::before{content:"";position:absolute;left:0;top:0;bottom:0;width:2px;background:var(--ice);
   transform:scaleY(0);transition:transform .3s var(--ease-out)}
 .tool-list button:hover{color:var(--soft);background:rgba(45,106,255,.05)}
-.tool-list button[aria-selected="true"]{color:var(--ink);background:rgba(45,106,255,.09)}
-.tool-list button[aria-selected="true"]::before{transform:scaleY(1)}
+.tool-list button[aria-current="true"]{color:var(--ink);background:rgba(45,106,255,.09)}
+.tool-list button[aria-current="true"]::before{transform:scaleY(1)}
 .tool-list .grp{padding:14px 16px 8px;font:500 .62rem var(--mono);letter-spacing:.17em;
   text-transform:uppercase;color:var(--muted-lit);border-bottom:1px solid var(--line)}
 .tool-detail{padding:clamp(20px,2.6vw,34px)}
 .tool-row{display:grid;grid-template-columns:118px 1fr;gap:20px;padding:13px 0;border-bottom:1px solid var(--line)}
 .tool-row:last-child{border-bottom:0}
-.tool-row dt{font:500 var(--t-label) var(--mono);letter-spacing:.14em;text-transform:uppercase;color:var(--muted)}
+/* --muted is only 4.24:1 on --surface, same miss the tool buttons had */
+.tool-row dt{font:500 var(--t-label) var(--mono);letter-spacing:.14em;text-transform:uppercase;color:var(--muted-lit)}
 .tool-row dd{margin:0;font-size:.87rem;color:var(--soft);min-width:0;overflow-wrap:anywhere}
 .tool-row dd code{color:var(--ice-2)}
 

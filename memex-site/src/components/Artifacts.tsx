@@ -47,15 +47,21 @@ export default function Artifacts() {
         </div>
 
         <div className="surface rv d2">
-          <div className="tool-list" role="tablist" aria-label="MCP tools">
+          {/* Plain buttons, not an ARIA tablist: the roles promised roving
+              tabIndex and arrow keys that were never implemented, and native
+              buttons already give Tab plus Enter/Space. aria-current carries
+              the selection, aria-controls points at the one panel. */}
+          <div className="tool-list" role="group" aria-label="MCP tools">
             {GROUPED.map((g) => (
-              <div key={g.cls}>
-                <div className="grp">{g.label}</div>
+              <div key={g.cls} role="group" aria-labelledby={`grp-${g.cls}`}>
+                {/* labelledby, not label: the group name is already on screen,
+                    so pointing at it beats repeating it */}
+                <div className="grp" id={`grp-${g.cls}`}>{g.label}</div>
                 {g.tools.map((t) => (
                   <button
                     key={t.name}
-                    role="tab"
-                    aria-selected={t.i === sel}
+                    aria-current={t.i === sel}
+                    aria-controls="tool-detail"
                     onClick={() => setSel(t.i)}
                   >
                     {t.name}
@@ -65,7 +71,14 @@ export default function Artifacts() {
             ))}
           </div>
 
-          <dl className="tool-detail">
+          {/* aria-live is safe here, unlike the control plane: the selection
+              only ever changes from a click or a keypress. */}
+          <dl
+            className="tool-detail"
+            id="tool-detail"
+            aria-label={`Schema: ${tool.name}`}
+            aria-live="polite"
+          >
             <div className="tool-row">
               <dt>Tool</dt>
               <dd><code>{tool.name}</code></dd>

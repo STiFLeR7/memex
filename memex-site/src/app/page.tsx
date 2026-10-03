@@ -12,8 +12,13 @@ import RevealEngine from '@/components/RevealEngine';
 export default function Page() {
   return (
     <>
+      <a className="skip" href="#main">
+        Skip to content
+      </a>
       <Nav />
-      <main id="main">
+      {/* tabIndex -1 so the skip link actually moves focus, not just the
+          scroll position: <main> is not focusable on its own. */}
+      <main id="main" tabIndex={-1}>
         <Hero />
         <Thesis />
         <ControlPlane />
