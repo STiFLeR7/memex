@@ -55,7 +55,11 @@ auth_service.py
 uv.lock
 .pytest_cache/
 GEMINI.md
-docs/
+# Preserve local documentation, but version the approved v1 planning package.
+docs/*
+!docs/v1/
+docs/v1/*
+!docs/v1/*.md
 
 # npm
 npm/node_modules/
