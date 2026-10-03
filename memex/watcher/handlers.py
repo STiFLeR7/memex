@@ -240,8 +240,6 @@ async def handle_file_change(event: FileChangeEvent) -> None:
         # 3. Call extract_symbol_delta
         delta = await extract_symbol_delta(rel_path, old_content, new_content)
         
-        if not delta.added and not delta.removed and not delta.modified:
-            return
 
         # 4. Call write_symbol_delta
         summary = await write_symbol_delta(delta, source_commit=None, repo_root=repo_canon)

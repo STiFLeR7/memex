@@ -80,3 +80,20 @@ async def test_extract_symbol_delta_modified_signature():
     assert len(delta.modified) == 1
     assert delta.modified[0].name == "greet"
     assert "name: str" in delta.modified[0].signature
+
+
+@pytest.mark.asyncio
+async def test_body_only_change_marks_symbol_modified():
+    delta = await extract_symbol_delta(
+        "client.py", "def send():\n    return old_api()\n",
+        "def send():\n    return new_api()\n",
+    )
+    assert [symbol.name for symbol in delta.modified] == ["send"]
+    assert not delta.added and not delta.removed
+
+
+@pytest.mark.asyncio
+async def test_identical_content_has_no_symbol_modification():
+    source = "def send():\n    return api()\n"
+    delta = await extract_symbol_delta("client.py", source, source)
+    assert not delta.added and not delta.removed and not delta.modified

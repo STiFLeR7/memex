@@ -171,7 +171,7 @@ async def extract_symbol_delta(
             delta.added.append(new_sym)
         else:
             old_sym = old_symbols[key]
-            if old_sym.signature != new_sym.signature:
+            if old_sym.signature != new_sym.signature or old_content != new_content:
                 delta.modified.append(new_sym)
 
     # Find removed
