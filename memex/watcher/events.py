@@ -17,3 +17,4 @@ class CommitEvent:
     diff: str          # output of git diff HEAD~1 HEAD
     files_changed: List[str]
     timestamp: datetime
+    event_path: str | None = None  # Durable spool; acknowledged after handlers succeed.

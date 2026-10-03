@@ -92,9 +92,6 @@ async def run_daemon(repo_root: str | None = None) -> None:
     
     # Components
     router = EventRouter(queue)
-    router.on_file_change(handle_file_change)
-    router.on_file_change(handle_lockfile_change)
-    router.on_commit(handle_commit)
     decay = DecayScheduler()
 
     observers = []
@@ -109,6 +106,20 @@ async def run_daemon(repo_root: str | None = None) -> None:
         if not repos_to_watch:
             logger.warning("No active repositories found in registry. Daemon will idle.")
             print("Warning: No active repositories found in registry.")
+
+    if os.getenv("MEMEX_LIVE_CONTEXT", "").lower() in {"1", "true", "yes"}:
+        from memex.runtime.service import LiveContextRuntime
+        runtime = LiveContextRuntime(
+            [repo for repo in repos_to_watch if not (repo / ".memex" / "paused").exists()],
+            client.driver,
+        )
+        router.on_file_change(runtime.on_event)
+        router.on_commit(runtime.on_event)
+        tasks.append(asyncio.create_task(runtime.run()))
+        logger.info("Live structural views enabled; recovery rescan every 5s")
+    router.on_file_change(handle_file_change)
+    router.on_file_change(handle_lockfile_change)
+    router.on_commit(handle_commit)
 
     for repo in repos_to_watch:
         # Install git hooks

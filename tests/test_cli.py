@@ -1,5 +1,6 @@
 import pytest
 import sys
+import subprocess
 from unittest.mock import AsyncMock, patch, MagicMock
 from memex import cli
 from memex.watcher import registry
@@ -130,7 +131,7 @@ def test_cli_keys_revoke():
 
 
 def test_cli_init_with_project_id_writes_file_and_registers(tmp_path):
-    (tmp_path / ".git" / "hooks").mkdir(parents=True)
+    subprocess.check_output(["git", "init", "-q", str(tmp_path)])
     reg_path = tmp_path / "registry.json"
     old_path = registry.REGISTRY_PATH
     registry.REGISTRY_PATH = reg_path
@@ -155,7 +156,7 @@ def test_cli_init_with_project_id_writes_file_and_registers(tmp_path):
 
 
 def test_cli_init_without_project_id_no_git_remote_stays_none(tmp_path):
-    (tmp_path / ".git" / "hooks").mkdir(parents=True)
+    subprocess.check_output(["git", "init", "-q", str(tmp_path)])
     reg_path = tmp_path / "registry.json"
     old_path = registry.REGISTRY_PATH
     registry.REGISTRY_PATH = reg_path

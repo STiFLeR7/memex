@@ -279,7 +279,7 @@ async def handle_file_change(event: FileChangeEvent) -> None:
         health.record(canonical_repo_path(event.repo_root),
                       handler="handle_file_change", errors=1)
 
-async def handle_commit(event: CommitEvent) -> None:
+async def handle_commit(event: CommitEvent) -> bool:
     """
     Connects git commits to the decision synthesis pipeline.
     """
@@ -289,16 +289,18 @@ async def handle_commit(event: CommitEvent) -> None:
             decisions = await extract_decisions(event.message, event.diff, event.sha)
         except Exception:
             logger.error("Decision extraction failed for %s", event.sha, exc_info=True)
-            return
+            return False
         
         # 2. Write decisions
         count = 0
+        succeeded = True
         if decisions:
             for decision in decisions:
                 try:
                     await write_decision(decision, event.files_changed, event.sha)
                     count += 1
                 except Exception:
+                    succeeded = False
                     logger.error("Failed to write decision '%s'", decision.text, exc_info=True)
 
         # 3. Corroborate existing decisions
@@ -308,12 +310,14 @@ async def handle_commit(event: CommitEvent) -> None:
             if corroborated > 0:
                 logger.info("decisions corroborated for %s: %d", event.sha, corroborated)
         except Exception:
+            succeeded = False
             logger.error("Decision corroboration failed for %s", event.sha, exc_info=True)
 
         # 4. Log
         if count > 0:
             logger.info("decisions written for %s: %d", event.sha, count)
         notify_local_server()
+        return succeeded
     except Exception:
         logger.error(
             "unhandled error in handle_commit — skipping event",
@@ -321,6 +325,7 @@ async def handle_commit(event: CommitEvent) -> None:
         )
         health.record(canonical_repo_path(event.repo_root),
                       handler="handle_commit", errors=1)
+        return False
 
 
 async def initial_lockfile_index(repo_root: str) -> dict:

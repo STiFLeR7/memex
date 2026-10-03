@@ -5,9 +5,8 @@ from unittest.mock import patch
 from memex.watcher import git_hook
 
 def test_install_hooks_writes_post_commit_script(tmp_path):
-    # Mock .git/hooks directory
+    subprocess.check_output(["git", "init", "-q", str(tmp_path)])
     hooks_dir = tmp_path / ".git" / "hooks"
-    hooks_dir.mkdir(parents=True)
     
     git_hook.install_hooks(str(tmp_path))
     
@@ -16,8 +15,8 @@ def test_install_hooks_writes_post_commit_script(tmp_path):
     assert "memex" in post_commit.read_text()
 
 def test_install_hooks_is_idempotent(tmp_path):
+    subprocess.check_output(["git", "init", "-q", str(tmp_path)])
     hooks_dir = tmp_path / ".git" / "hooks"
-    hooks_dir.mkdir(parents=True)
     
     git_hook.install_hooks(str(tmp_path))
     content1 = (hooks_dir / "post-commit").read_text()
@@ -28,8 +27,8 @@ def test_install_hooks_is_idempotent(tmp_path):
     assert content1 == content2
 
 def test_hook_script_uses_lf_line_endings(tmp_path):
+    subprocess.check_output(["git", "init", "-q", str(tmp_path)])
     hooks_dir = tmp_path / ".git" / "hooks"
-    hooks_dir.mkdir(parents=True)
     
     git_hook.install_hooks(str(tmp_path))
     
