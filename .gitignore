@@ -88,3 +88,7 @@ memex-site/.wrangler/
 memex-site/next-env.d.ts
 memex-site/next.config.ts.bak
 memex-site/.env*.local
+
+# The Python `lib/` rule above matches at any depth and was swallowing the
+# website's source. Scope it back in.
+!memex-site/src/lib/
