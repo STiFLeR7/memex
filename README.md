@@ -7,11 +7,14 @@
 > decisions, problems, evidence, and code evolution) and exposes bounded,
 > provenance-aware context through Hermes MemoryProvider or MCP.
 
+**[memex.stifler.in](https://memex.stifler.in)**
+
 A daemon and MCP server that turns commits and file changes into structured
 engineering knowledge. Agents can receive relevant repository context before a
 task, with freshness and provenance preserved, without making memex a source of
 personal memory or raw session state.
 
+[![Website](https://img.shields.io/badge/website-memex.stifler.in-2D6AFF)](https://memex.stifler.in)
 [![PyPI](https://img.shields.io/pypi/v/memex-mcp?v=0.9.0)](https://pypi.org/project/memex-mcp/)
 [![PyPI downloads](https://img.shields.io/pypi/dm/memex-mcp)](https://pypistats.org/packages/memex-mcp)
 [![npm](https://img.shields.io/npm/v/stifler-memex-mcp?v=0.9.0)](https://www.npmjs.com/package/stifler-memex-mcp)
