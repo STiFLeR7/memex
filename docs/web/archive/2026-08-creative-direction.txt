@@ -1,0 +1,883 @@
+# LUMEX WEBSITE — CREATIVE DIRECTION & BUILD SYSTEM
+
+You are redesigning and building the Lumex website.
+
+The supplied Lumex content files remain the **source of truth for product information, messaging, technical claims, and information hierarchy**.
+
+The supplied visual reference defines the **creative direction and visual system**.
+
+Do not copy the reference layout directly.
+
+Understand the underlying design principles and translate them into a complete visual identity for Lumex.
+
+---
+
+# 01 — CORE CREATIVE DIRECTION
+
+The website should combine:
+
+* Swiss grid discipline
+* Editorial composition
+* Modern product design
+* Large controlled whitespace
+* Strict alignment
+* Fine structural lines
+* Mesh point gradients
+* Minimal but expressive typography
+* Modular compositions
+* Technical precision
+
+The overall feeling should be:
+
+**Structured, intelligent, contemporary, premium, experimental, and extremely intentional.**
+
+The website should not feel like a typical SaaS landing page.
+
+Avoid:
+
+* Generic floating cards
+* Glassmorphism
+* Gradient blobs
+* Neon AI aesthetics
+* Random dashboard screenshots
+* Excessive rounded containers
+* Generic startup layouts
+* Everything centered
+* Every section following the same structure
+* Decorative effects with no relationship to the layout
+
+The final experience should feel like a carefully art-directed digital publication combined with a modern product system.
+
+---
+
+# 02 — THE MOST IMPORTANT PRINCIPLE: SWISS GRID
+
+The entire website must be built around a strong underlying grid.
+
+The grid should not simply help with alignment.
+
+The grid itself should become part of the visual identity.
+
+Think:
+
+* Vertical divisions
+* Horizontal rules
+* Consistent column systems
+* Strong baseline alignment
+* Clear modular zones
+* Elements intentionally occupying grid cells
+* Content occasionally spanning multiple columns
+* Visual tension created through proportion
+
+The website should feel as though every object has a precise location.
+
+Nothing should feel randomly placed.
+
+## Grid behavior
+
+Create a consistent desktop grid system.
+
+For example:
+
+* 12-column desktop grid
+* Clear outer margins
+* Consistent gutters
+* Horizontal structural divisions
+* Reusable vertical alignment lines
+
+The exact number of columns can change if needed, but the principle must remain:
+
+**Everything belongs to the grid.**
+
+Headlines, visuals, metadata, buttons, labels, diagrams, and technical content should all align with the same underlying system.
+
+---
+
+# 03 — THE GRID SHOULD BE VISIBLE
+
+Unlike a standard invisible layout grid, parts of the Swiss grid should be visually expressed.
+
+Use:
+
+* 1px subtle lines
+* Vertical divisions
+* Horizontal section boundaries
+* Framed content zones
+* Grid intersections
+* Modular blocks
+
+However:
+
+Do not turn the entire website into graph paper.
+
+The grid should appear selectively and structurally.
+
+It should help the user understand:
+
+* Where content begins
+* Where visuals live
+* How information is grouped
+* How the page is organized
+
+Think of the grid as the architecture of the website.
+
+---
+
+# 04 — MESH POINT GRADIENT SYSTEM
+
+The mesh gradient is the main expressive visual material.
+
+But do not use generic CSS gradient blobs.
+
+The visual reference suggests gradients that feel:
+
+* Soft
+* Atmospheric
+* Multi-dimensional
+* Pixel-informed
+* Digitally generated
+* Slightly granular
+* Sometimes blurred
+* Sometimes structured
+* Contained inside rectangular or circular forms
+
+The gradients should feel like a field of information rather than a decorative background.
+
+---
+
+# 05 — GRADIENT CONSTRUCTION
+
+Build a reusable visual system based around mesh/point gradients.
+
+The gradients should be created from multiple color fields interacting with each other.
+
+Use combinations such as:
+
+* Blue → cyan → white
+* Orange → pink → purple
+* Yellow → green → deep green
+* Violet → blue → muted white
+* Warm orange → coral → magenta
+
+Do not use every color at once.
+
+Each visual should have its own controlled palette.
+
+The gradients should feel related but not identical.
+
+## Important:
+
+The gradients should have variation in:
+
+* Density
+* Blur
+* Scale
+* Direction
+* Saturation
+* Grain
+* Pixel resolution
+
+Some gradients can feel smooth.
+
+Some can feel pixelated.
+
+Some can transition from smooth mesh into visible points.
+
+This gives the visual system more depth.
+
+---
+
+# 06 — MESH POINT / PIXEL TEXTURE
+
+A key detail from the creative reference is the relationship between:
+
+**smooth color fields**
+
+and
+
+**visible point-based raster texture**
+
+This should be explored heavily.
+
+Possible treatments:
+
+### Smooth → Pixelated
+
+A gradient starts as a smooth mesh and gradually resolves into a visible dot/pixel structure.
+
+### Dense → Sparse
+
+The gradient field becomes less dense as it moves across the grid.
+
+### Focus → Diffusion
+
+Color intensity concentrates around one area and disperses through surrounding points.
+
+### Signal Activation
+
+A mostly neutral point field activates into color around important interactions.
+
+### Gradient Cropping
+
+Large mesh fields extend beyond their containers and are cropped by the grid.
+
+This is important.
+
+The gradient should feel like a larger system that the layout is selectively revealing.
+
+---
+
+# 07 — GRADIENTS MUST FOLLOW THE GRID
+
+Do not place random floating gradient objects.
+
+Every mesh visual should have a structural relationship to the grid.
+
+For example:
+
+* A gradient occupies exactly four columns
+* A gradient starts at a grid intersection
+* A gradient is cropped by a rectangular module
+* A gradient spans multiple grid cells
+* A gradient sits behind a technical visualization
+* A circular gradient aligns to a column center
+* A large gradient strip crosses the grid horizontally
+
+The color should feel free.
+
+The layout should feel controlled.
+
+This contrast is one of the most important characteristics of the direction:
+
+**Organic visual material inside rigid structure.**
+
+---
+
+# 08 — COLOR SYSTEM
+
+The main website background should be restrained.
+
+Use:
+
+* Warm off-white
+* Very light grey
+* Soft neutral white
+
+Possible base range:
+
+* #F5F4F1
+* #F0EFEC
+* #ECEBE8
+* #FAF9F6
+
+Avoid pure white everywhere.
+
+The reference has a subtle editorial warmth.
+
+## Text
+
+Use:
+
+* Near-black
+* Deep charcoal
+
+For example:
+
+* #171717
+* #1C1C1B
+* #222221
+
+Avoid using multiple text colors unnecessarily.
+
+Most hierarchy should come from:
+
+* Scale
+* Weight
+* Position
+* Spacing
+
+rather than excessive color.
+
+## Accent colors
+
+The mesh gradients introduce color.
+
+Do not create a separate rainbow UI system.
+
+Buttons, navigation, labels, and interactions should remain mostly neutral.
+
+Let the gradients carry the color energy.
+
+---
+
+# 09 — TYPOGRAPHY
+
+Use:
+
+## Stack Sans
+
+Use for:
+
+* Large headlines
+* Hero statements
+* Major numbers
+* Section titles
+* Large visual text moments
+
+Stack Sans should create strong structural statements.
+
+Use large scale.
+
+Do not be afraid of:
+
+* Huge headlines
+* Tight tracking
+* Strong line breaks
+* Headlines occupying multiple grid columns
+
+The typography should feel architectural.
+
+---
+
+## Instrument Sans
+
+Use for:
+
+* Body text
+* Navigation
+* Metadata
+* Technical explanations
+* Labels
+* Buttons
+* Interface controls
+
+Instrument Sans should provide precision and clarity.
+
+The relationship should feel like:
+
+**Stack Sans → identity and impact**
+
+**Instrument Sans → system and information**
+
+---
+
+# 10 — TYPOGRAPHIC HIERARCHY
+
+Do not create a conventional hierarchy where everything is:
+
+Eyebrow
+Headline
+Paragraph
+Button
+
+Repeated endlessly.
+
+The website should have variation.
+
+Some sections might begin with:
+
+* A massive statement
+* Small metadata in another column
+* A visual occupying the remaining grid
+
+Other sections might use:
+
+* Tiny section number
+* Medium heading
+* Large visual
+
+Other sections might use:
+
+* One giant technical statement
+* Supporting information placed far away in another grid zone
+
+Use the grid to create hierarchy.
+
+---
+
+# 11 — HERO DIRECTION
+
+The hero should immediately establish the Lumex visual language.
+
+It should feel spacious and confident.
+
+Possible composition:
+
+### Upper-left or grid-aligned brand area
+
+* Lumex logo
+* Small product descriptor
+* Minimal navigation
+
+### Primary hero area
+
+A large Stack Sans headline.
+
+The headline should occupy a strong portion of the grid.
+
+Keep it concise.
+
+### Visual field
+
+Create a major mesh-point visual that interacts with the hero grid.
+
+The visual could:
+
+* Start as several independent circular gradient signals
+* Expand into a larger connected field
+* Form horizontal layers
+* Transition from abstract color into structured information
+
+The visual should represent Lumex conceptually.
+
+Do not create a generic product illustration.
+
+The hero should feel like:
+
+**A precise system containing complex information.**
+
+---
+
+# 12 — VISUAL STORYTELLING FOR LUMEX
+
+Use the mesh gradient system to represent Lumex concepts.
+
+The exact visuals must be based on the actual product content supplied.
+
+Potential conceptual translations:
+
+## Context
+
+A dense mesh field where specific regions become visible or isolated.
+
+## Relationships
+
+Multiple colored fields overlap at controlled points.
+
+## Retrieval
+
+A large gradient field is cropped into a focused output area.
+
+## Temporal Change
+
+One mesh evolves across several grid modules.
+
+## Knowledge Structure
+
+Independent fields become organized within a rigid grid.
+
+## Inputs → Output
+
+Several separate colored systems enter the layout and become one focused structure.
+
+Do not use literal generic illustrations.
+
+Use abstract visual storytelling.
+
+---
+
+# 13 — SECTION DESIGN SYSTEM
+
+Every major section should feel different.
+
+But all sections must belong to the same visual system.
+
+## Section 1 — Hero
+
+Large statement.
+
+Strong mesh visual.
+
+Generous whitespace.
+
+Visible grid structure.
+
+---
+
+## Section 2 — Problem
+
+More editorial.
+
+Potential layout:
+
+Large statement on one side.
+
+Small supporting observations distributed across the grid.
+
+A mesh field gradually becoming fragmented.
+
+The visual metaphor:
+
+Information exists but is disconnected.
+
+---
+
+## Section 3 — How Lumex Works
+
+This should be highly structured.
+
+Use a strict horizontal or vertical Swiss grid.
+
+Instead of generic process cards, build a sequence of connected modules.
+
+Each stage occupies a defined area.
+
+The mesh visual can evolve through the stages.
+
+For example:
+
+Input field
+
+→ extracted field
+
+→ structured field
+
+→ connected field
+
+→ focused output
+
+The user should visually experience transformation.
+
+---
+
+## Section 4 — Product / Knowledge Model
+
+Use modular grid blocks.
+
+Different primitives can occupy different grid regions.
+
+Avoid equal-sized cards.
+
+Create hierarchy through size.
+
+For example:
+
+One major concept occupies 6 columns.
+
+Three supporting concepts occupy smaller modules.
+
+Technical metadata sits inside narrow columns.
+
+The mesh system can appear inside selected modules.
+
+---
+
+## Section 5 — Temporal System
+
+Use one of the strongest visual moments on the site.
+
+Create a structured timeline.
+
+But instead of a conventional line with dots:
+
+Use changing mesh states.
+
+Each state should demonstrate:
+
+* Creation
+* Reinforcement
+* Change
+* Supersession
+* Invalidation
+
+The visual material changes while the underlying grid remains stable.
+
+This communicates:
+
+**Information changes. The system remains structured.**
+
+---
+
+## Section 6 — Tools / Integration
+
+Become more technical.
+
+Use:
+
+* Fine borders
+* Grid-aligned panels
+* Input/output relationships
+* Tool names
+* Structured technical information
+
+However:
+
+Do not make a fake dashboard.
+
+The section should feel like an editorial technical system.
+
+A selected tool can expand into a larger grid region.
+
+Code can exist inside the composition but should not dominate visually.
+
+---
+
+## Section 7 — What Lumex Is Not
+
+Reduce visual complexity.
+
+Use a large typographic contrast.
+
+Possible layout:
+
+Large statements occupying major columns.
+
+Small clarifications placed in narrow grid columns.
+
+Very subtle mesh traces can appear behind the content.
+
+This section should feel confident and quiet.
+
+---
+
+## Section 8 — Closing
+
+The final visual should feel like the mesh system reaches its most complete state.
+
+Possible direction:
+
+Several separate mesh fields finally align into one large composition.
+
+The closing CTA should feel editorial.
+
+Not:
+
+"Get started today!"
+
+Instead, follow the actual product direction and content.
+
+Potential language style:
+
+* Explore the system
+* Inspect the architecture
+* Read the repository
+* Understand the implementation
+
+The ending should feel intelligent rather than sales-driven.
+
+---
+
+# 14 — MODULE COMPOSITIONS
+
+The reference uses multiple modules of different sizes.
+
+This is important.
+
+Create sections where:
+
+* Large modules contain major statements
+* Narrow modules contain metadata
+* Small modules contain signals or technical details
+* Wide modules contain visuals
+* Some modules intentionally remain empty
+
+Empty modules can be powerful.
+
+Do not fill every grid cell.
+
+Whitespace is part of the composition.
+
+---
+
+# 15 — CARDS SHOULD NOT LOOK LIKE CARDS
+
+Avoid traditional SaaS cards with:
+
+* Heavy shadows
+* Rounded corners
+* Floating surfaces
+* Icon + title + paragraph repeated endlessly
+
+Instead, use:
+
+* Grid boundaries
+* Background changes
+* Subtle borders
+* Spacing
+* Typography
+* Visual fields
+
+The layout itself should create grouping.
+
+---
+
+# 16 — INTERACTION
+
+Interactions should be subtle and connected to the mesh system.
+
+Examples:
+
+### Hover over a module
+
+The mesh field within it becomes sharper or more saturated.
+
+### Hover over a concept
+
+A corresponding gradient region activates.
+
+### Scroll
+
+The point density changes.
+
+### Navigation
+
+The active section can be indicated through a small structural movement or color signal.
+
+### Process section
+
+The mesh gradually transforms between stages.
+
+Avoid:
+
+* Excessive scale animations
+* Bouncy buttons
+* Generic fade-up on every element
+* Floating animations
+* Random cursor effects
+
+Motion should feel controlled.
+
+---
+
+# 17 — RESPONSIVE SYSTEM
+
+The Swiss grid must adapt.
+
+Do not simply shrink the desktop grid.
+
+## Desktop
+
+Use the full grid.
+
+Allow:
+
+* Large whitespace
+* Multi-column typography
+* Complex compositions
+* Large mesh fields
+
+## Tablet
+
+Reduce the number of columns.
+
+Recompose modules.
+
+Maintain strong alignment.
+
+## Mobile
+
+The grid should remain visible conceptually.
+
+But simplify.
+
+Use:
+
+* Strong vertical rhythm
+* Two-column or single-column structures
+* Full-width mesh modules
+* Large readable typography
+* Simplified gradients
+* Reduced point density
+
+Do not turn the design into a stack of generic cards.
+
+The Swiss identity should survive on mobile.
+
+---
+
+# 18 — PERFORMANCE
+
+The mesh point gradients are important.
+
+But performance is equally important.
+
+Create visuals efficiently.
+
+Preferred options:
+
+* CSS gradients for simple fields
+* SVG filters/patterns for structured gradients
+* Canvas for dense animated point fields
+
+Do not use heavy WebGL unless necessary.
+
+Reduce complexity on mobile.
+
+Respect:
+
+`prefers-reduced-motion`
+
+Static visual states should still look beautiful.
+
+---
+
+# 19 — ACCESSIBILITY
+
+Ensure:
+
+* High text contrast
+* Clear focus states
+* Keyboard navigation
+* Semantic HTML
+* Accessible interactions
+* Motion reduction support
+* No critical information dependent only on color
+
+The visual design can be experimental.
+
+The website must remain usable.
+
+---
+
+# 20 — FINAL DESIGN PRINCIPLE
+
+The entire Lumex website should be built around one central tension:
+
+## RIGID STRUCTURE × ORGANIC INFORMATION
+
+The Swiss grid represents:
+
+* Structure
+* Logic
+* Precision
+* Systems
+* Engineering
+
+The mesh point gradients represent:
+
+* Information
+* Context
+* Change
+* Complexity
+* Flow
+* Relationships
+
+The final website should feel like:
+
+**Complex information being carefully organized inside a precise system.**
+
+That relationship should define every major creative decision.
+
+---
+
+# FINAL BUILD INSTRUCTION
+
+Before finalizing the website:
+
+1. Carefully study the supplied Lumex content.
+2. Preserve the actual product meaning.
+3. Build the complete layout around a Swiss grid.
+4. Make the grid a visible part of the design system.
+5. Create a reusable mesh point gradient visual engine.
+6. Ensure every major visual has a relationship to the grid.
+7. Avoid generic SaaS patterns.
+8. Use Stack Sans for expressive display moments.
+9. Use Instrument Sans for precision and readability.
+10. Use neutral backgrounds and allow gradients to carry the color.
+11. Create different compositions for different sections.
+12. Maintain the same visual DNA across the entire website.
+13. Build responsive layouts intentionally rather than shrinking desktop.
+14. Test desktop, tablet, and mobile.
+15. Remove anything that feels decorative but does not support the visual system.
+
+The final result should feel like a **Swiss-designed digital product experience where strict structure contains rich, evolving fields of information.**

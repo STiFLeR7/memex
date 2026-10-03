@@ -92,3 +92,5 @@ memex-site/.env*.local
 # The Python `lib/` rule above matches at any depth and was swallowing the
 # website's source. Scope it back in.
 !memex-site/src/lib/
+memex-site/.playwright-cli/
+memex-site/output/

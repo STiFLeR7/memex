@@ -1,0 +1,518 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="description" content="memex watches repository changes, builds a temporal knowledge graph of engineering context, and serves bounded context through Hermes and MCP.">
+<title>memex — trusted engineering context for agentic software engineering</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Stack+Sans+Headline:wght@400;500;600;700&family=Instrument+Sans:ital,wght@0,400;0,500;0,600;0,700;1,500&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#F5F4F1;--bg2:#EFEDE8;--paper:#FAF9F6;
+  --ink:#1B1A18;--soft:#3D3A36;--muted:#67615A;--line:#DBD6CC;--line-strong:#C7C1B5;
+  --display:"Stack Sans Headline",Arial,sans-serif;--body:"Instrument Sans",sans-serif;--mono:"DM Mono",monospace;
+  --edge:64px;--gutter:20px
+}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.6 var(--body);overflow-x:hidden}
+a{color:inherit;text-decoration:none}
+button{font:inherit;color:inherit;background:none;border:0;cursor:pointer}
+button:focus-visible,a:focus-visible{outline:2px solid var(--ink);outline-offset:3px}
+img,canvas{display:block;max-width:100%}
+.edge{padding-left:var(--edge);padding-right:var(--edge)}
+h1,h2,h3,p{margin:0}
+h1,h2,h3{letter-spacing:-.028em;line-height:1.05;font-family:var(--display);font-weight:600}
+.eyebrow{display:flex;align-items:center;gap:9px;margin:0 0 16px;color:var(--muted);font:600 .68rem var(--body);letter-spacing:.14em;text-transform:uppercase}
+.eyebrow:before{content:"";width:20px;height:1px;background:currentColor;flex:none}
+.meta{font:500 .72rem var(--body);letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
+code{font:.82em var(--mono);color:var(--soft)}
+.soft{color:var(--soft)}
+.muted{color:var(--muted)}
+section{position:relative;padding:104px 0}
+section.tight{padding:64px 0}
+.rule-top{border-top:1px solid var(--line)}
+.rule-bottom{border-bottom:1px solid var(--line)}
+.g12{display:grid;grid-template-columns:repeat(12,1fr);gap:var(--gutter);position:relative;isolation:isolate}
+.guides{position:absolute;inset:0;display:grid;grid-template-columns:repeat(12,1fr);gap:var(--gutter);pointer-events:none;z-index:-1}
+.guides i{border-left:1px solid var(--line);font-style:normal}
+.guides i:last-child{border-right:1px solid var(--line)}
+.btn{display:inline-flex;align-items:center;gap:.55rem;padding:.8rem 1.15rem;border:1px solid var(--ink);border-radius:3px;font:600 .82rem var(--body);color:var(--ink);transition:background .16s,color .16s}
+.btn:hover{background:var(--ink);color:var(--bg)}
+.btn.solid{background:var(--ink);color:var(--bg)}
+.btn.solid:hover{background:var(--soft)}
+
+/* nav */
+.nav{position:sticky;top:0;z-index:9;background:color-mix(in srgb,var(--bg) 90%,transparent);backdrop-filter:blur(10px);border-bottom:1px solid var(--line)}
+.nav-row{height:60px;padding:0 var(--edge);display:flex;align-items:center;justify-content:space-between;gap:20px}
+.brand{display:flex;align-items:center;gap:.55rem;font:600 .95rem var(--display)}
+.mark{width:22px;height:22px;background:var(--ink);display:grid;place-items:center;color:var(--bg);font:700 .68rem var(--mono)}
+.navlinks{display:flex;gap:1.7rem;list-style:none;margin:0;padding:0;font:600 .78rem var(--body);color:var(--soft)}
+.navlinks a:hover{color:var(--ink)}
+.menu-btn,.sheet{display:none}
+.menu-btn{border:1px solid var(--line);padding:.4rem .7rem;font:600 .74rem var(--body);color:var(--soft)}
+
+/* mesh modules (canvas) */
+.mesh{position:relative;overflow:hidden;background:var(--paper)}
+.mesh canvas{position:absolute;inset:0;width:100%;height:100%}
+.mesh.circle{border-radius:50%}
+.mesh-label{position:absolute;left:0;right:0;bottom:0;padding:10px 12px;font:600 .64rem var(--body);letter-spacing:.08em;text-transform:uppercase;color:#fff;mix-blend-mode:difference;z-index:1}
+
+/* ===== hero ===== */
+.hero{padding:52px 0 0}
+.hero-top{padding-bottom:64px;display:flex;justify-content:space-between;align-items:flex-start}
+.hero-headline{grid-column:1/9;padding-bottom:40px}
+.hero-headline h1{font-size:clamp(2.6rem,5.2vw,5rem)}
+.hero-side{grid-column:9/13;grid-row:1/3;position:relative}
+.hero-side .mesh{aspect-ratio:1/1.15;border:1px solid var(--line)}
+.hero-lede{grid-column:1/6;padding:28px 0;border-top:1px solid var(--line)}
+.hero-lede p{color:var(--soft);font-size:1.02rem;max-width:34ch}
+.hero-actions{grid-column:1/6;display:flex;gap:10px;margin-top:22px;flex-wrap:wrap}
+.hero-facts{grid-column:6/9;padding:28px 0;border-top:1px solid var(--line);display:flex;flex-direction:column;gap:18px}
+.hero-facts b{display:block;font:600 1.4rem/1 var(--display)}
+.hero-facts span{display:block;margin-top:4px;font-size:.8rem;color:var(--muted)}
+
+/* ===== problem ===== */
+#problem{background:var(--bg2)}
+.problem-lead{grid-column:1/7}
+.problem-lead p{font:600 clamp(1.6rem,3vw,2.5rem)/1.18 var(--display);letter-spacing:-.02em}
+.frag{grid-column:8/13;display:flex;gap:16px;align-items:flex-start;padding:22px 0;border-top:1px solid var(--line-strong)}
+.frag:first-of-type{margin-top:6px}
+.frag .mesh.circle{width:46px;height:46px;flex:none;border:1px solid var(--line)}
+.frag h3{font-size:.92rem;margin-bottom:6px}
+.frag p{color:var(--soft);font-size:.87rem}
+.frag code{display:block;margin-top:8px;font-size:.7rem}
+
+/* ===== system ===== */
+#system{padding-bottom:88px}
+.sys-head{grid-column:1/8;margin-bottom:48px}
+.sys-head h2{font-size:clamp(1.9rem,3.4vw,2.9rem)}
+.sys-strip{grid-column:1/-1;display:grid;grid-template-columns:repeat(5,1fr);gap:var(--gutter);border-top:1px solid var(--ink)}
+.sys-mod{padding-top:16px}
+.sys-mod button{display:block;width:100%;text-align:left}
+.sys-mod .mesh{aspect-ratio:1/1;border:1px solid var(--line);margin-bottom:14px;transition:border-color .15s}
+.sys-mod[aria-current="true"] .mesh{border-color:var(--ink)}
+.sys-mod .idx{font:600 .68rem var(--body);letter-spacing:.08em;color:var(--muted);display:block;margin-bottom:4px}
+.sys-mod .lbl{font:600 .92rem var(--display)}
+.sys-caption{grid-column:1/8;margin-top:40px;color:var(--soft);font-size:1rem;min-height:2.4em}
+
+/* ===== model ===== */
+#model{background:var(--bg2)}
+.model-head{grid-column:1/8;margin-bottom:44px}
+.model-head h2{font-size:clamp(1.9rem,3.4vw,2.9rem)}
+.model-major{grid-column:1/7;border:1px solid var(--ink);padding:0;min-height:260px}
+.model-major .inner{padding:24px;position:relative;z-index:1}
+.model-major h3{font-size:1.6rem;margin-bottom:10px}
+.model-major p{color:var(--soft);font-size:.95rem}
+.model-mid{grid-column:7/10;border:1px solid var(--line);padding:20px;display:flex;flex-direction:column;gap:10px}
+.model-mid+.model-mid{grid-column:10/13}
+.model-mid h3{font-size:1.05rem}
+.model-mid p{color:var(--soft);font-size:.85rem}
+.model-narrow{grid-column:span 2;padding:16px 0;border-top:1px solid var(--line-strong)}
+.model-narrow b{display:block;font-size:.88rem;margin-bottom:4px}
+.model-narrow span{font-size:.74rem;color:var(--muted)}
+.rel-row{grid-column:1/-1;display:flex;flex-wrap:wrap;gap:8px;margin-top:40px;padding-top:24px;border-top:1px solid var(--line)}
+.rel-row span{padding:.3rem .6rem;border:1px solid var(--line);border-radius:20px;font:.7rem var(--mono);color:var(--soft)}
+
+/* ===== temporal ===== */
+.tmp-aside{grid-column:1/4}
+.tmp-aside h2{font-size:clamp(1.8rem,3vw,2.6rem);margin-bottom:18px}
+.formula{margin-top:18px;padding:14px 16px;border-left:2px solid var(--ink);background:var(--paper);font:.73rem/1.75 var(--mono);color:var(--soft)}
+.tmp-strip{grid-column:4/13;display:grid;grid-template-columns:repeat(4,1fr);gap:var(--gutter);border-top:1px solid var(--ink)}
+.tmp-mod{padding-top:16px}
+.tmp-mod .mesh{aspect-ratio:1/1;border:1px solid var(--line);margin-bottom:12px}
+.tmp-mod b{display:block;font:600 .95rem var(--display);margin-bottom:6px}
+.tmp-mod p{font-size:.82rem;color:var(--soft)}
+.tmp-mod .conf{font:600 .68rem var(--mono);color:var(--muted);display:block;margin-top:6px}
+
+/* ===== integration ===== */
+#integration{background:var(--bg2)}
+.int-head{grid-column:1/8;margin-bottom:44px}
+.int-head h2{font-size:clamp(1.9rem,3.4vw,2.9rem);margin-bottom:14px}
+.int-list{grid-column:1/4;border-top:1px solid var(--ink)}
+.int-list button{display:block;width:100%;text-align:left;padding:12px 4px;border-bottom:1px solid var(--line);font:.78rem var(--mono);color:var(--soft)}
+.int-list button[aria-selected="true"]{color:var(--ink);font-weight:600}
+.int-detail{grid-column:4/13;border-top:1px solid var(--ink);padding-top:4px}
+.int-row{display:grid;grid-template-columns:140px 1fr;gap:20px;padding:14px 0;border-bottom:1px solid var(--line)}
+.int-row span{font:.68rem var(--body);letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
+.int-row div{font-size:.9rem;color:var(--soft)}
+.int-row code{font-size:.8rem}
+.int-term{grid-column:1/-1;margin-top:52px;padding-top:24px;border-top:1px solid var(--line);font:.78rem/1.9 var(--mono);color:var(--soft)}
+.int-term .prompt{color:var(--ink);font-weight:500}
+
+/* ===== boundary ===== */
+#boundary{padding:88px 0;position:relative}
+.boundary-mesh{position:absolute;inset:0;opacity:.12;z-index:0;background:transparent}
+.boundary-row{grid-column:1/-1;display:grid;grid-template-columns:subgrid;padding:26px 0;border-top:1px solid var(--line);position:relative;z-index:1}
+.boundary-row h3{grid-column:1/8;font-size:clamp(1.3rem,2.2vw,1.8rem);font-weight:600}
+.boundary-row p{grid-column:9/13;color:var(--soft);font-size:.88rem;align-self:center}
+
+/* ===== proof / faq / cta ===== */
+#proof{background:var(--bg2);padding-bottom:0}
+.rail{grid-column:1/-1;display:grid;grid-template-columns:repeat(4,1fr);border-top:1px solid var(--ink);border-bottom:1px solid var(--line);margin-bottom:80px}
+.rail>div{padding:22px 22px 26px 0;border-right:1px solid var(--line)}
+.rail>div:last-child{border-right:0}
+.rail h3{font-size:.85rem;margin-bottom:8px}
+.rail p{color:var(--soft);font-size:.82rem;margin:0}
+.faq-col{grid-column:1/8}
+.faq-list details{border-bottom:1px solid var(--line)}
+.faq-list details:first-child{border-top:1px solid var(--line)}
+.faq-list summary{padding:19px 2px;cursor:pointer;font:600 .98rem var(--display);list-style:none;display:flex;justify-content:space-between;gap:12px}
+.faq-list summary::-webkit-details-marker{display:none}
+.faq-list summary:after{content:"+";color:var(--muted);font:400 1.1rem var(--mono)}
+.faq-list details[open] summary:after{content:"–"}
+.faq-list p{color:var(--soft);padding:0 0 19px;margin:0}
+
+.cta{position:relative;margin-top:88px;background:var(--ink);color:var(--bg);overflow:hidden}
+.cta-mesh{position:absolute;inset:0;z-index:0;background:transparent}
+.cta-inner{position:relative;z-index:1;padding:100px var(--edge)}
+.cta-inner .eyebrow{color:#c9c4bb}
+.cta h2{font-size:clamp(2.1rem,4.2vw,3.7rem);max-width:16ch}
+.cta-row{display:flex;justify-content:space-between;align-items:end;gap:30px;flex-wrap:wrap;margin-top:24px}
+.cta p{max-width:30rem;color:#cfcac1;margin:0}
+.cta .btn{border-color:var(--bg);color:var(--bg)}
+.cta .btn.solid{background:var(--bg);color:var(--ink)}
+.cta .btn.solid:hover{background:#e7e3da}
+
+footer{padding:52px var(--edge);border-top:1px solid var(--line);color:var(--muted)}
+.foot-grid{display:grid;grid-template-columns:1.6fr 1fr 1fr;gap:30px}
+.foot-grid h3{color:var(--ink);margin-bottom:12px;font-size:.82rem;font-family:var(--body)}
+.foot-grid ul{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:9px;font-size:.85rem}
+.foot-grid a:hover{color:var(--ink)}
+.foot-grid p{font-size:.85rem;margin-top:12px;max-width:32ch;color:var(--soft)}
+
+@media(max-width:980px){
+  :root{--edge:24px}
+  .navlinks{display:none}.menu-btn{display:block}
+  .sheet.open{display:flex;flex-direction:column;gap:12px;padding:0 24px 20px}
+  .g12,.sys-strip,.tmp-strip{grid-template-columns:repeat(6,1fr)}
+  .guides{grid-template-columns:repeat(6,1fr)}
+  .hero-headline,.hero-side{grid-column:1/7}
+  .hero-side{margin-top:24px}
+  .hero-lede,.hero-actions{grid-column:1/7}
+  .hero-facts{grid-column:1/7;border-top:1px solid var(--line);flex-direction:row;flex-wrap:wrap;gap:26px}
+  .problem-lead,.frag{grid-column:1/7}
+  .sys-head,.sys-caption,.model-head,.int-head{grid-column:1/7}
+  .sys-strip{grid-template-columns:repeat(2,1fr)}
+  .model-major,.model-mid,.model-mid+.model-mid{grid-column:1/7}
+  .model-narrow{grid-column:span 3}
+  .tmp-aside{grid-column:1/7;margin-bottom:20px}
+  .tmp-strip{grid-column:1/7;grid-template-columns:repeat(2,1fr)}
+  .int-list,.int-detail{grid-column:1/7}
+  .boundary-row h3,.boundary-row p{grid-column:1/7}
+  .boundary-row p{margin-top:8px}
+  .rail{grid-template-columns:repeat(2,1fr)}
+  .faq-col{grid-column:1/7}
+  .cta-row{display:block}
+}
+@media(max-width:560px){
+  section{padding:72px 0}
+  .rail{grid-template-columns:1fr}
+  .rail>div{border-right:0;border-bottom:1px solid var(--line)}
+  .model-narrow{grid-column:span 6}
+  .foot-grid{grid-template-columns:1fr}
+  h1{overflow-wrap:anywhere}
+}
+</style>
+</head>
+<body>
+<header class="nav" id="nav"><div class="nav-row">
+  <a class="brand" href="#top"><span class="mark">M</span>memex</a>
+  <nav aria-label="Primary"><ul class="navlinks">
+    <li><a href="#problem">Why</a></li>
+    <li><a href="#system">System</a></li>
+    <li><a href="#model">Model</a></li>
+    <li><a href="#temporal">Temporal</a></li>
+    <li><a href="#integration">Integration</a></li>
+  </ul></nav>
+  <button class="menu-btn" id="menuBtn" aria-expanded="false" aria-controls="sheet">Menu</button>
+</div>
+<nav class="sheet" id="sheet" aria-label="Mobile"><a href="#problem">Why</a><a href="#system">System</a><a href="#model">Model</a><a href="#temporal">Temporal</a><a href="#integration">Integration</a></nav>
+</header>
+
+<main id="main">
+
+<section class="hero" id="top"><div class="edge">
+  <div class="g12">
+    <div class="guides" aria-hidden="true"></div>
+    <div class="hero-headline">
+      <p class="eyebrow">Repository context over time</p>
+      <h1>A knowledge graph for the parts of engineering work <em style="font-style:normal">files do not explain.</em></h1>
+    </div>
+    <div class="hero-side"><div class="mesh circle" data-colors="#3550c9,#7ea7ff,#eef3ff" data-mode="radial"><canvas></canvas><span class="mesh-label">live schema</span></div></div>
+    <div class="hero-lede"><p>memex watches repository changes, connects code relationships and engineering decisions, and serves scoped context through Hermes and MCP. It records evidence, tracks validity, and leaves the agent in control of the edit.</p></div>
+    <div class="hero-facts">
+      <div><b>14</b><span>registered MCP tools in the current server surface</span></div>
+      <div><b>Neo4j + Graphiti</b><span>graph storage and search boundary</span></div>
+      <div><b>30 days</b><span>to a 0.3 threshold for an unvalidated 0.6-base record</span></div>
+    </div>
+    <div class="hero-actions"><a class="btn solid" href="#system">Trace the lifecycle →</a><a class="btn" href="#integration">Inspect the tools</a></div>
+  </div>
+</div></section>
+
+<section id="problem" class="rule-top"><div class="edge"><div class="g12">
+  <div class="problem-lead"><p class="eyebrow">The problem boundary</p><p>Information exists. But it is scattered, disconnected, and repeatedly rediscovered.</p></div>
+  <div class="frag"><div class="mesh circle" data-colors="#c9c3b6,#8a8378,#f5f4f1" data-mode="dotfull"><canvas></canvas></div><div><h3>Before an edit</h3><p>An agent has to infer callers, linked decisions, and open problems from one file instead of asking for them directly.</p><code>get_symbol_context(name, file?)</code></div></div>
+  <div class="frag"><div class="mesh circle" data-colors="#e8a06b,#c96b8a,#f5f4f1" data-mode="dotfull"><canvas></canvas></div><div><h3>Across sessions</h3><p>Decisions and problems can be written back through MCP with scope, source metadata, and validity state.</p><code>record_decision(...) · record_problem(...)</code></div></div>
+  <div class="frag"><div class="mesh circle" data-colors="#7fae94,#4f7a63,#f5f4f1" data-mode="dotfull"><canvas></canvas></div><div><h3>When context ages</h3><p>Expired relations leave ordinary retrieval. Supersession and confidence keep history inspectable, not silently stale.</p><code>get_stale_context(threshold?)</code></div></div>
+</div></div></section>
+
+<section id="system" class="rule-top"><div class="edge"><div class="g12">
+  <div class="guides" aria-hidden="true"></div>
+  <div class="sys-head"><p class="eyebrow">Verified lifecycle</p><h2>Repository events become graph state; agents retrieve and write through an explicit boundary.</h2></div>
+  <div class="sys-strip" id="sysStrip">
+    <div class="sys-mod" aria-current="true"><button data-i="0"><div class="mesh" data-colors="#9aa0a6,#c8ccd0,#f5f4f1" data-mode="dotedge"><canvas></canvas></div><span class="idx">01 / INPUT</span><span class="lbl">Files + Git</span></button></div>
+    <div class="sys-mod"><button data-i="1"><div class="mesh" data-colors="#5f7fd6,#a9c0f0,#f5f4f1" data-mode="dotedge"><canvas></canvas></div><span class="idx">02 / EXTRACT</span><span class="lbl">Structure</span></button></div>
+    <div class="sys-mod"><button data-i="2"><div class="mesh" data-colors="#7a5fd6,#c3a9f0,#f5f4f1" data-mode="dotedge"><canvas></canvas></div><span class="idx">03 / SYNTHESISE</span><span class="lbl">Decisions</span></button></div>
+    <div class="sys-mod"><button data-i="3"><div class="mesh" data-colors="#5fa8d6,#9adbe8,#f5f4f1" data-mode="radial"><canvas></canvas></div><span class="idx">04 / STORE</span><span class="lbl">Temporal graph</span></button></div>
+    <div class="sys-mod"><button data-i="4"><div class="mesh" data-colors="#d67a3f,#f0c39a,#f5f4f1" data-mode="radial"><canvas></canvas></div><span class="idx">05 / SERVE</span><span class="lbl">MCP context</span></button></div>
+  </div>
+  <p class="sys-caption" id="sysCaption"></p>
+</div></div></section>
+
+<section id="model" class="rule-top"><div class="edge"><div class="g12">
+  <div class="model-head"><p class="eyebrow">Knowledge model</p><h2>The graph represents engineering claims, their relationships, and the evidence that changes their status.</h2></div>
+
+  <div class="model-major mesh" data-colors="#d67a3f,#e8a06b,#f0c9a8" data-mode="edge">
+    <canvas></canvas>
+    <div class="inner"><h3>Decision</h3><p>Architectural choice with rationale, source, and validation. Corroboration reinforces it; supersession expires its old outgoing edges. Preserves why, not just what.</p><span class="meta">memex/graph/schema.py · synthesizer · write tool</span></div>
+  </div>
+  <div class="model-mid"><h3>Symbol</h3><p>Function/class/constant with file, line, signature. Supports pre-edit context and calls.</p><span class="meta">tree-sitter extractor</span></div>
+  <div class="model-mid"><h3>Problem</h3><p>Severity-bearing open issue or debt that carries unresolved work across sessions.</p><span class="meta">problem tools</span></div>
+
+  <div class="model-narrow"><b>Module</b><span>Repository path and language-level unit</span></div>
+  <div class="model-narrow"><b>Dependency</b><span>Lockfile-derived package and ecosystem</span></div>
+  <div class="model-narrow"><b>Cluster</b><span>Persisted group of related modules</span></div>
+  <div class="model-narrow"><b>Commit</b><span>Source reference for change and synthesis</span></div>
+  <div class="model-narrow"><b>AgentSession</b><span>Session identity and ownership boundary</span></div>
+  <div class="model-narrow"><b>Principal</b><span>Authenticated human/service identity</span></div>
+
+  <div class="rel-row"><span>CALLS</span><span>IMPORTS</span><span>CONTAINS</span><span>CORROBORATES</span><span>RESOLVED_BY</span><span class="muted">RELATES_TO / MOTIVATES / MENTIONS — semantic links</span></div>
+</div></div></section>
+
+<section id="temporal" class="rule-top"><div class="edge"><div class="g12">
+  <div class="tmp-aside">
+    <p class="eyebrow">Temporal validity</p>
+    <h2>Knowledge is stored with the conditions that can make it less useful.</h2>
+    <p class="muted" style="font-size:.85rem;margin-top:14px">Confidence is calculated at query time from base confidence, validation status, and time since reinforcement. The field beside each state is driven by the same formula.</p>
+    <div class="formula">validated: base × exp(-0.005 × days), floor 0.7<br>unvalidated ≤30d: base × exp(-(ln 2/30) × days)<br>older unvalidated: decays faster, capped at 0.5</div>
+  </div>
+  <div class="tmp-strip" id="tmpStrip">
+    <div class="tmp-mod"><div class="mesh" data-colors="#5f7fd6,#a9c0f0,#f5f4f1" data-mode="dotedge" data-conf="0.60"><canvas></canvas></div><b>Created</b><p>Written with created_at, base confidence, and a reinforcement anchor.</p><span class="conf" id="confCreated"></span></div>
+    <div class="tmp-mod"><div class="mesh" data-colors="#4f7a63,#8fc7a8,#f5f4f1" data-mode="dotedge" data-conf="0.70"><canvas></canvas></div><b>Corroborated</b><p>record_decision(corroborates=...) updates last_reinforced_at and adds CORROBORATES.</p><span class="conf" id="confCorr"></span></div>
+    <div class="tmp-mod"><div class="mesh" data-colors="#c98a3f,#e8c39a,#f5f4f1" data-mode="dotedge" data-conf="0.35"><canvas></canvas></div><b>Superseded</b><p>A replacement Decision is written; outgoing edges from the prior one are expired.</p><span class="conf" id="confSup"></span></div>
+    <div class="tmp-mod"><div class="mesh" data-colors="#a35c52,#d3a39c,#f5f4f1" data-mode="dotedge" data-conf="0.04"><canvas></canvas></div><b>Invalidated</b><p>invalidate_edge assigns expired_at; ordinary traversal excludes it.</p><span class="conf" id="confInv"></span></div>
+  </div>
+</div></div></section>
+
+<section id="integration" class="rule-top"><div class="edge"><div class="g12">
+  <div class="int-head"><p class="eyebrow">Agent boundary</p><h2>The host gets context. The graph keeps the evidence.</h2><p class="soft" style="max-width:58ch">Fourteen MCP tools cover retrieval and governed writes. Hermes can receive bounded, read-only prefetch before a model action. Illustrative projections of the implemented interface, not live output.</p></div>
+  <div class="int-list" id="intList"></div>
+  <div class="int-detail" id="intDetail"></div>
+  <div class="int-term"><span class="prompt">$</span> docker compose -f docker/docker-compose.yml up -d<br><span class="prompt">$</span> npx stifler-memex-mcp init --repo .<br><span class="prompt">$</span> npx stifler-memex-mcp watch --repo .<br><span class="prompt">$</span> npx stifler-memex-mcp serve --repo .<br><br># Configure your MCP client to invoke serve --repo . — Claude Code, Cursor, Codex, and Gemini CLI have configuration examples. <a class="soft" style="text-decoration:underline" href="https://github.com/STiFLeR7/memex">Read the repository ↗</a></div>
+</div></div></section>
+
+<section id="boundary">
+  <div class="boundary-mesh mesh" data-colors="#c9c3b6,#dad5c9,#f5f4f1" data-mode="dotfull"><canvas></canvas></div>
+  <div class="edge" style="position:relative;z-index:1"><div class="g12">
+    <p class="eyebrow" style="grid-column:1/-1">What it is not</p>
+    <div class="boundary-row"><h3>Not ordinary RAG</h3><p>Results are constrained by repository/project scope and active validity. The graph has typed entities, relation history, confidence, and write semantics.</p></div>
+    <div class="boundary-row"><h3>Not a vector database product page</h3><p>Graphiti search is one layer. The contract is repository context, provenance, and temporal state — not embeddings alone.</p></div>
+    <div class="boundary-row"><h3>Not generic chat memory</h3><p>An MCP client must request context or invoke writes. memex does not claim automatic universal recall before every response.</p></div>
+    <div class="boundary-row"><h3>Not a coding agent</h3><p>memex exposes information and governed graph writes. It does not own an editor or generate a patch.</p></div>
+  </div></div>
+</section>
+
+<section id="proof" class="rule-top"><div class="edge"><div class="g12">
+  <p class="eyebrow" style="grid-column:1/-1">Operating constraints</p>
+  <div class="rail">
+    <div><h3>Scoped graph retrieval</h3><p>Read tools accept repository or project scope rather than guessing across repositories.</p></div>
+    <div><h3>Explicit write governance</h3><p>Decision and Problem records are open for their tools; structural records are locked.</p></div>
+    <div><h3>Local and team modes</h3><p>Local Docker runs Neo4j; team compose keeps Neo4j inside the Compose network.</p></div>
+    <div><h3>External dependency boundary</h3><p>Gemini is used for configured synthesis. This page does not claim no data leaves a machine.</p></div>
+  </div>
+  <div class="faq-col">
+    <p class="eyebrow">Questions the code can answer</p>
+    <div class="faq-list">
+      <details open><summary>How does memex decide what is current?</summary><p>Live edge traversals filter <code>expired_at IS NULL</code>. Confidence is calculated from stored anchors at read time. Superseded material is excluded from ordinary engineering-context selection unless historical knowledge is requested.</p></details>
+      <details><summary>What is automated, and what is written back deliberately?</summary><p>Watcher events automate structural extraction; commit synthesis requires Gemini configuration. Agents or humans record decisions/problems, resolve problems, corroborate/supersede decisions, invalidate edges, and validate decisions through review.</p></details>
+      <details><summary>What can an agent get before changing code?</summary><p>It can request project, symbol, decision, problem, search, stale, briefing, or provenance-aware engineering context. Results depend on real graph state; memex does not fabricate missing evidence.</p></details>
+      <details><summary>What is deliberately not claimed?</summary><p>No customer metrics, benchmark wins, token-saving percentages, automatic universal memory, native integrations, or future roadmap features appear as showcase claims.</p></details>
+    </div>
+  </div>
+</div></div>
+<div class="cta">
+  <div class="cta-mesh mesh" data-colors="#3550c9,#7ea7ff,#e8a06b,#d67a3f" data-mode="edge"><canvas></canvas></div>
+  <div class="cta-inner"><p class="eyebrow">Repository source of truth</p>
+    <h2>Inspect the graph behind the claims.</h2>
+    <div class="cta-row"><p>This page is grounded in the current repository implementation. Its claim map lives alongside the project.</p><a class="btn solid" href="https://github.com/STiFLeR7/memex">Open the repository →</a></div>
+  </div>
+</div>
+</section>
+
+</main>
+
+<footer><div class="foot-grid">
+  <div><a class="brand" href="#top"><span class="mark">M</span>memex</a><p>A temporal graph of repository facts, decisions, problems, and relations served to coding agents over MCP.</p></div>
+  <div><h3>Showcase</h3><ul><li><a href="#system">Lifecycle</a></li><li><a href="#temporal">Temporal model</a></li><li><a href="#integration">MCP surface</a></li></ul></div>
+  <div><h3>Repository</h3><ul><li><a href="https://github.com/STiFLeR7/memex">GitHub</a></li><li><a href="https://github.com/STiFLeR7/memex/blob/master/README.md">README</a></li><li><a href="https://github.com/STiFLeR7/memex/blob/master/SECURITY.md">Security policy</a></li></ul></div>
+</div></footer>
+
+<script>
+const reduced = matchMedia('(prefers-reduced-motion:reduce)').matches;
+
+/* ---------- grid guides ---------- */
+document.querySelectorAll('.guides').forEach(el=>{el.innerHTML=Array(12).fill('<i></i>').join('')});
+
+/* ---------- mesh point gradient engine ----------
+   mode: 'edge' (smooth left, halftone dots fading out to the right)
+         'radial' (smooth core, dots radiating outward)
+         'dotedge' (edge dots, lighter/smaller — for compact modules)
+         'dotfull' (mostly halftone, sparse smooth core — quiet/fragmented) */
+class MeshField{
+  constructor(el){
+    this.el=el;this.canvas=el.querySelector('canvas');this.ctx=this.canvas.getContext('2d');
+    this.colors=(el.dataset.colors||'#999,#ccc').split(',');
+    this.mode=el.dataset.mode||'edge';
+    this.conf=el.dataset.conf!==undefined?parseFloat(el.dataset.conf):null;
+    this.hoverBoost=0;
+    this.resize=this.resize.bind(this);
+    addEventListener('resize',this.resize);
+    el.addEventListener('pointerenter',()=>{this.hoverBoost=1;this.draw()});
+    el.addEventListener('pointerleave',()=>{this.hoverBoost=0;this.draw()});
+    this.resize();
+  }
+  resize(){
+    const r=this.el.getBoundingClientRect(),dpr=Math.min(devicePixelRatio||1,2);
+    this.w=Math.max(1,Math.round(r.width));this.h=Math.max(1,Math.round(r.height));
+    this.canvas.width=this.w*dpr;this.canvas.height=this.h*dpr;
+    this.ctx.setTransform(dpr,0,0,dpr,0,0);
+    this.draw();
+  }
+  draw(){
+    const ctx=this.ctx,w=this.w,h=this.h,colors=this.colors,boost=this.hoverBoost;
+    ctx.clearRect(0,0,w,h);
+    const base=colors[colors.length-1];
+    ctx.fillStyle=base;ctx.fillRect(0,0,w,h);
+    const paintColors=colors.slice(0,-1);
+    const blobs=Math.max(3,paintColors.length*2);
+    for(let i=0;i<blobs;i++){
+      const c=paintColors[i%paintColors.length];
+      const bx=w*(0.12+0.76*((i*0.61+0.05)%1)),by=h*(0.12+0.76*((i*0.37+0.2)%1));
+      const r=Math.max(w,h)*(0.5+0.22*((i*0.23)%1))*(1+boost*0.1);
+      const g=ctx.createRadialGradient(bx,by,0,bx,by,r);
+      g.addColorStop(0,c+(boost?'f2':'d9'));g.addColorStop(1,c+'00');
+      ctx.fillStyle=g;ctx.fillRect(0,0,w,h);
+    }
+
+    let maskFn=null;
+    if(this.mode==='edge')maskFn=this.edgeMask.bind(this,0.42);
+    if(this.mode==='dotedge')maskFn=this.edgeMask.bind(this,0.3);
+    if(this.mode==='radial')maskFn=this.radialMask.bind(this);
+    if(this.mode==='dotfull')maskFn=this.fullDotMask.bind(this);
+    if(this.conf!==null)maskFn=this.confMask.bind(this,this.conf);
+
+    if(maskFn){
+      ctx.save();
+      ctx.globalCompositeOperation='destination-in';
+      ctx.beginPath();
+      maskFn(ctx,w,h);
+      ctx.fill();
+      ctx.restore();
+    }
+  }
+  edgeMask(smoothFrac,ctx,w,h){
+    ctx.rect(0,0,w*smoothFrac,h);
+    const gw=w*(1-smoothFrac),cell=Math.max(6,Math.min(w,h)/14);
+    for(let x=w*smoothFrac;x<w;x+=cell)for(let y=0;y<h;y+=cell){
+      const t=(x-w*smoothFrac)/gw;
+      if(Math.random()>1-t*0.92-0.05)continue;
+      const rad=cell*0.36*(1-t*0.62);
+      ctx.moveTo(x+rad,y);ctx.arc(x,y,rad,0,Math.PI*2);
+    }
+  }
+  radialMask(ctx,w,h){
+    const cx=w/2,cy=h/2,coreR=Math.min(w,h)*0.28,maxR=Math.max(w,h)*0.75,cell=Math.max(6,Math.min(w,h)/14);
+    ctx.moveTo(cx+coreR,cy);ctx.arc(cx,cy,coreR,0,Math.PI*2);
+    for(let x=0;x<w;x+=cell)for(let y=0;y<h;y+=cell){
+      const d=Math.hypot(x-cx,y-cy);
+      if(d<coreR)continue;
+      const t=Math.min(1,(d-coreR)/(maxR-coreR));
+      if(Math.random()>1-t*0.95)continue;
+      const rad=cell*0.34*(1-t*0.6);
+      ctx.moveTo(x+rad,y);ctx.arc(x,y,rad,0,Math.PI*2);
+    }
+  }
+  fullDotMask(ctx,w,h){
+    const cx=w/2,cy=h/2,coreR=Math.min(w,h)*0.12,cell=Math.max(5,Math.min(w,h)/12);
+    ctx.moveTo(cx+coreR,cy);ctx.arc(cx,cy,coreR,0,Math.PI*2);
+    for(let x=0;x<w;x+=cell)for(let y=0;y<h;y+=cell){
+      const d=Math.hypot(x-cx,y-cy),t=Math.min(1,d/(Math.max(w,h)*0.6));
+      if(Math.random()>0.65-t*0.3)continue;
+      const rad=cell*0.3*(1-t*0.5);
+      ctx.moveTo(x+rad,y);ctx.arc(x,y,rad,0,Math.PI*2);
+    }
+  }
+  confMask(conf,ctx,w,h){
+    const smoothFrac=Math.max(0.04,conf),cell=Math.max(6,Math.min(w,h)/13);
+    ctx.rect(0,0,w*smoothFrac,h);
+    for(let x=w*smoothFrac;x<w;x+=cell)for(let y=0;y<h;y+=cell){
+      const t=(x-w*smoothFrac)/(w-w*smoothFrac+1);
+      if(Math.random()>1-t*0.9-0.04)continue;
+      const rad=cell*0.34*(1-t*0.55)*(0.4+conf*0.8);
+      ctx.moveTo(x+rad,y);ctx.arc(x,y,rad,0,Math.PI*2);
+    }
+  }
+}
+document.querySelectorAll('.mesh').forEach(el=>new MeshField(el));
+
+/* ---------- system stage captions ---------- */
+const sysCaptions=[
+  'Filesystem events, Git hooks, commit polling, and lockfile changes enter the watcher.',
+  'Tree-sitter extracts symbols and conservative calls. Lockfiles supply dependencies and imports.',
+  'When Gemini is configured, commit messages and diffs can yield Decision records.',
+  'Graphiti and Neo4j store entities and typed relations with validity and confidence fields.',
+  'Read tools retrieve bounded context; write tools record decisions, problems, and invalidation.'
+];
+const sysStrip=document.getElementById('sysStrip'),sysCaption=document.getElementById('sysCaption');
+sysStrip.querySelectorAll('button').forEach(b=>b.addEventListener('click',()=>{
+  const i=Number(b.dataset.i);
+  sysStrip.querySelectorAll('.sys-mod').forEach((m,n)=>m.setAttribute('aria-current',String(n===i)));
+  sysCaption.textContent=sysCaptions[i];
+}));
+sysCaption.textContent=sysCaptions[0];
+
+/* ---------- temporal confidence (real formula, drives mesh + text) ---------- */
+function confidenceAt(day,mode){
+  const base=0.6;
+  if(mode==='corroborated')return Math.max(0.7,base*Math.exp(-0.005*day));
+  if(mode==='invalidated')return day>10?0:base*Math.exp(-(Math.log(2)/30)*day);
+  if(mode==='superseded')return Math.max(0.5,base*0.4);
+  return base*Math.exp(-(Math.log(2)/30)*Math.min(day,30));
+}
+const created=confidenceAt(2,'created'),corr=confidenceAt(2,'corroborated'),sup=confidenceAt(20,'superseded'),inv=confidenceAt(14,'invalidated');
+document.getElementById('confCreated').textContent='confidence ≈ '+created.toFixed(2);
+document.getElementById('confCorr').textContent='confidence ≈ '+corr.toFixed(2);
+document.getElementById('confSup').textContent='confidence ≈ '+sup.toFixed(2);
+document.getElementById('confInv').textContent='excluded from live traversal';
+
+/* ---------- integration tool list ---------- */
+const tools=[['get_project_context','Session orientation','{ scope?, repo?, project? }','Counts, active modules, recent decisions, open problems, and stale signal.'],['get_symbol_context','Before changing a symbol','{ symbol_name, file?, repo?, project? }','A symbol plus callers, callees, linked decisions and problems.'],['search_context','Broad discovery','{ query, top_k: 1..20, repo?, project? }','Graphiti-backed search after expiry filtering and composite reranking.'],['get_engineering_context','Bounded context packet','{ query, top_k?, repo | project, task_id?, allow_historical? }','A provenance-aware ContextPacket with selection reasons and source references.'],['get_stale_context','Question aging relations','{ threshold?, repo?, project? }','Live relations below a requested confidence threshold.'],['get_context_briefing','Prime a session','{ max_tokens?, scope?, repo?, project? }','A token-budgeted sequence of summaries, decisions, problems, and stale items.'],['record_decision','Persist a choice','{ text, module?, symbol?, rationale?, corroborates?, supersedes? }','A governed Decision write; corroboration reinforces and supersession expires old outgoing edges.'],['record_problem','Record a known issue','{ text, module?, severity?, repo? }','A governed Problem record.'],['resolve_problem','Close recorded work','{ problem_id, resolution_text, repo? }','A resolution relation and closed state.'],['invalidate_edge','Retire a relation','{ edge_id, reason, repo? }','Sets an edge validity end.'],['explain_change','Understand a commit','{ commit_sha, repo? }','Gemini-Pro grounding in a git diff and linked records.'],['predict_impact','Estimate coupling','{ file_path, repo? }','Ranked modules via calls, imports, and decision links; no LLM call.'],['get_recent_decisions','Recover choices','{ days?, module?, repo?, project? }','Recent decisions and optional conflict detection.'],['get_open_problems','Find unresolved work','{ module?, repo?, project? }','Open Problem records ordered by severity.']];
+const intList=document.getElementById('intList'),intDetail=document.getElementById('intDetail');
+function selectTool(i){
+  intList.querySelectorAll('button').forEach((b,n)=>b.setAttribute('aria-selected',String(n===i)));
+  const t=tools[i];
+  intDetail.innerHTML=`<div class="int-row"><span>Tool</span><div><code>${t[0]}</code></div></div><div class="int-row"><span>Agent moment</span><div>${t[1]}</div></div><div class="int-row"><span>Input</span><div><code>${t[2]}</code></div></div><div class="int-row"><span>Returns</span><div>${t[3]}</div></div><div class="int-row"><span>Implemented</span><div><code>memex/mcp_server/server.py</code></div></div>`;
+}
+tools.forEach((t,i)=>{const b=document.createElement('button');b.textContent=t[0];b.setAttribute('aria-selected',String(i===0));b.addEventListener('click',()=>selectTool(i));intList.append(b)});
+selectTool(0);
+
+/* ---------- nav ---------- */
+document.getElementById('menuBtn').addEventListener('click',e=>{
+  const s=document.getElementById('sheet'),open=s.classList.toggle('open');
+  e.currentTarget.setAttribute('aria-expanded',String(open));
+});
+</script>
+</body></html>

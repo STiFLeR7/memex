@@ -4,9 +4,21 @@ import { useEffect, useRef, type ReactNode } from 'react';
 import { currentConfidence, formatConfidence } from '@/lib/confidence';
 
 /**
- * The four readouts are computed from the real decay function, not written in
- * by hand — if the constants change, these move with them.
+ * Every quantity here derives from the real decay function. The dot-field
+ * density, the bar fill and the printed readout all read the same number, so
+ * the visual cannot drift from the text (it did: the field encoded 0.78 while
+ * the readout said 0.60).
+ *
+ * State 04 has no confidence to show — the record has left live traversal —
+ * so it gets a deliberately minimal field and says so in words.
  */
+const CONF = {
+  created: currentConfidence(0.6, 2),
+  corroborated: currentConfidence(0.6, 0),
+  superseded: currentConfidence(0.6, 26),
+} as const;
+
+const EXCLUDED_FIELD = 0.04;
 const STATES: ReadonlyArray<{
   n: string;
   title: string;
@@ -26,9 +38,9 @@ const STATES: ReadonlyArray<{
         of 0.6 and a reinforcement anchor. Unvalidated.
       </>
     ),
-    field: 0.6,
-    bar: 0.6,
-    readout: formatConfidence(currentConfidence(0.6, 2)),
+    field: CONF.created,
+    bar: CONF.created,
+    readout: formatConfidence(CONF.created),
   },
   {
     n: 'State 02',
@@ -39,9 +51,9 @@ const STATES: ReadonlyArray<{
         <em>not</em> validate — only a human review crosses that line.
       </>
     ),
-    field: 0.78,
-    bar: 0.78,
-    readout: `${formatConfidence(currentConfidence(0.6, 0))} · clock reset`,
+    field: CONF.corroborated,
+    bar: CONF.corroborated,
+    readout: `${formatConfidence(CONF.corroborated)} · clock reset`,
   },
   {
     n: 'State 03',
@@ -53,9 +65,9 @@ const STATES: ReadonlyArray<{
         labelled.
       </>
     ),
-    field: 0.34,
-    bar: 0.34,
-    readout: `${formatConfidence(currentConfidence(0.6, 26))} · historical`,
+    field: CONF.superseded,
+    bar: CONF.superseded,
+    readout: `${formatConfidence(CONF.superseded)} · historical`,
   },
   {
     n: 'State 04',
@@ -66,8 +78,8 @@ const STATES: ReadonlyArray<{
         not deleted — it leaves live traversal and stays auditable.
       </>
     ),
-    field: 0.05,
-    bar: 0.02,
+    field: EXCLUDED_FIELD,
+    bar: 0,
     readout: 'excluded from live traversal',
     off: true,
   },

@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { NAV_LINKS } from '@/lib/content';
+import Mark from './Mark';
 
 export default function Nav() {
   const [stuck, setStuck] = useState(false);
@@ -18,7 +19,7 @@ export default function Nav() {
     <header className={`nav${stuck ? ' stuck' : ''}`}>
       <div className="edge wrap nav-row">
         <a className="brand" href="#top">
-          <span className="mk">M</span>memex
+          <Mark size={22} className="mk" />memex
         </a>
         <nav aria-label="Primary">
           <ul className="navlinks">

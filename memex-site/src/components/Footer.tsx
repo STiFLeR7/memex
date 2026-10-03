@@ -1,3 +1,4 @@
+import Mark from './Mark';
 const REPO = 'https://github.com/STiFLeR7/memex';
 
 const COLUMNS = [
@@ -36,7 +37,7 @@ export default function Footer() {
         <div className="foot">
           <div>
             <a className="brand" href="#top">
-              <span className="mk">M</span>memex
+              <Mark size={22} className="mk" />memex
             </a>
             <p>
               A bitemporal knowledge graph of repository facts, decisions,

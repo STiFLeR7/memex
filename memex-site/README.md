@@ -52,8 +52,15 @@ immediately.
 
 ### Statement
 
-Headline words are split at render, not at runtime. The markup ships correct,
-so headings are readable with JS disabled and there is no layout thrash.
+Headline words are split at render, not at runtime, so there is no layout
+thrash and the markup ships correct.
+
+Readability without JS is handled separately, by `@media (scripting: enabled)`
+in `globals.css`: the reveal animation's hidden states only apply where
+scripting can undo them. An earlier version of this file claimed
+server-rendered markup alone made the page readable with JS off — it did not.
+`.rv` started at `opacity:0` with a React effect as the only activation path,
+so the page rendered blank.
 
 Whitespace between words **must** be a sibling text node, never a child of
 `.wr` — that span is `overflow:hidden` + `inline-block`, so a space inside it

@@ -58,6 +58,7 @@ export const metadata: Metadata = {
         url: '/og.jpg',
         width: 1200,
         height: 630,
+        type: 'image/jpeg',
         alt: 'memex — a knowledge graph for the parts of engineering work files do not explain.',
       },
     ],

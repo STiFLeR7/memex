@@ -47,7 +47,6 @@
   --ease-out:cubic-bezier(.16,1,.3,1);
   --t-fast:.22s;--t-mid:.5s;--t-slow:.9s;
 
-  --lum:0; /* scroll-linked illumination, 0..1 */
 }
 
 /* ---------- 02 RESET ---------- */
@@ -148,23 +147,32 @@ code{font:.86em var(--mono);color:var(--ice)}
 @keyframes breathe{from{opacity:.78;transform:translateX(-50%) scale(1)}to{opacity:1;transform:translateX(-50%) scale(1.07)}}
 
 /* ---------- 04 MOTION ---------- */
-.rv{opacity:0;transform:translateY(26px);filter:blur(7px);
-  transition:opacity var(--t-slow) var(--ease-out),transform var(--t-slow) var(--ease-out),filter var(--t-slow) var(--ease-out)}
-.rv.in{opacity:1;transform:none;filter:blur(0)}
-.rv.d1{transition-delay:.08s}.rv.d2{transition-delay:.16s}
-.rv.d3{transition-delay:.24s}.rv.d4{transition-delay:.32s}
-.rv.d5{transition-delay:.4s}
-
-/* word-by-word statement reveal */
+/* Hidden states are opt-in: only applied once the enhancement script has
+   marked the document. Without JS everything renders visible. */
+/* Hidden states are opt-in and gated on scripting being available: the
+   only thing that can undo them is JS. With scripting off, or in a browser
+   without this query, the page renders fully visible and simply does not
+   animate. No inline script, nothing for a CSP to allow. */
+/* Structural, and NOT gated: `.wr > i` is a real <i>, so without this reset
+   it falls back to the UA's italic default whenever the query below does not
+   apply. Only the animated properties belong inside the gate. */
 .wr{display:inline-block;overflow:hidden;vertical-align:bottom}
-.wr>i{display:inline-block;font-style:inherit;transform:translateY(105%);opacity:.001;
-  transition:transform .95s var(--ease-out),opacity .7s var(--ease-out)}
-.in .wr>i,.wr.in>i{transform:none;opacity:1}
+.wr>i{display:inline-block;font-style:inherit}
+
+@media (scripting: enabled){
+  .rv{opacity:0;transform:translateY(26px);filter:blur(7px);
+    transition:opacity var(--t-slow) var(--ease-out),transform var(--t-slow) var(--ease-out),filter var(--t-slow) var(--ease-out)}
+  .rv.in{opacity:1;transform:none;filter:blur(0)}
+
+  .wr>i{transform:translateY(105%);opacity:.001;
+    transition:transform .95s var(--ease-out),opacity .7s var(--ease-out)}
+  .in .wr>i,.wr.in>i{transform:none;opacity:1}
+}
 
 @media(prefers-reduced-motion:reduce){
   html{scroll-behavior:auto}
-  .rv{opacity:1;transform:none;filter:none;transition:none}
-  .wr>i{transform:none;opacity:1;transition:none}
+  .rv{opacity:1!important;transform:none!important;filter:none!important;transition:none!important}
+  .wr>i{transform:none!important;opacity:1!important;transition:none!important}
   .glow-floor.breathe{animation:none}
   .btn::after{display:none}
 }
@@ -174,12 +182,8 @@ code{font:.86em var(--mono);color:var(--ice)}
 .nav.stuck{background:rgba(5,8,15,.72);backdrop-filter:blur(16px) saturate(1.2);border-bottom-color:var(--line)}
 .nav-row{height:68px;display:flex;align-items:center;justify-content:space-between;gap:24px}
 .brand{display:flex;align-items:center;gap:.65rem;font:600 .95rem var(--display);letter-spacing:-.01em}
-.brand .mk{
-  width:21px;height:21px;flex:none;position:relative;
-  border:1px solid var(--line-3);display:grid;place-items:center;
-  font:500 .58rem var(--mono);color:var(--ice);
-}
-.brand .mk::after{content:"";position:absolute;inset:-1px;border:1px solid rgba(45,106,255,.3);opacity:.75}
+.brand .mk{flex:none;color:var(--ice-2);transition:color var(--t-fast) var(--ease)}
+.brand:hover .mk{color:#fff}
 .navlinks{display:flex;gap:2rem;list-style:none;margin:0;padding:0;
   font:500 var(--t-label) var(--mono);letter-spacing:.15em;text-transform:uppercase;color:var(--muted)}
 .navlinks a{position:relative;padding:4px 0;transition:color var(--t-fast)}
@@ -352,7 +356,7 @@ code{font:.86em var(--mono);color:var(--ice)}
 .tool-list{border-right:1px solid var(--line-2);max-height:470px;overflow-y:auto;scrollbar-width:thin}
 .tool-list button{
   display:block;width:100%;text-align:left;padding:12px 16px;border-bottom:1px solid var(--line);
-  font:400 .74rem var(--mono);color:var(--muted);position:relative;
+  font:400 .74rem var(--mono);color:var(--soft);position:relative;
   transition:color var(--t-fast),background var(--t-fast);
 }
 .tool-list button::before{content:"";position:absolute;left:0;top:0;bottom:0;width:2px;background:var(--ice);
@@ -360,8 +364,8 @@ code{font:.86em var(--mono);color:var(--ice)}
 .tool-list button:hover{color:var(--soft);background:rgba(45,106,255,.05)}
 .tool-list button[aria-selected="true"]{color:var(--ink);background:rgba(45,106,255,.09)}
 .tool-list button[aria-selected="true"]::before{transform:scaleY(1)}
-.tool-list .grp{padding:14px 16px 8px;font:500 .58rem var(--mono);letter-spacing:.17em;
-  text-transform:uppercase;color:var(--faint);border-bottom:1px solid var(--line)}
+.tool-list .grp{padding:14px 16px 8px;font:500 .62rem var(--mono);letter-spacing:.17em;
+  text-transform:uppercase;color:var(--muted-lit);border-bottom:1px solid var(--line)}
 .tool-detail{padding:clamp(20px,2.6vw,34px)}
 .tool-row{display:grid;grid-template-columns:118px 1fr;gap:20px;padding:13px 0;border-bottom:1px solid var(--line)}
 .tool-row:last-child{border-bottom:0}

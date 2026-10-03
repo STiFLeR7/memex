@@ -11,6 +11,9 @@ export default function ControlPlane() {
   const [active, setActive] = useState(0);
   const activeRef = useRef(0);
   const manualRef = useRef(false);
+  // Populated by the canvas effect. Under reduced motion no rAF loop runs,
+  // so a selection would update the caption and leave the diagram stale.
+  const redrawRef = useRef<(() => void) | null>(null);
 
   const select = useCallback((i: number, manual = false) => {
     if (manual) manualRef.current = true;
@@ -174,18 +177,28 @@ export default function ControlPlane() {
       draw();
     };
 
+    redrawRef.current = () => {
+      nodes.forEach((n, i) => {
+        n.lit = i <= activeRef.current ? 1 : 0.1;
+      });
+      draw();
+    };
+
     layout();
     draw();
     window.addEventListener('resize', onResize, { passive: true });
 
     let emitter: ReturnType<typeof setInterval> | undefined;
+    let onScreen = false;
     const vis = new IntersectionObserver(
       ([e]) => {
+        onScreen = e.isIntersecting;
         if (reduced) return;
         if (e.isIntersecting && !raf) raf = requestAnimationFrame(tick);
         else if (!e.isIntersecting && raf) {
           cancelAnimationFrame(raf);
           raf = 0;
+          pulses = []; // nothing prunes them while the loop is stopped
         }
       },
       { threshold: 0.06 },
@@ -204,13 +217,14 @@ export default function ControlPlane() {
 
     if (!reduced) {
       emitter = setInterval(() => {
-        if (activeRef.current < 1) return;
+        if (!onScreen || activeRef.current < 1) return;
         pulses.push({ i: Math.floor(Math.random() * activeRef.current), p: 0 });
       }, 1400);
       window.addEventListener('scroll', onScroll, { passive: true });
     }
 
     return () => {
+      redrawRef.current = null;
       if (raf) cancelAnimationFrame(raf);
       if (emitter) clearInterval(emitter);
       window.removeEventListener('resize', onResize);
@@ -218,6 +232,10 @@ export default function ControlPlane() {
       vis.disconnect();
     };
   }, [select]);
+
+  useEffect(() => {
+    redrawRef.current?.();
+  }, [active]);
 
   const stage = STAGES[active];
 
