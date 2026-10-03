@@ -2,7 +2,7 @@
    MEMEX — DESIGN SYSTEM
    01 tokens · 02 reset · 03 primitives · 04 motion
    05 nav · 06 hero · 07 thesis · 08 plane · 09 capabilities
-   10 motion-section · 11 artifacts · 12 final · 13 responsive
+   10 motion-section · 11 artifacts · 12 close · 13 footer · 14 responsive
    ============================================================ */
 
 /* ---------- 01 TOKENS ---------- */
@@ -93,6 +93,16 @@ section{position:relative;padding:var(--sec) 0;scroll-margin-top:86px}
 .lede{color:var(--soft);font-size:clamp(.96rem,1.15vw,1.12rem);line-height:1.62;max-width:52ch}
 .dim{color:var(--muted)}
 em.ser{font-family:var(--serif);font-style:italic;font-weight:400;letter-spacing:-.012em}
+/* Emphasis as selection, not as a marker pen: a selected row in a graph
+   viewer. A solid fill at this type size becomes a slab and reads like an ad,
+   so the blue stays low and a hairline does the work. */
+.stmt mark.sel{
+  background:linear-gradient(180deg,rgba(45,106,255,.30),rgba(45,106,255,.14));
+  box-shadow:inset 0 0 0 1px rgba(143,195,255,.42);
+  color:#fff;padding:.04em .17em .07em;margin-inline:-.06em;
+  box-decoration-break:clone;-webkit-box-decoration-break:clone}
+/* the highlight should hug the words, not the line box the headline sets */
+.stmt mark.sel .wr{line-height:.9}
 code{font:.86em var(--mono);color:var(--ice)}
 
 /* engineered buttons — square, hairline, tactile. no SaaS pill. */
@@ -388,34 +398,87 @@ code{font:.86em var(--mono);color:var(--ice)}
 .b-row h3 .x{color:var(--faint);margin-right:.5rem;font-family:var(--mono);font-size:.7em}
 .b-row p{font-size:.86rem;color:var(--soft)}
 
-/* ---------- 12 FINAL ---------- */
-.final{background:var(--void);padding:clamp(120px,20vh,230px) 0 clamp(90px,14vh,150px);
-  position:relative;overflow:hidden;text-align:left}
-.final .glow-floor{opacity:.72;bottom:-34%}
-.final-in{position:relative;z-index:2}
-.final h2{font-size:var(--t-statement);line-height:1.0;letter-spacing:-.042em;max-width:15ch}
-.final h2 em.ser{color:var(--ice-2)}
-.final .sub{margin-top:28px;max-width:46ch}
-.final .acts{margin-top:40px;display:flex;gap:12px;flex-wrap:wrap}
-.final .contact{margin-top:34px;padding-top:22px;border-top:1px solid var(--line);
-  max-width:46ch;font:400 .82rem var(--body);color:var(--muted-lit)}
-.final .contact a{color:var(--ice-2);border-bottom:1px solid rgba(143,195,255,.32);
-  padding-bottom:1px;transition:border-color var(--t-fast) var(--ease)}
-.final .contact a:hover{border-bottom-color:var(--ice-2)}
+/* ---------- 12 CLOSE ---------- */
+.final{background:var(--void);position:relative;overflow:hidden;text-align:center;
+  padding:clamp(130px,22vh,250px) 0 clamp(118px,17vh,186px)}
 
-footer{background:var(--void);border-top:1px solid var(--line);padding:46px 0 54px}
-.foot{display:grid;grid-template-columns:minmax(0,1.7fr) repeat(3,minmax(0,1fr));gap:clamp(24px,4vw,48px)}
-.foot p{margin-top:14px;max-width:34ch;font-size:.82rem;color:var(--muted)}
+/* light source first, ring over it, copy over both */
+.glow-core{top:50%;left:50%;transform:translate(-50%,-50%);
+  width:min(880px,94vw);height:min(880px,94vw);z-index:0;
+  background:radial-gradient(circle at 50% 50%,
+    rgba(45,106,255,.24) 0%,rgba(45,106,255,.12) 34%,
+    rgba(20,51,114,.06) 58%,transparent 73%);
+  filter:blur(28px)}
+.ring-cv{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);
+  width:min(920px,100vw);height:min(920px,100vw);z-index:1}
+
+.final-in{position:relative;z-index:2;display:flex;flex-direction:column;align-items:center}
+.final .tech{margin-bottom:clamp(26px,4vh,44px)}
+/* looser than the other statements: the selection band needs clearance from
+   the descenders on the line above, or it collides with them */
+.final h2{font-size:var(--t-statement);line-height:1.16;letter-spacing:-.042em;max-width:16ch}
+.final .sub{margin-top:30px;max-width:48ch}
+.final .acts{margin-top:42px;display:flex;gap:12px;flex-wrap:wrap;justify-content:center}
+/* sits over the lit part of the ring, so it needs the brighter muted token */
+.final .fine{margin-top:26px;font:400 .71rem var(--mono);letter-spacing:.08em;
+  color:var(--muted-lit)}
+
+/* the figure is quantitative, so it gets a caption like one */
+.ring-note{position:absolute;z-index:2;left:var(--edge);bottom:clamp(26px,5vh,52px);
+  max-width:33ch;text-align:left;
+  font:400 .68rem/1.62 var(--mono);letter-spacing:.02em;color:var(--muted)}
+
+/* ---------- 13 FOOTER ---------- */
+footer{background:var(--void);border-top:1px solid var(--line);
+  padding:clamp(52px,7vh,76px) 0 0;position:relative;overflow:hidden}
+.foot{display:grid;grid-template-columns:minmax(0,1.5fr) repeat(4,minmax(0,1fr));
+  gap:clamp(22px,3.2vw,44px)}
+.foot-brand p{margin-top:14px;max-width:32ch;font-size:.82rem;color:var(--muted)}
 .foot h4{margin:0 0 14px;font:500 var(--t-label) var(--mono);letter-spacing:.15em;
   text-transform:uppercase;color:var(--faint)}
 .foot ul{list-style:none;margin:0;padding:0;display:grid;gap:10px;font-size:.84rem;color:var(--soft)}
 .foot ul a{transition:color var(--t-fast)}
 .foot ul a:hover{color:var(--ice)}
-.foot-end{margin-top:44px;padding-top:22px;border-top:1px solid var(--line);
+
+.chip{margin-top:22px;display:inline-flex;align-items:center;gap:.6rem;
+  padding:.56rem .85rem;border:1px solid var(--line-2);
+  font:500 .63rem/1 var(--mono);letter-spacing:.12em;text-transform:uppercase;
+  color:var(--soft);
+  transition:border-color var(--t-fast) var(--ease),color var(--t-fast) var(--ease)}
+.chip:hover{border-color:var(--ice);color:var(--ink)}
+.chip svg{color:var(--ice);flex:none}
+
+.foot-end{margin-top:clamp(42px,6vh,62px);padding-top:22px;border-top:1px solid var(--line);
   display:flex;justify-content:space-between;gap:20px;flex-wrap:wrap;
   font:400 .68rem var(--mono);color:var(--faint);letter-spacing:.05em}
 
-/* ---------- 13 RESPONSIVE ---------- */
+/* Oversized wordmark, cut by the page edge. Fades downward so it reads as
+   atmosphere rather than a second logo competing with the one above it. */
+/* The crop is ~10%, not a third. Lowercase "e" loses its lower bowl first and
+   stops being an "e" long before the word stops being legible, so the series
+   has to keep almost the whole x-height. */
+.foot-roll{margin:clamp(16px,3vh,34px) 0 calc(-1 * clamp(.3rem,1.4vw,1.5rem));
+  overflow:hidden;user-select:none;pointer-events:none;
+  /* one mask fades glyphs and mark together; background-clip:text cannot
+     reach the SVG, so the fade lives here instead of on the fill */
+  -webkit-mask-image:linear-gradient(180deg,#000 0%,#000 86%,transparent 100%);
+          mask-image:linear-gradient(180deg,#000 0%,#000 86%,transparent 100%)}
+.foot-roll-track{display:flex;width:max-content;
+  /* no will-change: the track is ~11k px wide and pinning that as a permanent
+     compositor layer costs more than the transform animation saves */
+  animation:foot-roll 64s linear infinite}
+.foot-roll-set{display:flex}
+.foot-roll-item{display:flex;align-items:center;gap:.16em;padding-right:.18em;
+  font:600 clamp(5rem,20vw,17rem)/.96 var(--display);
+  letter-spacing:-.05em;white-space:nowrap;color:rgba(143,195,255,.13)}
+.foot-roll-item svg{width:.54em;height:.54em;flex:none;color:rgba(143,195,255,.19)}
+/* exactly one set, so set 2 lands where set 1 began: no seam */
+@keyframes foot-roll{from{transform:translateX(-50%)}to{transform:translateX(0)}}
+@media(prefers-reduced-motion:reduce){
+  .foot-roll-track{animation:none;transform:translateX(-50%)}
+}
+
+/* ---------- 14 RESPONSIVE ---------- */
 @media(max-width:1080px){
   .navlinks{display:none}.menu-btn{display:block}
   .plane-head .h,.motion-head .h,.art-head .h{grid-column:1/9}
@@ -429,6 +492,10 @@ footer{background:var(--void);border-top:1px solid var(--line);padding:46px 0 54
   .thesis-note{grid-column:1/13;grid-row:auto}
   .thesis-meta{grid-column:1/13;grid-row:auto;margin-top:40px}
   .foot{grid-template-columns:repeat(2,1fr)}
+  .foot-brand{grid-column:1/-1}
+  /* no room beside the ring: the caption flows under the copy instead */
+  .ring-note{position:static;max-width:48ch;text-align:center;
+    margin:clamp(34px,6vh,54px) auto 0;padding:0 var(--edge)}
 }
 @media(max-width:860px){
   .hero-foot{grid-template-columns:1fr;gap:34px}

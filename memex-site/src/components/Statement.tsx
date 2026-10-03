@@ -4,6 +4,12 @@ export type Part = {
   readonly t: string;
   /** render in the italic serif accent face */
   readonly em?: boolean;
+  /**
+   * Render as selected text. The site's own `::selection` colour, used
+   * deliberately: the close is about evidence being picked out of a graph,
+   * so the emphasis is literal rather than typographic.
+   */
+  readonly sel?: boolean;
   /** force a line break before this part */
   readonly block?: boolean;
 };
@@ -61,7 +67,9 @@ export default function Statement({
         return (
           <Fragment key={pi}>
             {needsLeadingSpace ? ' ' : null}
-            {part.em ? <em className="ser">{words}</em> : words}
+            {part.em ? <em className="ser">{words}</em> : null}
+            {part.sel ? <mark className="sel">{words}</mark> : null}
+            {!part.em && !part.sel ? words : null}
           </Fragment>
         );
       })}

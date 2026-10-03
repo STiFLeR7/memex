@@ -1,10 +1,10 @@
-# memex — trusted engineering context for agentic software engineering
+# memex: trusted engineering context for agentic software engineering
 
 <!-- mcp-name: io.github.STiFLeR7/memex -->
 
 > A protocol-neutral engineering-context layer for AI coding agents. memex
-> builds a bitemporal knowledge graph of your repository — modules, symbols,
-> decisions, problems, evidence, and code evolution — and exposes bounded,
+> builds a bitemporal knowledge graph of your repository (modules, symbols,
+> decisions, problems, evidence, and code evolution) and exposes bounded,
 > provenance-aware context through Hermes MemoryProvider or MCP.
 
 A daemon and MCP server that turns commits and file changes into structured
@@ -26,7 +26,23 @@ personal memory or raw session state.
 
 [![Memex on AI Agents Listing](https://aiagentslisting.com/memex/badge.svg?claim=1af930b83c7adc182c0f2c52cb300afb)](https://aiagentslisting.com/mcp/memex)
 
-![memex — temporal knowledge graph MCP server for AI coding agents, built on Graphiti and Neo4j](https://raw.githubusercontent.com/STiFLeR7/memex/master/assets/memex.png)
+## Where memex lives
+
+| | |
+|---|---|
+| Website | [memex.stifler.in](https://memex.stifler.in) |
+| Source | [github.com/STiFLeR7/memex](https://github.com/STiFLeR7/memex) |
+| Python package | [`memex-mcp` on PyPI](https://pypi.org/project/memex-mcp/) |
+| Node package | [`stifler-memex-mcp` on npm](https://www.npmjs.com/package/stifler-memex-mcp) |
+| MCP Registry | [`io.github.STiFLeR7/memex`](https://registry.modelcontextprotocol.io/v0/servers?search=memex) |
+| Claude Code plugin | [STiFLeR7/claude-plugins](https://github.com/STiFLeR7/claude-plugins) |
+| Directories | [Glama](https://glama.ai/mcp/servers/STiFLeR7/memex) · [AI Agents Listing](https://aiagentslisting.com/mcp/memex) |
+
+Evaluation record in [BENCHMARK.md](BENCHMARK.md), release history in
+[CHANGELOG.md](CHANGELOG.md), reporting process in [SECURITY.md](SECURITY.md),
+and how to work on it in [CONTRIBUTING.md](CONTRIBUTING.md).
+
+![memex: temporal knowledge graph MCP server for AI coding agents, built on Graphiti and Neo4j](https://raw.githubusercontent.com/STiFLeR7/memex/master/assets/memex.png)
 
 ```mermaid
 flowchart LR
@@ -119,7 +135,7 @@ initial admin key, and the `down -v` footgun to avoid.
 | Property | Value |
 |---|---|
 | Output | A Neo4j graph populated continuously from your repo |
-| Storage | Neo4j via [Graphiti](https://github.com/getzep/graphiti). Bitemporal — every edge has `created_at` and optional `expired_at` |
+| Storage | Neo4j via [Graphiti](https://github.com/getzep/graphiti). Bitemporal: every edge has `created_at` and optional `expired_at` |
 | Context | Bounded, ranked, provenance-aware `ContextPacket` |
 | Integrations | Hermes MemoryProvider, MCP resources/tools, Claude Code, Cursor, Codex, Gemini CLI |
 | Failure mode | Fail-open; agent execution continues without memex |
@@ -154,7 +170,7 @@ flowchart TD
 
 ## MCP tools
 
-14 tools — eight read, four write, two analytic.
+14 tools: eight read, four write, two analytic.
 
 ### Read
 
@@ -221,7 +237,7 @@ flowchart LR
 | Algorithm | `graspologic.partition.hierarchical_leiden` with fixed seed |
 | Naming | TF-IDF top-3 over module docstrings + symbol names, parent-dir fallback |
 | ID pinning | Jaccard ≥ 0.5 across reruns (cluster names stay stable through renames) |
-| User overrides | `.memex/clusters.yaml` — any assignment can be locked |
+| User overrides | `.memex/clusters.yaml`, where any assignment can be locked |
 | Context budget | `get_project_context` stays under 1500 tokens whether your repo has 50 or 5000 modules |
 
 ## Measure Your Savings
@@ -324,7 +340,7 @@ args = ["-y", "stifler-memex-mcp", "serve", "--repo", "."]
 <details>
 <summary><b>Anthropic memory tool (memory_20250818)</b></summary>
 
-memex can back Claude's native memory tool — agents read from a per-session graph projection plus a writable scratch zone.
+memex can back Claude's native memory tool: agents read from a per-session graph projection plus a writable scratch zone.
 
 ```bash
 memex memory-tool serve --repo .                     # in-process
@@ -404,8 +420,8 @@ Hill Patel ([@STiFLeR7](https://github.com/STiFLeR7))
 
 ## Core Contributors & Maintainers
 
-- Hill Patel ([@STiFLeR7](https://github.com/STiFLeR7)) — architect, maintainer
-- Nirvaan Lagishetty ([@Nirvaan05](https://github.com/Nirvaan05)) — lead contributor, maintainer
+- Hill Patel ([@STiFLeR7](https://github.com/STiFLeR7)), architect and maintainer
+- Nirvaan Lagishetty ([@Nirvaan05](https://github.com/Nirvaan05)), lead contributor and maintainer
 
 ## Contributing
 
