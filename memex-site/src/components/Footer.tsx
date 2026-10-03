@@ -23,8 +23,8 @@ const COLUMNS = [
   {
     h: 'Install',
     links: [
-      { t: 'PyPI — memex-mcp', u: 'https://pypi.org/project/memex-mcp/' },
-      { t: 'npm — stifler-memex-mcp', u: 'https://www.npmjs.com/package/stifler-memex-mcp' },
+      { t: 'PyPI · memex-mcp', u: 'https://pypi.org/project/memex-mcp/' },
+      { t: 'npm · stifler-memex-mcp', u: 'https://www.npmjs.com/package/stifler-memex-mcp' },
       { t: 'Contributing', u: `${REPO}/blob/master/CONTRIBUTING.md` },
     ],
   },
@@ -41,7 +41,7 @@ export default function Footer() {
             </a>
             <p>
               A bitemporal knowledge graph of repository facts, decisions,
-              problems and relations — served to coding agents over MCP.
+              problems and relations, served to coding agents over MCP.
             </p>
           </div>
           {COLUMNS.map((c) => (

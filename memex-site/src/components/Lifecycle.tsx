@@ -48,7 +48,7 @@ const STATES: ReadonlyArray<{
     body: (
       <>
         New evidence resets <code>last_reinforced_at</code>. It does{' '}
-        <em>not</em> validate — only a human review crosses that line.
+        <em>not</em> validate. Only a human review crosses that line.
       </>
     ),
     field: CONF.corroborated,
@@ -75,7 +75,7 @@ const STATES: ReadonlyArray<{
     body: (
       <>
         <code>invalidate_edge</code> sets <code>expired_at</code>. The record is
-        not deleted — it leaves live traversal and stays auditable.
+        not deleted; it leaves live traversal and stays auditable.
       </>
     ),
     field: EXCLUDED_FIELD,

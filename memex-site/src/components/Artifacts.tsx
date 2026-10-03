@@ -11,7 +11,7 @@ const EVIDENCE = [
 ] as const;
 
 const BOUNDARY = [
-  { h: 'Not ordinary RAG', p: 'Results are constrained by repository scope and active validity. The graph carries typed entities, relation history, confidence, and write semantics — not embeddings alone.' },
+  { h: 'Not ordinary RAG', p: 'Results are constrained by repository scope and active validity. The graph carries typed entities, relation history, confidence, and write semantics, not embeddings alone.' },
   { h: 'Not generic chat memory', p: 'An MCP client must request context or invoke a write. memex makes no claim of automatic universal recall before every response.' },
   { h: 'Not a coding agent', p: 'It exposes information and governed graph writes. It does not own an editor and does not generate a patch.' },
   { h: 'Not a confidence oracle', p: 'Confidence is a ranking and disclosure signal. A high-confidence record can still be wrong. The site will not pretend otherwise.' },
@@ -42,7 +42,7 @@ export default function Artifacts() {
           </div>
           <p className="note lede rv d2">
             Schemas below are the implemented interface. Illustrative
-            projections — not live output from a running graph.
+            projections, not live output from a running graph.
           </p>
         </div>
 
@@ -107,7 +107,7 @@ export default function Artifacts() {
           {BOUNDARY.map((b) => (
             <div className="b-row" key={b.h}>
               <h3>
-                <span className="x">—</span>
+                <span className="x">/</span>
                 {b.h}
               </h3>
               <p>{b.p}</p>

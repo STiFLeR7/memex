@@ -254,7 +254,7 @@ export default function ControlPlane() {
           </div>
           <p className="note lede rv d2">
             Six stages. One LLM call on the entire write path, and it runs on
-            commits — never inside a tool call.
+            commits, never inside a tool call.
           </p>
         </div>
 

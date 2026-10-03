@@ -41,15 +41,15 @@ const mono = DM_Mono({
 export const metadata: Metadata = {
   metadataBase: new URL('https://memex.stifler.in'),
   alternates: { canonical: '/' },
-  title: 'memex — engineering context infrastructure',
+  title: 'memex: engineering context infrastructure',
   description:
-    'memex builds a bitemporal knowledge graph of your repository — modules, symbols, decisions, problems — and serves bounded, provenance-aware context to coding agents over MCP.',
+    'memex builds a bitemporal knowledge graph of your repository (modules, symbols, decisions, problems) and serves bounded, provenance-aware context to coding agents over MCP.',
   authors: [{ name: 'Hill Patel', url: 'https://github.com/STiFLeR7' }],
   openGraph: {
     type: 'website',
     url: '/',
     locale: 'en_US',
-    title: 'memex — engineering context infrastructure',
+    title: 'memex: engineering context infrastructure',
     description:
       'A bitemporal knowledge graph of a repository, served to coding agents as bounded, provenance-carrying context.',
     siteName: 'memex',
@@ -59,7 +59,7 @@ export const metadata: Metadata = {
         width: 1200,
         height: 630,
         type: 'image/jpeg',
-        alt: 'memex — a knowledge graph for the parts of engineering work files do not explain.',
+        alt: 'memex: a knowledge graph for the parts of engineering work files do not explain.',
       },
     ],
   },

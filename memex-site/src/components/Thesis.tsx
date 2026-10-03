@@ -3,7 +3,7 @@ import Statement from './Statement';
 const META = [
   { k: 'Owns', v: 'Repository facts, decisions, problems, relationships, temporal validity' },
   { k: 'Refuses', v: 'Session state, transcripts, prompts, tool results, user preferences' },
-  { k: 'Failure mode', v: 'Fail-open — the agent continues with no context rather than bad context' },
+  { k: 'Failure mode', v: 'Fail-open: the agent continues with no context rather than bad context' },
   { k: 'Authority', v: 'Neo4j is the only authoritative state. Everything else is derived or recomputed' },
 ] as const;
 
@@ -29,7 +29,7 @@ export default function Thesis() {
           <p className="lede">
             A fact retrieved from a vector store arrives with no expiry, no
             supersession, and no account of where it came from. A decision
-            reversed six weeks ago reads exactly like one made this morning —
+            reversed six weeks ago reads exactly like one made this morning:
             same fluency, same confidence, no signal.
           </p>
           <p className="lede">

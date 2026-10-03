@@ -34,7 +34,7 @@ export default function Hero() {
               memex watches a repository, extracts its structure, and stores
               engineering decisions in a bitemporal graph where facts expire
               rather than disappear. Agents receive bounded,
-              provenance-carrying context — or nothing at all.
+              provenance-carrying context, or nothing at all.
             </p>
             <div className="hero-cta rv d3">
               <a className="btn primary" href="#plane">

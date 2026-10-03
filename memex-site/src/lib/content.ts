@@ -17,7 +17,7 @@ export const STAGES: readonly Stage[] = [
     title: 'Watcher',
     path: 'memex/watcher/',
     caption:
-      'Filesystem events, Git hooks, commit polling and lockfile changes enter one router. The watcher owns detection and debouncing — and nothing durable.',
+      'Filesystem events, Git hooks, commit polling and lockfile changes enter one router. The watcher owns detection and debouncing, and nothing durable.',
     artifact: 'EMITS → routed change events',
   },
   {
@@ -87,7 +87,7 @@ export const TOOLS: readonly Tool[] = [
   { cls: 'write', name: 'resolve_problem', moment: 'Close recorded work', input: '{ problem_id, resolution_text, repo? }', returns: 'A RESOLVED_BY relation and a closed state.' },
   { cls: 'write', name: 'invalidate_edge', moment: 'Retire a relation', input: '{ edge_id, reason, repo? }', returns: 'Sets expired_at. The edge leaves live traversal; it is not deleted.' },
   { cls: 'analytic', name: 'explain_change', moment: 'Understand a commit', input: '{ commit_sha, repo? }', returns: 'Cross-references the diff with linked Decision and Problem records, grounded by Gemini Pro.' },
-  { cls: 'analytic', name: 'predict_impact', moment: 'Estimate blast radius', input: '{ file_path, repo? }', returns: 'Ranked modules via calls, imports and decision links. Pure graph traversal — no LLM call.' },
+  { cls: 'analytic', name: 'predict_impact', moment: 'Estimate blast radius', input: '{ file_path, repo? }', returns: 'Ranked modules via calls, imports and decision links. Pure graph traversal with no LLM call.' },
 ] as const;
 
 export const TOOL_GROUPS: Record<ToolClass, string> = {
@@ -127,7 +127,7 @@ export const CAPABILITIES: readonly Capability[] = [
   {
     num: '04', key: 'Serve',
     headline: 'Agents receive bounded', emphasis: 'evidence.',
-    body: 'A ContextPacket carries at most 8 items and 12,000 characters, each with provenance, freshness and a selection reason. Over budget, it is rejected — never silently truncated.',
+    body: 'A ContextPacket carries at most 8 items and 12,000 characters, each with provenance, freshness and a selection reason. Over budget, it is rejected, never silently truncated.',
     source: 'memex/context/packet.py · selection.py',
   },
 ] as const;
