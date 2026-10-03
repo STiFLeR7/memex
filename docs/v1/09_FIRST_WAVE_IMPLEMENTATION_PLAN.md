@@ -33,7 +33,7 @@
 
 **Interfaces:** Consumes normalized repository/worktree IDs and an externally captured manifest digest. Produces `RepositoryView` with the exact fields and `view_id` property shown below. Repository discovery and manifest capture are W05/W04 responsibilities, not hidden behavior of this model.
 
-- [ ] Step 1: create the failing tests in `tests/test_repository_view.py`.
+- [x] Step 1: create the failing tests in `tests/test_repository_view.py`.
 
 ```python
 from dataclasses import replace
@@ -82,8 +82,8 @@ def test_invalid_view_rejected(updates):
         make_view(**updates)
 ```
 
-- [ ] Step 2: run `python -m pytest tests/test_repository_view.py -q`. Before creation of the module, expect collection failure for the missing module. Record the observed failure; do not claim it was run from this planning document.
-- [ ] Step 3: create the pure contract in `memex/context/revision.py`.
+- [x] Step 2: run `python -m pytest tests/test_repository_view.py -q`. Before creation of the module, expect collection failure for the missing module. Record the observed failure; do not claim it was run from this planning document.
+- [x] Step 3: create the pure contract in `memex/context/revision.py`.
 
 ```python
 from dataclasses import dataclass
@@ -119,8 +119,8 @@ class RepositoryView:
 
 The later serialized v1 request models validate input types, access, temporal fields and capabilities. This internal model intentionally does not discover a checkout, certify a hash or expose an HTTP API.
 
-- [ ] Step 4: run `python -m pytest tests/test_repository_view.py tests/test_context_packet.py -q`; verify view invariants and unchanged packet compatibility.
-- [ ] Step 5: review/stage only the two owned files and commit the accepted change, for example `git add memex/context/revision.py tests/test_repository_view.py`, then `git commit -m "feat(context): define revision-scoped repository views"`. Do not stage unrelated work.
+- [x] Step 4: run `python -m pytest tests/test_repository_view.py tests/test_context_packet.py -q`; verify view invariants and unchanged packet compatibility.
+- [x] Step 5: review/stage only the two owned files and commit the accepted change, for example `git add memex/context/revision.py tests/test_repository_view.py`, then `git commit -m "feat(context): define revision-scoped repository views"`. Do not stage unrelated work.
 
 ## Task 2: body-change detection and independent call refresh
 
@@ -128,7 +128,7 @@ The later serialized v1 request models validate input types, access, temporal fi
 
 **Interfaces:** Preserve `extract_symbol_delta(file_path, old_content, new_content, language=None) -> SymbolDelta`, `handle_file_change(event) -> None`, `extract_calls(...)` and existing write APIs. No packet, graph identity or provider schema change in this task.
 
-- [ ] Step 1: append these tests to `tests/test_extractor.py`.
+- [x] Step 1: append these tests to `tests/test_extractor.py`.
 
 ```python
 @pytest.mark.asyncio
@@ -188,8 +188,8 @@ async def test_calls_refresh_without_symbol_delta(tmp_path):
 
 This deliberately supplies an empty symbol delta to test independence of call refresh. It does not assert that mocked graph writes prove real transaction reconciliation.
 
-- [ ] Step 2: run `python -m pytest tests/test_extractor.py tests/test_body_change_refresh.py -q`. Expect the new body-change and handler-gating tests to fail in the inspected baseline; record actual failures.
-- [ ] Step 3: make conservative changed-file detection in the existing delta loop:
+- [x] Step 2: run `python -m pytest tests/test_extractor.py tests/test_body_change_refresh.py -q`. Expect the new body-change and handler-gating tests to fail in the inspected baseline; record actual failures.
+- [x] Step 3: make conservative changed-file detection in the existing delta loop:
 
 ```python
             if old_sym.signature != new_sym.signature or old_content != new_content:
@@ -206,8 +206,8 @@ Remove the handler's `if not delta.added and not delta.removed and not delta.mod
         # Existing call-extraction block runs even when delta is empty.
 ```
 
-- [ ] Step 4: run `python -m pytest tests/test_extractor.py tests/test_body_change_refresh.py tests/test_handlers.py -q`. If a selected file unexpectedly contacts a service, stop that check, isolate the network boundary and report it; do not start Docker/provider services to satisfy a local regression test.
-- [ ] Step 5: review/stage only the four owned files and commit the accepted change, for example `git commit -m "fix(watcher): refresh calls after body-only changes"` after explicitly staging those paths.
+- [x] Step 4: run `python -m pytest tests/test_extractor.py tests/test_body_change_refresh.py tests/test_handlers.py -q`. If a selected file unexpectedly contacts a service, stop that check, isolate the network boundary and report it; do not start Docker/provider services to satisfy a local regression test.
+- [x] Step 5: review/stage only the four owned files and commit the accepted change, for example `git commit -m "fix(watcher): refresh calls after body-only changes"` after explicitly staging those paths.
 
 ## What this wave does not certify
 
@@ -215,9 +215,13 @@ Zero-call/import removals, invalid parse coverage, atomic graph transactions, la
 
 ## Final wave verification and handoff
 
-- [ ] Record exact commands, observed results and accepted commit references.
-- [ ] Confirm no packet/provider behavior or unrelated source was changed.
-- [ ] Inspect graph driver's actual transaction API for S03 and prepare the W03–W05 detailed plan using the acceptance cases in the roadmap.
-- [ ] Update the index status with W01/W02 evidence while leaving P1 incomplete until W03–W05 pass.
+- [x] Record exact commands, observed results and accepted commit references.
+- [x] Confirm no packet/provider behavior or unrelated source was changed.
+- [x] Inspect graph driver's actual transaction API for S03 and prepare the W03–W05 detailed plan using the acceptance cases in the roadmap.
+- [x] Update the index status with W01/W02 evidence while leaving P1 incomplete until W03–W05 pass.
 
 The executor does not need to invent later APIs or begin paid benchmark trials to complete this wave.
+
+## Executed results
+
+W01: `786ee1d`. W02: `72b4cb8`. Initial combined wave: 33 passed. Remaining P1 source: `2226de6`. Full Phase 1: 80 passed; compatibility: 655 passed, one existing Windows skip. See [14_PHASE1_VERIFICATION.md](14_PHASE1_VERIFICATION.md) for commands, final review and boundaries.

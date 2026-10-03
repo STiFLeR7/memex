@@ -94,3 +94,30 @@ async def test_other_observation_cannot_be_reported_as_indexed(repository, graph
     with patch.object(indexer.journal, "acknowledge", side_effect=concurrent_observation):
         result = await indexer.refresh()
     assert not result.is_current
+
+
+@pytest.mark.asyncio
+async def test_unsupported_sources_never_report_repository_current(repository, graph):
+    (repository / "App.java").write_text("class App {}\n", encoding="utf-8")
+    (repository / "custom.build").write_text("unknown format\n", encoding="utf-8")
+    result = await RepositoryIndexer(discover_repository(repository), graph).refresh()
+    assert not result.is_current and result.reason == "incomplete_coverage"
+    assert result.coverage["App.java"] == result.coverage["custom.build"] == "unsupported"
+    assert not await graph.coverage_complete(result.view.view_id)
+
+
+@pytest.mark.asyncio
+async def test_graph_failure_keeps_journal_pending_until_real_retry(repository, graph):
+    reg = discover_repository(repository)
+    indexer = RepositoryIndexer(reg, graph)
+    publish = graph.publish
+    async def failing(view, structures):
+        return await publish(view, structures, fail_before_complete=True)
+    with patch.object(graph, "publish", side_effect=failing):
+        with pytest.raises(RuntimeError, match="injected"):
+            await indexer.refresh()
+    pending = indexer.journal.pending(reg.worktree_id)
+    assert len(pending) == 1 and not await graph.completed(pending[0])
+    assert indexer.journal.current(reg.worktree_id).indexed_generation == 0
+    recovered = await RepositoryIndexer(reg, graph).refresh()
+    assert recovered.is_current and recovered.view.view_id == pending[0]

@@ -1,6 +1,6 @@
 # Dependency-ordered v1 roadmap
 
-Status: planning baseline; no calendar or staffing estimate is asserted. Phase exits require evidence. Detailed first-wave tasks are in [09_FIRST_WAVE_IMPLEMENTATION_PLAN.md](D:/memex/docs/v1/09_FIRST_WAVE_IMPLEMENTATION_PLAN.md).
+Status: P1 complete and verified 4 October 2026; P2-P5 remain planned. No calendar or staffing estimate is asserted. Phase exits require evidence. Detailed first-wave tasks are in [09_FIRST_WAVE_IMPLEMENTATION_PLAN.md](D:/memex/docs/v1/09_FIRST_WAVE_IMPLEMENTATION_PLAN.md).
 
 ## Dependency sequence
 
@@ -18,7 +18,9 @@ Fixture design and host capability spikes can occur alongside P1. Do not build d
 | W04 | Runtime journal/watcher: durable idempotent event processing, completion records, catch-up | W01 | Crash after graph commit/before acknowledgement; rapid commits; missed file event |
 | W05 | Resolver/hook registration: linked worktrees, scoped writes, existing-hook composition | W01,W04 | `.git` file, detached/unborn HEAD, case/path aliases, `core.hooksPath` |
 
-P1 exit: no action can receive a v1 fresh certificate from partial structural work; a body edit/removal/restart/checkout change resolves to coherent scoped state. W01/W02 are the first executable wave. W03–W05 are planned with precise transaction APIs after spike S03. An unrelated Neo4j schema or extractor rewrite is outside scope.
+P1 exit: no action can receive a v1 fresh certificate from partial structural work; a body edit/removal/restart/checkout change resolves to coherent scoped state. W01/W02 are the first executable wave. W03–W05 are planned with precise transaction APIs after spike S03. An unrelated Neo4j schema or extractor rewrite is outside scope. P1 uses additive view-scoped structural records on the existing Neo4j substrate.
+
+**P1 exit evidence:** [14_PHASE1_VERIFICATION.md](14_PHASE1_VERIFICATION.md): W01-W05 implemented, 80 phase checks passed, 655 compatibility checks passed, native graph transactions and real daemon/Git/filesystem tests, final independent review fixes verified. Enable the internal structural runtime with `MEMEX_LIVE_CONTEXT=1`. Task/action certificates and native host delivery are P2/P3, not delivered by P1.
 
 ## P2: evidence validity and task working sets
 

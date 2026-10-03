@@ -1,6 +1,6 @@
 # Proposed context and action contracts
 
-Status: planned v1 interfaces. Schema version: `memex.live.v1`. Existing v0.9 APIs remain separate compatible projections. Do not describe these records as shipped.
+Status: P1 ships the internal RepositoryView contract and IndexResult readiness result. Remaining serialized task/action/evidence interfaces are planned. Schema version: `memex.live.v1`. Existing v0.9 APIs remain separate compatible projections; do not describe planned records as shipped.
 
 ## Identity and scope
 

@@ -36,3 +36,9 @@ Keep the eight fixtures as compatibility smoke evidence. They are not the effica
 ## Verification boundaries
 
 This audit did not run Neo4j, model providers or native agent experiments. Line numbers identify the inspected version and can move. The first-wave executor should reproduce narrow failures using local tests, then update this document with implemented fixes and commit links. Existing older architecture documents are useful history, but their proposed/accepted statuses do not override shipped source or the approved v1 direction.
+
+## P1 execution update, 4 October 2026
+
+The original table remains an audit of the inspected baseline. W01-W05 now deliver view identities, body-change detection, atomic immutable symbols/calls/imports, graph-before-journal acknowledgement, durable commit spooling, periodic catch-up and Git-aware hook composition. Evidence is in [14_PHASE1_VERIFICATION.md](14_PHASE1_VERIFICATION.md).
+
+The new structural graph is opt-in and scoped by repository/worktree/view. Existing v0.9 retrieval still reads its legacy graph; its additive relationships are not retroactively certified as v1 evidence. P2/P3 must integrate view-scoped support and action projection. Python structural extraction is supported; other permitted Git files remain explicit unsupported coverage.

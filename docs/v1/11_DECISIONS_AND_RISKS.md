@@ -58,3 +58,7 @@ These are explicit decisions with bounded outcomes and owners, rather than unspe
 The maintainer's product approval is recorded; no additional brainstorming approval is required to write these plans. Later implementation follows the current user instruction and accepted phase scope. A plan author may resolve routine implementation choices, but must not quietly remove concurrent-client support, replace the storage substrate, weaken action ordering or declare unmeasured efficacy established.
 
 Every material change records affected R/W/F IDs, rationale and evidence. Keep current source facts in the audit and research conclusions in the research document; do not rewrite historical measured results to match a desired narrative.
+
+## Completed prerequisite spikes
+
+S03: verified Graphiti Neo4jDriver session/execute_write interfaces; tested atomic rollback, completion, concurrent uniqueness, replay and graph-before-SQLite acknowledgement on native Neo4j. S05: real temporary Git tests cover linked worktrees, stable common/worktree IDs, Windows path aliases, detached/unborn HEAD, configured hooksPath and preserved hooks. Both close with P1; [14_PHASE1_VERIFICATION.md](14_PHASE1_VERIFICATION.md) records decisions and evidence. S01/S02/S04 remain open.
