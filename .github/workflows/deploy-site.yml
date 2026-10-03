@@ -52,14 +52,21 @@ jobs:
         working-directory: memex-site
         run: npm run build
 
-      # PRs get a preview URL; master publishes to memex.stifler.in.
+      # wrangler is a pinned devDependency, so this resolves from the lockfile
+      # rather than fetching at run time. PRs upload a preview version;
+      # master publishes to memex.stifler.in.
       - name: Deploy
-        uses: cloudflare/wrangler-action@v3
-        with:
-          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          workingDirectory: memex-site
-          command: >-
-            ${{ github.event_name == 'pull_request'
-                && 'versions upload'
-                || 'deploy' }}
+        if: github.event_name != 'pull_request'
+        working-directory: memex-site
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: npm run deploy
+
+      - name: Upload preview version
+        if: github.event_name == 'pull_request'
+        working-directory: memex-site
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: npm run preview

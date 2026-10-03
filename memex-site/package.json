@@ -7,7 +7,9 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "check": "node --test src/lib/*.check.ts"
+    "check": "node --test src/lib/*.check.ts",
+    "deploy": "wrangler deploy",
+    "preview": "wrangler versions upload"
   },
   "dependencies": {
     "next": "16.3.8",
@@ -20,6 +22,7 @@
     "@types/react-dom": "^19",
     "eslint": "^9",
     "eslint-config-next": "16.3.8",
-    "typescript": "^5"
+    "typescript": "^5",
+    "wrangler": "^4.147.0"
   }
 }
