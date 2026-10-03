@@ -448,6 +448,13 @@ footer{background:var(--void);border-top:1px solid var(--line);
 .chip:hover{border-color:var(--ice);color:var(--ink)}
 .chip svg{color:var(--ice);flex:none}
 
+.socials{display:flex;gap:8px;margin-top:14px}
+/* 40px: a real target, not the 30px the audit flagged on the mobile menu */
+.social{width:40px;height:40px;display:inline-flex;align-items:center;
+  justify-content:center;border:1px solid var(--line-2);color:var(--soft);
+  transition:border-color var(--t-fast) var(--ease),color var(--t-fast) var(--ease)}
+.social:hover{border-color:var(--ice);color:var(--ink)}
+
 .foot-end{margin-top:clamp(42px,6vh,62px);padding-top:22px;border-top:1px solid var(--line);
   display:flex;justify-content:space-between;gap:20px;flex-wrap:wrap;
   font:400 .68rem var(--mono);color:var(--faint);letter-spacing:.05em}

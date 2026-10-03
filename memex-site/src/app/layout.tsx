@@ -68,6 +68,8 @@ export const metadata: Metadata = {
   },
   twitter: {
     card: 'summary_large_image',
+    site: '@hillpatel07',
+    creator: '@hillpatel07',
     images: ['/og.jpg'],
   },
 };
