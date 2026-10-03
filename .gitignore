@@ -79,3 +79,12 @@ memex-vscode/*.vsix
 .claude/
 .antigravitycli/
 temp_repo/
+
+# memex-site (Next.js website)
+memex-site/node_modules/
+memex-site/.next/
+memex-site/out/
+memex-site/.wrangler/
+memex-site/next-env.d.ts
+memex-site/next.config.ts.bak
+memex-site/.env*.local

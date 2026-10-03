@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Stack+Sans+Headline:wght@400;600&family=Instrument+Serif:ital@1&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  *{box-sizing:border-box;margin:0}
+  html,body{width:1200px;height:630px;overflow:hidden}
+  body{
+    background:#02050B;color:#E9F0FB;position:relative;
+    font-family:"Stack Sans Headline",Arial,sans-serif;
+  }
+  canvas#m{position:absolute;inset:0;z-index:0}
+  .vig{position:absolute;inset:0;z-index:1;
+    background:radial-gradient(ellipse at 50% 26%,transparent 34%,rgba(2,5,11,.40) 70%,rgba(2,5,11,.62) 100%)}
+  .glow{position:absolute;left:50%;bottom:-8%;transform:translateX(-50%);
+    width:172%;height:88%;z-index:2;
+    background:radial-gradient(ellipse at 50% 100%,
+      rgba(232,243,255,.96) 0%,rgba(168,210,255,.84) 10%,rgba(96,156,255,.62) 22%,
+      rgba(48,108,214,.38) 36%,rgba(22,56,124,.18) 54%,rgba(10,28,70,.07) 68%,transparent 80%)}
+  .in{position:relative;z-index:3;height:100%;padding:62px 72px;
+    display:flex;flex-direction:column;justify-content:space-between}
+
+  .top{display:flex;align-items:center;justify-content:space-between}
+  .brand{display:flex;align-items:center;gap:13px;font-weight:600;font-size:26px;letter-spacing:-.01em}
+  .mk{width:30px;height:30px;border:1px solid rgba(132,172,235,.38);display:grid;place-items:center;
+    font:500 13px "DM Mono",monospace;color:#8FC3FF}
+  .tag{font:500 13px "DM Mono",monospace;letter-spacing:.17em;text-transform:uppercase;color:#65789B;
+    display:flex;align-items:center;gap:11px}
+  .tag::before{content:"";width:6px;height:6px;background:#2D6AFF}
+
+  h1{font-size:76px;line-height:.97;letter-spacing:-.042em;font-weight:600;max-width:19ch}
+  h1 em{font-family:"Instrument Serif",Georgia,serif;font-style:italic;font-weight:400;
+    color:#C8E0FF;letter-spacing:-.02em}
+
+  .foot{display:flex;align-items:flex-end;justify-content:space-between;gap:30px}
+  .foot p{font:400 17px/1.5 "DM Mono",monospace;color:#97A9CD;max-width:46ch}
+  .url{font:500 16px "DM Mono",monospace;letter-spacing:.12em;text-transform:uppercase;color:#C8E0FF;
+    white-space:nowrap;padding-bottom:2px;border-bottom:1px solid rgba(143,195,255,.42)}
+</style>
+</head>
+<body>
+<canvas id="m" width="1200" height="630"></canvas>
+<div class="vig"></div>
+<div class="glow"></div>
+<div class="in">
+  <div class="top">
+    <div class="brand"><span class="mk">M</span>memex</div>
+    <div class="tag">Engineering context infrastructure</div>
+  </div>
+
+  <h1>A knowledge graph for the parts of engineering work <em>files do not explain.</em></h1>
+
+  <div class="foot">
+    <p>Bitemporal graph · 14 MCP tools · confidence computed at read time</p>
+    <div class="url">memex.stifler.in</div>
+  </div>
+</div>
+
+<script>
+/* same chevron matrix as the hero */
+const cv=document.getElementById('m'),ctx=cv.getContext('2d'),W=1200,H=630,CELL=26,ARM=4.4;
+for(let cx=0;cx<=Math.ceil(W/CELL);cx++)for(let cy=0;cy<=Math.ceil(H/CELL);cy++){
+  const x=cx*CELL,y=cy*CELL;
+  const vy=1-Math.min(1,y/(H*0.92));
+  const nx=Math.abs(x/W-0.5)*2, edge=0.26+nx*0.74;
+  const n=(Math.sin(cx*12.9898+cy*78.233)*43758.5453)%1, rnd=n-Math.floor(n);
+  const a=Math.min(1,vy*edge*(0.35+rnd*0.65));
+  if(a<0.05)continue;
+  const col=y/H>0.55?'77,136,255':'158,203,255';
+  ctx.strokeStyle=`rgba(${col},${(a*0.92).toFixed(3)})`;ctx.lineWidth=1.1;
+  ctx.beginPath();
+  if(rnd>0.55){ctx.moveTo(x-ARM,y+ARM);ctx.lineTo(x,y-ARM);ctx.lineTo(x+ARM,y+ARM);}
+  else{ctx.moveTo(x-ARM,y-ARM);ctx.lineTo(x+ARM,y-ARM);ctx.lineTo(x+ARM,y+ARM);}
+  ctx.stroke();
+}
+document.documentElement.dataset.ready='1';
+</script>
+</body>
+</html>

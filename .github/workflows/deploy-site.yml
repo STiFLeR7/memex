@@ -1,0 +1,65 @@
+name: Deploy site
+
+# memex-site is a static `next build --output export` deployed to Cloudflare
+# Workers static assets. Scoped by path so Python changes never trigger it.
+on:
+  push:
+    branches: [master]
+    paths:
+      - 'memex-site/**'
+      - '.github/workflows/deploy-site.yml'
+  pull_request:
+    branches: [master]
+    paths:
+      - 'memex-site/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-site-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    name: Build and deploy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      # Node 24: src/lib/*.check.ts relies on native TypeScript type
+      # stripping, which is unflagged only from 23.6 onward.
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: memex-site/package-lock.json
+
+      - name: Install
+        working-directory: memex-site
+        run: npm ci
+
+      - name: Decay-regime assertions
+        working-directory: memex-site
+        run: npm run check
+
+      - name: Lint
+        working-directory: memex-site
+        run: npm run lint
+
+      - name: Build static export
+        working-directory: memex-site
+        run: npm run build
+
+      # PRs get a preview URL; master publishes to memex.stifler.in.
+      - name: Deploy
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          workingDirectory: memex-site
+          command: >-
+            ${{ github.event_name == 'pull_request'
+                && 'versions upload'
+                || 'deploy' }}

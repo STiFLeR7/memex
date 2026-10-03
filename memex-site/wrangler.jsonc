@@ -1,0 +1,26 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "memex",
+  "compatibility_date": "2026-10-01",
+
+  // Static-assets-only Worker: no server code. The whole site is a
+  // `next build` static export, so there is no entry-point script.
+  "assets": {
+    "directory": "./out",
+    // serve out/404.html for unmatched paths
+    "not_found_handling": "404-page"
+  },
+
+  // Creates the DNS record on the stifler.in zone and provisions the cert.
+  "routes": [{ "pattern": "memex.stifler.in", "custom_domain": true }],
+
+  // Keep the workers.dev URL as a fallback and enable per-version preview
+  // URLs for CI. The canonical tag points at memex.stifler.in, so these
+  // duplicates consolidate rather than compete.
+  "workers_dev": true,
+  "preview_urls": true,
+
+  "observability": {
+    "enabled": true
+  }
+}
