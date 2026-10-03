@@ -56,6 +56,9 @@ export const metadata: Metadata = {
     images: [
       {
         url: '/og.jpg',
+        // metadataBase does not resolve this one, and a relative
+        // og:image:secure_url is invalid, so it is absolute by hand.
+        secureUrl: 'https://memex.stifler.in/og.jpg',
         width: 1200,
         height: 630,
         type: 'image/jpeg',
