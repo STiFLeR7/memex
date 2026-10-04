@@ -74,4 +74,22 @@ Core continuation tokens prove baseline continuity; `context_retained=False` for
 
 ## Final independent review
 
-Pending. Important findings, REDâ†’GREEN fixes and any deferred minor issues will be recorded here before Phase 2 is marked complete.
+The fresh whole-branch review of `5640128..16ad4c4` found two critical and three important defects, with no minor findings. All five were reproduced and fixed in `09fc984`, with failing-then-passing regression tests. The final suite results above were recorded after those fixes.
+
+| Finding | Verified correction |
+| --- | --- |
+| Revoked claims bypassed source authorization | Source authorization runs before lifecycle shortcuts; inaccessible claims cannot be projected |
+| Outage and cached replay exposed revoked source text | Source authorization is rechecked; unavailable coverage carries no assertions |
+| Outage discarded a known pending replacement | The pending correction and its sequence survive, and the action still requires replan |
+| 128 retractions plus additions overflowed before resync | Overflow is detected before schema construction and requests a full resynchronization |
+| Synchronous parsing blocked the event loop past the deadline | Parsing uses two bounded process workers and a shared monotonic budget; the 20 ms deadline regression passed |
+
+The snapshot contract was also corrected and tested: snapshots include the full checked repository view and per-item verification records. No review findings remain deferred. Native host delivery/authentication bindings remain P3, guarded writes remain P4, and efficacy/latency evaluation remains P5, as described above.
+
+## Post-execution cleanup
+
+On 4 October 2026, after the user requested cleanup, the generated `output/phase1`, `output/phase2`, and `.superpowers/sdd/15_PHASE2_EXECUTION_PLAN` directories were removed from this execution worktree. These contained temporary environments, downloaded Neo4j/Java runtimes, wheels, and duplicate review/test logs. The empty `output` directory and empty review parents were removed too. Generated Python bytecode, Hypothesis state, pytest caches, and Ruff caches were also removed.
+
+Before deletion, the recorded final test results and review ledger were checked. No Java process using the owned native runtime was active, the isolated Bolt port 17687 was closed, and the deletion targets contained no reparse points. After deletion, all three targets were confirmed absent. Committed source, tests, planning documents, verification reports, and the active execution worktree were preserved. The separate `D:\memex` checkout and its concurrent work were left untouched.
+
+The recorded test counts describe the completed Phase 2 runs; application tests were not rerun for this generated-file cleanup. Recreate the test environment and isolated server using the reproduction instructions when needed.
