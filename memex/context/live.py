@@ -102,3 +102,53 @@ class VerificationRecord(Record):
     evidence_ids: tuple[ID, ...] = ()
     support_hashes: tuple[str, ...] = ()
     reason: str = ""
+
+
+class PacketBudget(Record):
+    max_items: int = Field(default=32, ge=1, le=128)
+    max_characters: int = Field(default=16384, ge=256, le=65536)
+
+
+class PacketItem(Record):
+    claim_id: ID
+    revision_id: ID
+    assertion: str = Field(min_length=1, max_length=8192)
+    authority: Authority
+    status: Status
+    reason: str = Field(default="", max_length=4096)
+
+
+class DeltaChange(Record):
+    operation: Literal["add", "replace", "retract", "uncertain", "conflict"]
+    previous_revision: ID | None = None
+    revision: ID | None = None
+    item: PacketItem | None = None
+    reason: str = Field(max_length=4096)
+
+
+class TaskSnapshot(Record):
+    task_id: ID
+    view_id: ID
+    sequence: int = Field(ge=1)
+    base_sequence: int = Field(ge=0)
+    full: bool
+    items: tuple[PacketItem, ...] = Field(default=(), max_length=128)
+    changes: tuple[DeltaChange, ...] = Field(default=(), max_length=128)
+    replaces_revisions: tuple[ID, ...] = Field(default=(), max_length=256)
+    replaces_sequence: int | None = None
+    coverage: tuple[tuple[str, str], ...] = Field(default=(), max_length=1024)
+    expires_at: float
+    continuation_token: str | None = None
+    resync_required: bool = False
+    reason: str = ""
+
+
+class DeliveryReceipt(Record):
+    session: SessionIdentity
+    task_id: ID
+    sequence: int = Field(ge=1)
+    view_id: ID
+    adapter_version: ID
+    accepted_at: float = Field(ge=0)
+    action_attempt_id: ID | None = None
+    outcome: Literal["host_accepted", "failed"]
