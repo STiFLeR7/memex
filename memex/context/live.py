@@ -112,6 +112,7 @@ class PacketBudget(Record):
 
 
 class PacketItem(Record):
+    verification: VerificationRecord | None = None
     claim_id: ID
     revision_id: ID
     assertion: str = Field(min_length=1, max_length=8192)
@@ -130,6 +131,7 @@ class DeltaChange(Record):
 
 class TaskSnapshot(Record):
     task_id: ID
+    view: RepositoryView
     view_id: ID
     sequence: int = Field(ge=1)
     base_sequence: int = Field(ge=0)

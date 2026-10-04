@@ -194,7 +194,7 @@ async def test_backend_failure_returns_unknown_not_certificate(system,monkeypatc
     monkeypatch.setattr(engine.indexer,"refresh",broken)
     check=await engine.check_action(action(system,f))
     assert check.outcome=="unavailable" and check.reason=="index_unavailable"
-    assert all(i.status!="supported" for i in check.delta.items)
+    assert check.delta is None
 
 
 @pytest.mark.asyncio
@@ -240,7 +240,7 @@ async def test_real_driver_exception_fail_open_and_known_hash_mismatch_replan(sy
     (repo/"api.py").write_text("def api(): return 2\n")
     check=await engine.check_action(action(system,f,"drift-outage"))
     assert check.outcome=="replan" and check.reason=="expected_hash_mismatch"
-    assert check.delta.items[0].status=="unknown"
+    assert check.delta is None
 
 
 @pytest.mark.asyncio
@@ -312,3 +312,52 @@ async def test_authorization_revocation_before_cached_projection(system):
     assert (await engine.check_action(request)).outcome=="proceed"
     engine.authorize_source=lambda s,p:False
     with pytest.raises(PermissionError):await engine.check_action(request)
+
+
+@pytest.mark.asyncio
+async def test_review_revoked_claim_does_not_bypass_source_acl(system):
+    engine,_,c,_,_=system
+    revoked=c.model_copy(update={"revision_id":"revoked","supersedes":("r1",),"lifecycle":"revoked","assertion":"PRIVATE ASSERTION"})
+    await engine.claims.put_claim(revoked)
+    engine.authorize_source=lambda s,p:False
+    f=await open_task(system)
+    assert all(i.assertion!="PRIVATE ASSERTION" for i in f.items)
+
+
+@pytest.mark.asyncio
+async def test_review_outage_and_replay_do_not_reveal_revoked_source_text(system,monkeypatch):
+    engine,_,_,_,_=system
+    f=await open_task(system);ack(engine,f)
+    engine.authorize_source=lambda s,p:False
+    async def broken(*a,**k):raise ConnectionError("offline")
+    monkeypatch.setattr(engine.indexer,"refresh",broken)
+    request=action(system,f,targets=(),expected_hashes=())
+    check=await engine.check_action(request)
+    assert check.delta is None or not check.delta.items
+    retry=await engine.check_action(request)
+    assert retry.delta is None or not retry.delta.items
+
+
+@pytest.mark.asyncio
+async def test_review_outage_preserves_known_pending_replacement(system,monkeypatch):
+    engine,_,c,_,_=system
+    f=await open_task(system);ack(engine,f)
+    await engine.claims.put_claim(c.model_copy(update={"revision_id":"r2","supersedes":("r1",),"assertion":"new context"}))
+    changed=await engine.check_action(action(system,f,"replacement"))
+    assert changed.delta.changes[0].operation=="replace"
+    pending=engine.tasks.pending(f.task_id,identity(),now=10.0)
+    async def broken(*a,**k):raise ConnectionError("offline")
+    monkeypatch.setattr(engine.indexer,"refresh",broken)
+    check=await engine.check_action(action(system,f,"outage",targets=(),expected_hashes=()))
+    assert check.outcome=="replan"
+    assert engine.tasks.pending(f.task_id,identity(),now=10.0)==pending
+
+
+@pytest.mark.asyncio
+async def test_snapshot_exposes_checked_view_and_verification_records(system):
+    engine,_,_,_,_=system
+    f=await open_task(system)
+    assert f.view==engine.indexer.journal.current(engine.indexer.registration.worktree_id)
+    assert f.items[0].verification.view_id==f.view_id==f.view.view_id
+    assert f.items[0].verification.evidence_ids==("e1",)
+    assert f.items[0].verification.status==f.items[0].status

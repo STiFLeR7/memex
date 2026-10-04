@@ -30,7 +30,7 @@ class TaskState:
 
 def fingerprint(item):
     # Per-view verification stays in graph; equivalent support is quiet across unrelated views.
-    return (item.revision_id,item.status,item.authority,item.reason)
+    return (item.revision_id,item.assertion,item.status,item.authority,item.reason)
 
 
 class TaskStore:
@@ -147,7 +147,7 @@ class TaskStore:
         full=force_full or last_ack!=state.ack_sequence
         if pending:
             projected={x.revision_id:x for x in pending.items}
-            if last_ack==state.ack_sequence and not force_full and not pending.resync_required and projected==new:
+            if last_ack==state.ack_sequence and not force_full and not pending.resync_required and {rid:fingerprint(x) for rid,x in projected.items()}=={rid:fingerprint(x) for rid,x in new.items()}:
                 return pending  # Retry the exact unacknowledged packet, including its original view.
             full=True  # Supersede an undelivered stale packet explicitly.
         changes=[]
@@ -168,12 +168,18 @@ class TaskStore:
                 changes.append(DeltaChange(operation="add",revision=rid,item=item,reason="New applicable explicit revision."))
         if not full and not changes:
             return None
-        frame=TaskSnapshot(task_id=state.task_id,view_id=view.view_id,sequence=state.sequence+1,
+        if (len(items)>min(128,state.budget.max_items) or (not full and len(changes)>min(128,state.budget.max_items)) or len(coverage)>1024):
+            frame=TaskSnapshot(task_id=state.task_id,view=view,view_id=view.view_id,sequence=state.sequence+1,
+                base_sequence=state.ack_sequence,full=full,coverage=(("$packet","unknown"),),
+                expires_at=state.expires_at,resync_required=True,reason="packet_budget_exceeded; full resynchronization required")
+            db.execute("UPDATE live_tasks SET sequence=?,pending=? WHERE task_id=?",(frame.sequence,frame.model_dump_json(),state.task_id))
+            return frame
+        frame=TaskSnapshot(task_id=state.task_id,view=view,view_id=view.view_id,sequence=state.sequence+1,
             base_sequence=state.ack_sequence,full=full,items=tuple(items),changes=() if full else tuple(changes),
             replaces_revisions=tuple(sorted(set(old)|({x.revision_id for x in pending.items} if pending else set()))) if full else (),
             replaces_sequence=state.sequence if full else None,coverage=tuple(coverage),expires_at=state.expires_at,
             reason="Replace the prior packet; do not continue relying on its revisions." if full else "Scoped corrections for this action.")
-        if (len(items)>state.budget.max_items or len(changes)>state.budget.max_items or len(frame.model_dump_json())>state.budget.max_characters):
+        if (len(items)>state.budget.max_items or (not full and len(changes)>state.budget.max_items) or len(frame.model_dump_json())>state.budget.max_characters):
             frame=frame.model_copy(update={"items":(),"changes":(),"replaces_revisions":(),"resync_required":True,"reason":"packet_budget_exceeded; resynchronize with a smaller working set or larger budget"})
         db.execute("UPDATE live_tasks SET sequence=?,pending=? WHERE task_id=?",(frame.sequence,frame.model_dump_json(),state.task_id))
         return frame

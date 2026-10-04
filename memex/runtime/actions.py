@@ -8,7 +8,8 @@ from pathlib import Path
 from neo4j.exceptions import Neo4jError, DriverError
 
 from memex.context.live import ActionCheck, PacketItem
-from memex.runtime.indexing import extract_structure
+from memex.runtime.indexing import FileStructure
+from memex.runtime.parsing import parse_deadline, parse_sources
 from memex.runtime.verification import applicable, evaluate
 from memex.runtime.views import capture_sources
 
@@ -51,20 +52,23 @@ class LiveContextEngine:
         superseded={rid for c in candidates for rid in c.supersedes}
         active=[c for c in candidates if c.revision_id not in superseded and (not selected or c.claim_id in families)]
         conflicts=Counter(c.claim_id for c in active if c.lifecycle=="active")
-        files={path:extract_structure(path,content) for path,content in capture.files.items()}
+        files={f.path:f for f in await parse_sources(capture.files)}
         items=[]
         coverage={}
         for claim in sorted(active,key=lambda c:c.revision_id):
             verification=evaluate(claim,result.view,evidence,revisions,files,now=now,
                 allowed=lambda p:self.authorize_source(session,p),max_nodes=self.max_nodes)
+            if "dependency_bound" in verification.reason:
+                complete=False
             if not verification.permitted:
+                coverage["$authorization"]="unknown"
                 continue
             if conflicts[claim.claim_id]>1:
                 verification=verification.model_copy(update={"status":"conflicted","reason":"concurrent_unsuperseded_revisions"})
             if "dependency_bound" in verification.reason:
                 complete=False
             await self.claims.save_verification(result.view.repo_id,session.principal_id,verification)
-            items.append(PacketItem(claim_id=claim.claim_id,revision_id=claim.revision_id,assertion=claim.assertion,
+            items.append(PacketItem(verification=verification,claim_id=claim.claim_id,revision_id=claim.revision_id,assertion=claim.assertion,
                 authority=claim.authority,status=verification.status,reason=verification.reason))
             for eid in verification.evidence_ids:
                 e=evidence[eid]
@@ -75,9 +79,16 @@ class LiveContextEngine:
             raise RuntimeError("source changed during verification")
         return result.view,tuple(items),coverage,files,complete and len(items)<=128
 
+    async def _bounded_project(self,session,selected,deadline):
+        token=parse_deadline.set(deadline)
+        try:
+            return await asyncio.wait_for(self._project(session,selected),max(0,deadline-time.monotonic()))
+        finally:
+            parse_deadline.reset(token)
+
     async def open_task(self,request):
         self.authorize(request.session,request.view)
-        view,items,coverage,_,complete=await asyncio.wait_for(self._project(request.session,request.selected_revision_ids),self.deadline_ms/1000)
+        view,items,coverage,_,complete=await self._bounded_project(request.session,request.selected_revision_ids,time.monotonic()+self.deadline_ms/1000)
         if not complete:
             coverage["$dependencies"]="unknown"
         frame=self.tasks.create(request.session,view,request.intent,request.selected_revision_ids,
@@ -111,19 +122,23 @@ class LiveContextEngine:
             if cached:
                 return self._cached(cached,request_hash,request.session)
         failure=""
+        files_available=True
+        deadline=time.monotonic()+self.deadline_ms/1000
         try:
-            view,items,coverage,files,complete=await asyncio.wait_for(self._project(request.session,state.selected),self.deadline_ms/1000)
+            view,items,coverage,files,complete=await self._bounded_project(request.session,state.selected,deadline)
         except (OSError,RuntimeError,ValueError,TimeoutError,Neo4jError,DriverError) as exc:
             # No fresh certificate on capture, publication or graph failure.
             failure="index_unavailable"
             view=state.view
-            items=tuple(i.model_copy(update={"status":"unknown","reason":failure}) for i in state.baseline)
+            items=()  # Source authorization cannot be re-established during outage.
+            files_available=False
             coverage={"$index":"unavailable"}
             files={}
             complete=True
             try:
-                capture=await asyncio.wait_for(asyncio.to_thread(capture_sources,self.indexer.registration),self.deadline_ms/1000)
-                files={path:extract_structure(path,content) for path,content in capture.files.items()}
+                capture=await asyncio.wait_for(asyncio.to_thread(capture_sources,self.indexer.registration),max(0,deadline-time.monotonic()))
+                files={path:FileStructure(path,"sha256:"+hashlib.sha256(content).hexdigest(),"unavailable",(),(),()) for path,content in capture.files.items()}
+                files_available=True
                 view=self.indexer.journal.observe(self.indexer.registration,capture)
             except (OSError,RuntimeError,ValueError,TimeoutError):
                 pass
@@ -143,7 +158,7 @@ class LiveContextEngine:
         mismatch=False
         for path,expected in request.expected_hashes:
             actual=files[path].content_hash if path in files else "not_captured" if exists[path] else None
-            if actual!=expected:
+            if files_available and actual!=expected:
                 mismatch=True
         expected_by_path=dict(request.expected_hashes)
         for path in request.targets:
@@ -152,6 +167,10 @@ class LiveContextEngine:
             coverage["$scope"]="unknown"
         if not complete:
             coverage["$dependencies"]="unknown"
+        if len(coverage)>1024:
+            coverage=dict(sorted(coverage.items())[:1023])
+            coverage["$coverage_bound"]="unknown"
+            complete=False
         with self.tasks.connection() as db:
             db.execute("BEGIN IMMEDIATE")
             state=self.tasks.state(self.tasks.lookup(db,request.task_id,request.session,self.clock()))
@@ -170,7 +189,8 @@ class LiveContextEngine:
             if limit:
                 return ActionCheck(task_id=state.task_id,attempt_id=request.attempt_id,outcome="resync_required",checked_view=view,
                     coverage=tuple(sorted(coverage.items())),reason="reconsideration_limit" if retry_count>=2 else "action_history_capacity",freshness_deadline=self.clock())
-            delta=self.tasks.offer_in(db,state,view,items,tuple(sorted(coverage.items())),last_ack=request.last_acknowledged,
+            # A backend outage must neither reveal baseline text nor erase pending knowledge.
+            delta=None if failure else self.tasks.offer_in(db,state,view,items,tuple(sorted(coverage.items())),last_ack=request.last_acknowledged,
                 force_full=not request.context_retained or not complete)
             if not complete and delta:
                 delta=delta.model_copy(update={"resync_required":True,"reason":"dependency_projection_bound_or_missing"})
@@ -179,6 +199,8 @@ class LiveContextEngine:
                 outcome,reason="resync_required",delta.reason
             elif mismatch:
                 outcome,reason="replan","expected_hash_mismatch"
+            elif failure and state.pending and state.ack_sequence>0:
+                outcome,reason="replan","known_correction_pending_backend_unavailable"
             elif failure:
                 outcome,reason="unavailable",failure
             elif delta:

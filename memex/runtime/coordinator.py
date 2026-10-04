@@ -3,7 +3,7 @@ import asyncio
 from dataclasses import dataclass
 
 from memex.context.revision import RepositoryView
-from memex.runtime.indexing import extract_structure
+from memex.runtime.parsing import parse_sources
 from memex.runtime.journal import ChangeJournal
 from memex.runtime.views import capture_sources
 
@@ -28,7 +28,7 @@ class RepositoryIndexer:
             for _ in range(2):
                 capture = await asyncio.to_thread(capture_sources, self.registration)
                 view = self.journal.observe(self.registration, capture)
-                structures = [extract_structure(path, content) for path, content in capture.files.items()]
+                structures = await parse_sources(capture.files)
                 coverage = {item.path: item.coverage for item in structures}
                 published = await self.store.publish(view, structures)
                 if not published:

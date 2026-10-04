@@ -13,6 +13,49 @@ def evaluate(claim, view, evidence, revisions, files, *, now, allowed=lambda p: 
     remaining = max_nodes
     hashes = set()
     visited_evidence = set()
+    permission_budget = max_nodes
+    permission_bound = False
+
+    def access_revision(c, chain):
+        nonlocal permission_budget, permission_bound
+        permission_budget -= 1
+        if permission_budget < 0 or c.revision_id in chain:
+            permission_bound = True
+            return False, set()
+        if not c.support_sets:
+            return True, set()  # Explicit unverified text, never supported truth.
+        for group in c.support_sets:
+            witness = set()
+            permitted = True
+            for eid in group:
+                permission_budget -= 1
+                if permission_budget < 0:
+                    permission_bound = True
+                    return False, set()
+                e = evidence.get(eid)
+                if e is None or (e.path and not allowed(e.path)):
+                    permitted = False
+                    break
+                witness.add(eid)
+                if e.source_kind == "claim":
+                    predecessor = revisions.get(e.predecessor_revision)
+                    if predecessor is None:
+                        permitted = False
+                        break
+                    granted, dependencies = access_revision(predecessor, chain | {c.revision_id})
+                    witness.update(dependencies)
+                    if not granted:
+                        permitted = False
+                        break
+            if permitted:
+                return True, witness
+        return False, set()
+
+    permitted, permission_evidence = access_revision(claim, set())
+    if not permitted:
+        return VerificationRecord(revision_id=claim.revision_id, view_id=view.view_id,
+            authority=claim.authority, status="unknown", permitted=False, checked_at=now,
+            reason="dependency_bound_or_cycle" if permission_bound else "access_denied_or_missing_dependency")
 
     def revision_check(c, chain):
         nonlocal remaining
@@ -87,6 +130,8 @@ def evaluate(claim, view, evidence, revisions, files, *, now, allowed=lambda p: 
         return ("supported", True, "hash_matches") if f.content_hash == e.content_hash else ("needs_revalidation", True, "source_hash_changed")
 
     status, permitted, reason = revision_check(claim,set())
+    if status != "supported":
+        visited_evidence.update(permission_evidence)
     return VerificationRecord(revision_id=claim.revision_id, view_id=view.view_id,
         authority=claim.authority, status=status, permitted=permitted, checked_at=now,
         evidence_ids=tuple(sorted(visited_evidence)), support_hashes=tuple(sorted(hashes)), reason=reason)
