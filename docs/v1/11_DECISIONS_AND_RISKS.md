@@ -62,3 +62,10 @@ Every material change records affected R/W/F IDs, rationale and evidence. Keep c
 ## Completed prerequisite spikes
 
 S03: verified Graphiti Neo4jDriver session/execute_write interfaces; tested atomic rollback, completion, concurrent uniqueness, replay and graph-before-SQLite acknowledgement on native Neo4j. S05: real temporary Git tests cover linked worktrees, stable common/worktree IDs, Windows path aliases, detached/unborn HEAD, configured hooksPath and preserved hooks. Both close with P1; [14_PHASE1_VERIFICATION.md](14_PHASE1_VERIFICATION.md) records decisions and evidence. S01/S02/S04 remain open.
+
+
+## Phase 2 implementation decisions
+
+W06–W08 implement R03/R04/R05/R09/R10/R15 using immutable graph proofs, per-view deterministic checks and independent bounded SQLite streams. [16_PHASE2_VERIFICATION.md](16_PHASE2_VERIFICATION.md) records F01/F04/F05/F06/F07/F08/F10/F13/F14/F15/F16 evidence and review fixes. Catch-up at action boundaries closes subscribe/snapshot event gaps without depending on transient notifications. Cold/warm indexing cost, eager dirty propagation and graph-history selection remain optimization work; no efficacy claim follows from these correctness tests.
+
+Critical review fixes enforce source authorization independently of lifecycle and keep unavailable responses assertion-free. Already-known corrections survive outages. Packet/coverage bounds are checked before strict schema construction. Shared bounded CPU worker processes keep AST parsing off the event loop and retain occupied slots until jobs finish. Native authority/authentication bindings and guarded write critical sections remain later integration responsibilities; a source hash and receipt never prove compliance.

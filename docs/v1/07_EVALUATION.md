@@ -1,6 +1,6 @@
 # Evaluation and v1 evidence gates
 
-Status: preregistration baseline; targets are proposed and unmeasured. Local engineering checks are permitted without Docker. Paid/native model runs and service-backed experiments are a later execution step, not part of writing these documents.
+Status: P1/P2 deterministic mechanism checks are executed (see [16_PHASE2_VERIFICATION.md](16_PHASE2_VERIFICATION.md)); efficacy targets remain proposed and unmeasured preregistration criteria. Local engineering checks are permitted without Docker. Paid/native model runs and service-backed experiments are a later execution step, not part of writing these documents.
 
 ## Hypothesis
 
@@ -59,7 +59,7 @@ Use paired comparisons with task/repository clustering and confidence intervals.
 
 | Gate | Target | Decision rule |
 | --- | --- | --- |
-| Mechanism | Required F01–F16 semantics pass | Any isolation or authority violation blocks release |
+| Mechanism | Required F01â€“F16 semantics pass | Any isolation or authority violation blocks release |
 | Native delivery | Prevent/reconsider affected action in both supported clients | Notifications/mock receipts alone fail |
 | Efficacy | At least 30% relative reduction in stale-context-induced task failures vs strongest comparable baseline | Improvement supported by preregistered confidence analysis |
 | Precision | At least 95% material correction precision | Report recall; do not improve precision by withholding needed corrections |
@@ -80,6 +80,6 @@ After the pilot, freeze a missed-correction tolerance, non-inferiority margin fo
 
 The current SWE-Milestone harness requires Docker. Under the maintainer's current constraint, defer that reproduction and use temporary Git repos/local tests for deterministic fixtures. Mark external results not run; never substitute synthetic traces while claiming official execution.
 
-Recruit 3–5 independent maintainers for repeated tasks over several weeks. Use randomized eligible tasks or controlled crossover and blinded patch review where feasible. Report install success, retained use, regression/rework, helpful/false interventions, cost and failures. OSS stars are a secondary adoption signal, not proof of engineering value.
+Recruit 3â€“5 independent maintainers for repeated tasks over several weeks. Use randomized eligible tasks or controlled crossover and blinded patch review where feasible. Report install success, retained use, regression/rework, helpful/false interventions, cost and failures. OSS stars are a secondary adoption signal, not proof of engineering value.
 
 If E fails to improve on C/D, reduce the runtime or ship an incremental release. Publish the negative result rather than changing the primary metric afterward.

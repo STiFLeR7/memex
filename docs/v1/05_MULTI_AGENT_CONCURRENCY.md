@@ -1,6 +1,6 @@
 # Claude Code and Codex concurrency
 
-Status: required v1 behavior, not current capability. Applies to simultaneous Claude Code and Codex sessions in separate worktrees or the same checkout. See [04_CONTEXT_CONTRACTS.md](D:/memex/docs/v1/04_CONTEXT_CONTRACTS.md).
+Status: P2 core tests verify separate worktree evidence and independent shared-checkout session corrections. Actual native two-host insertion/action ordering and guarded writes remain required P3/P4 behavior. Applies to simultaneous Claude Code and Codex sessions in separate worktrees or the same checkout. See [04_CONTEXT_CONTRACTS.md](04_CONTEXT_CONTRACTS.md).
 
 ## Shared repository, separate views and sessions
 

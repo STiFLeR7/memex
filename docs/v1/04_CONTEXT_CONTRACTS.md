@@ -1,6 +1,6 @@
-# Proposed context and action contracts
+# Context and action contracts
 
-Status: P1 ships the internal RepositoryView contract and IndexResult readiness result. Remaining serialized task/action/evidence interfaces are planned. Schema version: `memex.live.v1`. Existing v0.9 APIs remain separate compatible projections; do not describe planned records as shipped.
+Status: P1 ships internal RepositoryView/IndexResult. P2 concretizes strict evidence, claim, verification, task, action and receipt models in `memex/context/live.py`; its core engine is opt-in. Host capability/guarded-write projections remain P3/P4. Schema version: `memex.live.v1`. Existing v0.9 APIs remain separate compatible projections; do not describe planned records as shipped.
 
 ## Identity and scope
 
@@ -37,7 +37,7 @@ Keep existing confidence and temporal fields, but never map high confidence to s
 
 ## Core interface signatures
 
-These define responsibilities for later implementation plans; records above must be concretized before dependent waves start.
+P2 implements async `open_task`/`check_action` and synchronous `ack_delivery`/`close_task` in `LiveContextEngine`. P1 registration/indexer/journal supply the view/change/indexing responsibilities. The signatures below define boundaries, not new public MCP endpoints.
 
 ```text
 resolve_view(worktree_path: str) -> RepositoryView
@@ -59,7 +59,7 @@ Async variants are allowed where the established integration style requires them
 | TaskSnapshot | Task identity, RepositoryView, bounded claim revisions and verification records, stream sequence, coverage, expiry and continuation token |
 | DeliveryReceipt | Session/task, delta sequence, view, adapter version, host acceptance time, action-attempt reference and insertion outcome |
 
-These records are typed core interfaces, not a commitment to five new public MCP tools. W06–W08 concretize their strict serialized schemas before adapters consume them.
+These records are typed core interfaces, not a commitment to five new public MCP tools. W06Ã¢â‚¬â€œW08 concretize their strict serialized schemas before adapters consume them.
 
 `ActionRequest` includes an idempotency/action-attempt identifier, task/session, repository view, action kind, normalized target paths, relevant expected source hashes, last acknowledged delta sequence and adapter capabilities. A retry has a new attempt ID linked to the original action, so a replan does not look like a duplicated completed write.
 
@@ -67,24 +67,42 @@ These records are typed core interfaces, not a commitment to five new public MCP
 
 ## Delta example
 
+Illustrative typed entry in `TaskSnapshot.changes`. The containing snapshot supplies the full checked view, task identity, stream/base sequence, expiry and resync metadata. This synthetic example is not benchmark evidence.
+
 ```json
 {
   "schema_version": "memex.live.v1",
-  "task_id": "task-1",
-  "session_id": "memex-claude-1",
-  "sequence": 7,
-  "base_sequence": 6,
-  "view_id": "view-42",
-  "changes": [
-    {
-      "operation": "replace",
-      "previous_revision": "claim-17-r1",
-      "revision": "claim-17-r2",
-      "reason": "supporting API changed in this worktree",
-      "assertion": "send() now requires an explicit timeout",
-      "evidence_ids": ["evidence-api-42", "evidence-test-42"]
-    }
-  ]
+  "operation": "replace",
+  "previous_revision": "claim-17-r1",
+  "revision": "claim-17-r2",
+  "item": {
+    "schema_version": "memex.live.v1",
+    "verification": {
+      "schema_version": "memex.live.v1",
+      "revision_id": "claim-17-r2",
+      "view_id": "view:d4f9ebff53c4c73df89eacad9018e94229a83a411fa1a57c3276fb7b8abeb41f",
+      "authority": "inferred",
+      "status": "supported",
+      "permitted": true,
+      "checked_at": 42.0,
+      "check_version": "deterministic.v1",
+      "evidence_ids": [
+        "evidence-api-42",
+        "evidence-test-42"
+      ],
+      "support_hashes": [
+        "api.py=sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+      ],
+      "reason": "sufficient_support"
+    },
+    "claim_id": "claim-17",
+    "revision_id": "claim-17-r2",
+    "assertion": "send() now requires an explicit timeout",
+    "authority": "inferred",
+    "status": "supported",
+    "reason": "sufficient_support"
+  },
+  "reason": "A newer scoped revision explicitly supersedes the previously delivered assertion for this action."
 }
 ```
 
@@ -96,6 +114,6 @@ Sequences are monotonic per task/session stream. A mismatched base requires a fu
 
 Retain existing packet item/character budgets until a measured token accounting adapter is added. Delta budgets cannot silently omit necessary corrections. Overflow produces `resync_required` and an explicit reason. A full snapshot identifies which earlier packet/revisions it replaces.
 
-Bound automatic reconsideration to two attempts per original action by default. Persistent drift yields an explicit concurrency/indexing condition and stops automated retry; a shared-write conflict is not solved by blindly retrying the same patch. Network/backend outages use the configured fail-open policy with unknown freshness and recorded missing receipt.
+Bound automatic reconsideration to two attempts per original action by default. Persistent drift yields an explicit concurrency/indexing condition and stops automated retry; a shared-write conflict is not solved by blindly retrying the same patch. Network/backend outages return unknown freshness without a fresh-success receipt. If source authorization cannot be re-established, omit assertion text. Preserve known pending corrections and require replan instead of replacing them with older acknowledged content.
 
 Delivery receipts contain session/task, delta sequence, view, adapter version, accepted time and action attempt reference. Completion/test outcome references are distinct records. No receipt may claim the agent complied solely because insertion succeeded.

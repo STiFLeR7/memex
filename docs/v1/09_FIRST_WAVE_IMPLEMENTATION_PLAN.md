@@ -8,7 +8,7 @@
 
 **Tech stack:** Existing Python >=3.11, pytest/pytest-asyncio, Pydantic-based surrounding contracts, tree-sitter and current watcher modules. The new pure contract below uses standard-library dataclasses/hashlib/json.
 
-**Spec:** [01_VISION_AND_SCOPE.md](D:/memex/docs/v1/01_VISION_AND_SCOPE.md), [04_CONTEXT_CONTRACTS.md](D:/memex/docs/v1/04_CONTEXT_CONTRACTS.md), W01/W02 in [08_ROADMAP.md](D:/memex/docs/v1/08_ROADMAP.md).
+**Spec:** [01_VISION_AND_SCOPE.md](01_VISION_AND_SCOPE.md), [04_CONTEXT_CONTRACTS.md](04_CONTEXT_CONTRACTS.md), W01/W02 in [08_ROADMAP.md](08_ROADMAP.md).
 
 ## Global constraints
 

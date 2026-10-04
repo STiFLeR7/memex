@@ -1,6 +1,6 @@
 # Live Context architecture
 
-Status: v1 baseline design. All new components below are planned. Contracts are defined in [04_CONTEXT_CONTRACTS.md](D:/memex/docs/v1/04_CONTEXT_CONTRACTS.md).
+Status: P1 repository/indexing core and P2 evidence/task/action core are implemented and verified. Native adapters, outcome projection, guarded writes, overlays/retention optimization and efficacy gates remain later work. Contracts are defined in [04_CONTEXT_CONTRACTS.md](04_CONTEXT_CONTRACTS.md).
 
 ## Responsibilities
 

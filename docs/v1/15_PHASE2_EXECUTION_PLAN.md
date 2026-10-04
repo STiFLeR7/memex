@@ -1,6 +1,6 @@
 # Phase 2 execution plan
 
-Status: executing W06–W08 from verified Phase 1 commit `5640128`.
+Status: executing W06â€“W08 from verified Phase 1 commit `5640128`.
 Spec: [04_CONTEXT_CONTRACTS.md](04_CONTEXT_CONTRACTS.md), [03_ARCHITECTURE.md](03_ARCHITECTURE.md), [07_EVALUATION.md](07_EVALUATION.md).
 
 ## Constraints
@@ -27,7 +27,7 @@ Write and run failing action/E2E tests before code. Test F01/F04/F05/F06/F07/F08
 
 ## Task 4: phase completion
 
-Run the complete Phase 2 suite without skips against native Neo4j, Phase 1 integration suite, compatibility suite, lint, package build and documentation checks. Obtain one fresh whole-branch reviewer under executing-plans/requesting-code-review skills. Fix important findings with RED→GREEN tests and rerun suites. Record evidence in `16_PHASE2_VERIFICATION.md`, update planning status, commit and push `codex/v1-phase2`. Stop only the owned temporary server.
+Run the complete Phase 2 suite without skips against native Neo4j, Phase 1 integration suite, compatibility suite, lint, package build and documentation checks. Obtain one fresh whole-branch reviewer under executing-plans/requesting-code-review skills. Fix important findings with REDâ†’GREEN tests and rerun suites. Record evidence in `16_PHASE2_VERIFICATION.md`, update planning status, commit and push `codex/v1-phase2`. Stop only the owned temporary server.
 
 ## Review focus
 

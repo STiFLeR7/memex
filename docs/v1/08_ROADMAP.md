@@ -1,10 +1,10 @@
 # Dependency-ordered v1 roadmap
 
-Status: P1 complete and verified 4 October 2026; P2-P5 remain planned. No calendar or staffing estimate is asserted. Phase exits require evidence. Detailed first-wave tasks are in [09_FIRST_WAVE_IMPLEMENTATION_PLAN.md](D:/memex/docs/v1/09_FIRST_WAVE_IMPLEMENTATION_PLAN.md).
+Status: P1/P2 complete and verified 4 October 2026; P3-P5 remain planned. No calendar or staffing estimate is asserted. Phase exits require evidence. Detailed first-wave tasks are in [09_FIRST_WAVE_IMPLEMENTATION_PLAN.md](09_FIRST_WAVE_IMPLEMENTATION_PLAN.md).
 
 ## Dependency sequence
 
-`P0 planning → P1 trustworthy views → P2 evidence validity → P3 native action loop → P4 concurrent clients → P5 efficacy and release`
+`P0 planning â†’ P1 trustworthy views â†’ P2 evidence validity â†’ P3 native action loop â†’ P4 concurrent clients â†’ P5 efficacy and release`
 
 Fixture design and host capability spikes can occur alongside P1. Do not build dependent delivery behavior against unstable identity/support contracts. Produce each later wave's detailed test-first implementation plan at its entry gate, with source-verified transaction/host APIs; the acceptance requirements below are already fixed.
 
@@ -18,7 +18,7 @@ Fixture design and host capability spikes can occur alongside P1. Do not build d
 | W04 | Runtime journal/watcher: durable idempotent event processing, completion records, catch-up | W01 | Crash after graph commit/before acknowledgement; rapid commits; missed file event |
 | W05 | Resolver/hook registration: linked worktrees, scoped writes, existing-hook composition | W01,W04 | `.git` file, detached/unborn HEAD, case/path aliases, `core.hooksPath` |
 
-P1 exit: no action can receive a v1 fresh certificate from partial structural work; a body edit/removal/restart/checkout change resolves to coherent scoped state. W01/W02 are the first executable wave. W03–W05 are planned with precise transaction APIs after spike S03. An unrelated Neo4j schema or extractor rewrite is outside scope. P1 uses additive view-scoped structural records on the existing Neo4j substrate.
+P1 exit: no action can receive a v1 fresh certificate from partial structural work; a body edit/removal/restart/checkout change resolves to coherent scoped state. W01/W02 are the first executable wave. W03â€“W05 are planned with precise transaction APIs after spike S03. An unrelated Neo4j schema or extractor rewrite is outside scope. P1 uses additive view-scoped structural records on the existing Neo4j substrate.
 
 **P1 exit evidence:** [14_PHASE1_VERIFICATION.md](14_PHASE1_VERIFICATION.md): W01-W05 implemented, 80 phase checks passed, 655 compatibility checks passed, native graph transactions and real daemon/Git/filesystem tests, final independent review fixes verified. Enable the internal structural runtime with `MEMEX_LIVE_CONTEXT=1`. Task/action certificates and native host delivery are P2/P3, not delivered by P1.
 
@@ -30,13 +30,13 @@ P1 exit: no action can receive a v1 fresh certificate from partial structural wo
 | W07 | Runtime tasks: subscriptions, snapshot/change replay, expiry, session baseline | W06 | No lost event between subscribe/snapshot; two independent cursors; bounded retention |
 | W08 | Runtime delta/action compiler: scoped corrections, budgets, idempotency and unknown coverage | W06,W07 | F01,F04,F13,F14,F15; correction overflow resynchronizes |
 
-P2 exit: deterministic fixture can change evidence after initial delivery and obtain the right scoped correction without LLM inference or host claims. Legacy unverified knowledge remains usable only with explicit status. No fully autonomous claim promotion.
+P2 exit (satisfied; see [16_PHASE2_VERIFICATION.md](16_PHASE2_VERIFICATION.md)): deterministic fixture can change evidence after initial delivery and obtain the right scoped correction without LLM inference or host claims. Legacy unverified knowledge remains usable only with explicit status. No fully autonomous claim promotion.
 
 ## P3: one native action loop
 
 | Work | Ownership / deliverable | Dependencies | Required evidence |
 | --- | --- | --- | --- |
-| W09 | Claude Code integration and diagnostics | W08,S01 | Mutation → check → pending write prevented → model reconsideration → revised write |
+| W09 | Claude Code integration and diagnostics | W08,S01 | Mutation â†’ check â†’ pending write prevented â†’ model reconsideration â†’ revised write |
 | W10 | Delivery/outcome trace projection | W09 | Per-session accepted/failed receipts; objective result distinct from exposure |
 | W11 | Hermes/MCP compatibility projection | W08 | Existing provider/context tests; negotiated capabilities; no transcript capture |
 
@@ -57,9 +57,9 @@ P4 exit: complete concurrency acceptance matrix with Claude-first and Codex-firs
 
 | Work | Ownership / deliverable | Dependencies | Required evidence |
 | --- | --- | --- | --- |
-| W16 | Public fixture harness, baselines, ablations and preregistration | P2–P4,S04 | F01–F16, resource accounting, disjoint test set |
+| W16 | Public fixture harness, baselines, ablations and preregistration | P2â€“P4,S04 | F01â€“F16, resource accounting, disjoint test set |
 | W17 | Comparable native trials and independent-maintainer pilot | W16 | Confidence analysis, hidden tests, install/use/rework outcomes |
-| W18 | Migration, rollback, diagnostics and setup recipes | P1–P4 | Resumable legacy backfill, downgrade behavior, existing-service recipe |
+| W18 | Migration, rollback, diagnostics and setup recipes | P1â€“P4 | Resumable legacy backfill, downgrade behavior, existing-service recipe |
 | W19 | Release report and capability documentation | W17,W18 | All mandatory gates; failures and not-run external tests disclosed |
 
 P5 exit: preregistered mechanism/efficacy/compatibility/isolation gates satisfied and limitations match documentation. No Docker is needed for the first engineering wave; external container benchmarks remain explicitly deferred under the current constraint. No v1 claim based solely on the old eight-case ceiling benchmark.
