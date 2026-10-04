@@ -25,6 +25,7 @@ class TaskState:
     pending: TaskSnapshot | None
     budget: PacketBudget
     expires_at: float
+    acceptance_refs: tuple[str, ...]
 
 
 def fingerprint(item):
@@ -46,7 +47,7 @@ class TaskStore:
                     intent TEXT NOT NULL, selected TEXT NOT NULL, budget TEXT NOT NULL,
                     expires REAL NOT NULL, continuity_hash TEXT NOT NULL,
                     sequence INTEGER NOT NULL DEFAULT 0, ack INTEGER NOT NULL DEFAULT 0,
-                    baseline TEXT NOT NULL DEFAULT '[]', pending TEXT
+                    baseline TEXT NOT NULL DEFAULT '[]', pending TEXT, acceptance_refs TEXT NOT NULL DEFAULT '[]'
                 );
                 CREATE TABLE IF NOT EXISTS live_attempts (
                     task_id TEXT NOT NULL REFERENCES live_tasks(task_id) ON DELETE CASCADE,
@@ -54,6 +55,8 @@ class TaskStore:
                     response TEXT NOT NULL, PRIMARY KEY(task_id,attempt_id)
                 );
             """)
+            if "acceptance_refs" not in {row[1] for row in db.execute("PRAGMA table_info(live_tasks)")}:
+                db.execute("ALTER TABLE live_tasks ADD COLUMN acceptance_refs TEXT NOT NULL DEFAULT '[]'")
 
     @contextmanager
     def connection(self):
@@ -75,7 +78,7 @@ class TaskStore:
             RepositoryView(**json.loads(row["view"])),tuple(json.loads(row["selected"])),
             row["ack"],row["sequence"],tuple(PacketItem.model_validate_json(json.dumps(x)) for x in json.loads(row["baseline"])),
             TaskSnapshot.model_validate_json(row["pending"]) if row["pending"] else None,
-            PacketBudget.model_validate_json(row["budget"]),row["expires"])
+            PacketBudget.model_validate_json(row["budget"]),row["expires"],tuple(json.loads(row["acceptance_refs"])))
 
     def lookup(self,db,task_id,session,now):
         self.authorize(session)  # Authenticate before existence lookup; do not trust a bare host ID.
@@ -91,9 +94,9 @@ class TaskStore:
         with self.connection() as db:
             return self.state(self.lookup(db,task_id,session,now))
 
-    def create(self,session,view,intent,selected,items,coverage,budget,*,now,ttl):
+    def create(self,session,view,intent,selected,items,coverage,budget,*,now,ttl,acceptance_refs=()):
         self.authorize(session)
-        if not 0<ttl<=86400 or len(intent)>2048 or len(selected)>128:
+        if not 0<ttl<=86400 or len(intent)>2048 or len(selected)>128 or len(acceptance_refs)>128:
             raise ValueError("task intent, selection or lifetime exceeds bounds")
         token=secrets.token_urlsafe(32)
         task_id=str(uuid.uuid4())
@@ -103,8 +106,8 @@ class TaskStore:
             if db.execute("SELECT count(*) FROM live_tasks").fetchone()[0]>=self.max_tasks:
                 raise RuntimeError("active task capacity exceeded")
             from dataclasses import asdict
-            db.execute("INSERT INTO live_tasks(task_id,session,view,intent,selected,budget,expires,continuity_hash) VALUES(?,?,?,?,?,?,?,?)",
-                (task_id,session.model_dump_json(),json.dumps(asdict(view))," ".join(intent.split()),json.dumps(selected),budget.model_dump_json(),now+ttl,hashlib.sha256(token.encode()).hexdigest()))
+            db.execute("INSERT INTO live_tasks(task_id,session,view,intent,selected,budget,expires,continuity_hash,acceptance_refs) VALUES(?,?,?,?,?,?,?,?,?)",
+                (task_id,session.model_dump_json(),json.dumps(asdict(view))," ".join(intent.split()),json.dumps(selected),budget.model_dump_json(),now+ttl,hashlib.sha256(token.encode()).hexdigest(),json.dumps(acceptance_refs)))
             state=self.state(self.lookup(db,task_id,session,now))
             frame=self.offer_in(db,state,view,items,coverage,last_ack=0,force_full=True)
             frame=frame.model_copy(update={"continuation_token":token})
@@ -121,6 +124,21 @@ class TaskStore:
             if not hmac.compare_digest(hashlib.sha256(token.encode()).hexdigest(),row["continuity_hash"]):
                 raise PermissionError("continuity not proven")
             return self.state(row)
+
+    def renew(self,task_id,session,token,*,now,ttl):
+        if not 0<ttl<=86400:
+            raise ValueError("invalid renewal lifetime")
+        self.authorize(session)
+        with self.connection() as db:
+            db.execute("BEGIN IMMEDIATE")
+            row=self.lookup(db,task_id,session,now)
+            if not hmac.compare_digest(hashlib.sha256(token.encode()).hexdigest(),row["continuity_hash"]):
+                raise PermissionError("continuity not proven")
+            pending=TaskSnapshot.model_validate_json(row["pending"]) if row["pending"] else None
+            if pending:
+                pending=pending.model_copy(update={"expires_at":now+ttl})
+            db.execute("UPDATE live_tasks SET expires=?,pending=? WHERE task_id=?",(now+ttl,pending.model_dump_json() if pending else None,task_id))
+            return self.state(self.lookup(db,task_id,session,now))
 
     def offer_in(self,db,state,view,items,coverage,*,last_ack,force_full=False):
         old={x.revision_id:x for x in state.baseline}

@@ -90,3 +90,15 @@ def test_pending_delta_replay_mismatched_base_and_overflow(store):
         overflow=store.offer_in(db,state,state.view,(item,),(),last_ack=1,force_full=True)
     assert overflow.resync_required and not overflow.changes
     with pytest.raises(ValueError):store.ack_delivery(receipt(overflow,session()),now=2.0)
+
+
+def test_acceptance_refs_and_explicit_renewal(store):
+    from memex.context.live import PacketBudget
+    view=RepositoryView("repo","wt",None,1,1,"sha256:"+"a"*64)
+    f=store.create(session(),view,"fix",(),(),(),PacketBudget(),now=1.0,ttl=60.0,acceptance_refs=("test:api",))
+    state=store.get(f.task_id,session(),now=2.0)
+    assert state.acceptance_refs==("test:api",)
+    with pytest.raises(PermissionError):store.renew(f.task_id,session(),"bad",now=2.0,ttl=30.0)
+    renewed=store.renew(f.task_id,session(),f.continuation_token,now=2.0,ttl=30.0)
+    assert renewed.expires_at==32.0
+    assert store.pending(f.task_id,session(),now=2.0).expires_at==32.0

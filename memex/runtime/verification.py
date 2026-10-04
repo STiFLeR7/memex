@@ -26,7 +26,11 @@ def evaluate(claim, view, evidence, revisions, files, *, now, allowed=lambda p: 
         if not c.support_sets:
             return "unknown", True, "no_explicit_support"
         alternatives = []
+        base_evidence, base_hashes = set(visited_evidence), set(hashes)
+        failed_evidence, failed_hashes = set(), set()
         for support in c.support_sets:
+            visited_evidence.clear(); visited_evidence.update(base_evidence)
+            hashes.clear(); hashes.update(base_hashes)
             members = [evidence_check(evidence.get(eid), chain | {c.revision_id}) for eid in support]
             permitted = all(x[1] for x in members)
             statuses = {x[0] for x in members}
@@ -34,6 +38,9 @@ def evaluate(claim, view, evidence, revisions, files, *, now, allowed=lambda p: 
                 return "supported", True, "sufficient_support"
             status = next((s for s in ("conflicted", "unsupported", "unknown", "needs_revalidation") if s in statuses), "unknown")
             alternatives.append((status, permitted, ";".join(sorted({x[2] for x in members}))))
+            failed_evidence.update(visited_evidence); failed_hashes.update(hashes)
+        visited_evidence.clear(); visited_evidence.update(base_evidence | failed_evidence)
+        hashes.clear(); hashes.update(base_hashes | failed_hashes)
         # Prefer a still-possible sufficient set; a false alternative does not defeat it.
         permitted = [x for x in alternatives if x[1]]
         for status in ("needs_revalidation", "unknown", "conflicted", "unsupported"):

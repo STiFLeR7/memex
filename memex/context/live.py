@@ -4,6 +4,8 @@ from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from memex.context.revision import RepositoryView
+
 ID = Annotated[str, Field(min_length=1, max_length=256)]
 Digest = Annotated[str, Field(pattern=r"^sha256:[0-9a-f]{64}$")]
 Status = Literal["supported", "needs_revalidation", "unsupported", "unknown", "conflicted"]
@@ -152,3 +154,48 @@ class DeliveryReceipt(Record):
     accepted_at: float = Field(ge=0)
     action_attempt_id: ID | None = None
     outcome: Literal["host_accepted", "failed"]
+
+
+class OpenTaskRequest(Record):
+    session: SessionIdentity
+    view: RepositoryView
+    intent: str = Field(min_length=1, max_length=2048)
+    selected_revision_ids: tuple[ID, ...] = Field(default=(), max_length=128)
+    acceptance_refs: tuple[ID, ...] = Field(default=(), max_length=128)
+    budget: PacketBudget = Field(default_factory=PacketBudget)
+    ttl_seconds: float = Field(default=1800.0, gt=0, le=86400)
+
+
+class ActionRequest(Record):
+    session: SessionIdentity
+    task_id: ID
+    view: RepositoryView
+    attempt_id: ID
+    original_attempt_id: ID | None = None
+    action_kind: ID
+    targets: tuple[str, ...] = Field(max_length=128)
+    expected_hashes: tuple[tuple[str, Digest | None], ...] = Field(default=(), max_length=128)
+    last_acknowledged: int = Field(ge=0)
+    scope_complete: bool
+    context_retained: bool
+
+    @model_validator(mode="after")
+    def normalized_targets(self):
+        for p in self.targets: source_path(p)
+        for p,_ in self.expected_hashes: source_path(p)
+        if len(set(self.targets)) != len(self.targets) or len({p for p,_ in self.expected_hashes}) != len(self.expected_hashes):
+            raise ValueError("duplicate action targets/hashes")
+        if self.attempt_id == self.original_attempt_id:
+            raise ValueError("retry must use a new attempt ID")
+        return self
+
+
+class ActionCheck(Record):
+    task_id: ID
+    attempt_id: ID
+    outcome: Literal["proceed", "replan", "resync_required", "unavailable"]
+    checked_view: RepositoryView
+    coverage: tuple[tuple[str, str], ...] = Field(default=(), max_length=1024)
+    delta: TaskSnapshot | None = None
+    reason: str
+    freshness_deadline: float
