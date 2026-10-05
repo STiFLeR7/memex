@@ -312,3 +312,68 @@ def latency_gate(summary: dict, maximum_ms: float) -> dict:
                 f"warm unchanged action-check p95 {p95:.0f} ms over {summary['latency_warm_unchanged_ms']['n']} "
                 f"checks (needs < {maximum_ms} ms); core check p95 {summary['latency_core_check_ms']['p95']}",
                 value=summary["latency_warm_unchanged_ms"])
+
+
+# --------------------------------------------------------------------------- #
+# Report
+# --------------------------------------------------------------------------- #
+
+ARM_ORDER = ("A", "B", "C", "D", "E", "E-noinval", "E-norecon", "E-full")
+
+
+def _fmt(value: dict) -> str:
+    return "n/a" if value["rate"] is None else f"{value['n']}/{value['d']} ({value['rate']:.0%})"
+
+
+def report(records: list[dict], frozen: dict | None = None) -> dict:
+    hosts = sorted({r["host"] for r in records})
+    arms = [a for a in ARM_ORDER if any(r["arm"] == a for r in records)]
+    out = {"trials": len(records), "status": dict(Counter(r.get("status") for r in records)),
+           "summaries": {f"{a}|{h}": summarize(records, a, h) for a in arms for h in hosts + [None]}}
+    if frozen:
+        gates = {}
+        for scope, rows in [("pooled", records)] + [(h, [r for r in records if r["host"] == h]) for h in hosts]:
+            e = summarize(rows, PRIMARY)
+            gates[scope] = {
+                "efficacy": efficacy_gate(rows, frozen),
+                "precision": threshold_gate("precision", e["precision"], minimum=frozen["min_precision"]),
+                "false_interruption": threshold_gate("false_interruption", e["false_interruption"],
+                                                     maximum=frozen["max_false_interruption"]),
+                "recall": threshold_gate("recall", e["recall"], minimum=frozen["min_recall"]),
+                "latency": latency_gate(e, frozen["max_latency_p95_ms"]),
+                "stable_noninferiority": {comparator: stable_noninferiority(rows, PRIMARY, comparator,
+                                                                            resamples=frozen["resamples"])
+                                          for comparator in frozen["noninferiority_comparators"]},
+            }
+        out["gates"] = gates
+    return out
+
+
+def markdown(result: dict) -> str:
+    lines = ["| Arm | Host | Trials | Stale failure (affected) | Stable completion | Precision | Recall | "
+             "False interruption | Warm check p95 ms | Output tokens (mean) | Cost known |",
+             "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |"]
+    for s in result["summaries"].values():
+        p95 = s["latency_warm_unchanged_ms"]["p95"]
+        tokens = s["output_tokens_mean"]
+        lines.append(f"| {s['arm']} | {s['host']} | {s['trials']} | {_fmt(s['stale_failure'])} | "
+                     f"{_fmt(s['stable_completion'])} | {_fmt(s['precision'])} | {_fmt(s['recall'])} | "
+                     f"{_fmt(s['false_interruption'])} | {'n/a' if p95 is None else round(p95)} | "
+                     f"{'n/a' if tokens is None else round(tokens)} | {s['cost_known']} |")
+    return "\n".join(lines)
+
+
+def _main(argv) -> int:
+    import sys as _sys
+    directory = argv[0]
+    frozen = json.loads(Path(argv[1]).read_text()) if len(argv) > 1 else None
+    records = load(directory)
+    result = report(records, frozen)
+    Path(directory, "analysis.json").write_text(json.dumps(result, indent=1, default=str))
+    _sys.stdout.write(markdown(result) + "\n")
+    return 0
+
+
+if __name__ == "__main__":
+    import sys
+    sys.exit(_main(sys.argv[1:]))
