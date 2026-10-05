@@ -25,9 +25,36 @@ How the guarantee is made, rather than asserted:
   fails the generation check *at commit*, so the token is enforced by the write
   path and not merely stored.
 * A crash releases the SQLite lock with the process. A crashed holder's lease
-  expires and is reclaimable. An intent left by a crash mid-replacement is
-  rolled forward on the next guard entry, because every check had already
-  passed before the first file was replaced.
+  expires and is reclaimable.
+
+Interrupted writes. Before replacing anything, a commit writes an intent file
+atomically, recording every step with the target's hash before and after. A
+process that stops mid-commit leaves that intent and loses its uncommitted
+outcome. **Every** guarded operation -- acquire, read, commit, Git commit, and
+the next guard's construction, in any process and on any guard instance that
+already exists -- first resolves outstanding intents inside its own `BEGIN
+IMMEDIATE` section, before it does anything else:
+
+* the outcome is already recorded: only the leftover files are removed;
+* no step was applied: `rolled_back`, staged files removed, nothing changes;
+* some or all steps applied, and every target is still exactly in its recorded
+  before-or-after state: the remaining steps are applied, `rolled_forward`
+  (or `recovered_applied` when nothing remained), under the original holder;
+* any target is in neither state -- an external writer changed it -- or a step
+  cannot be completed: nothing is written. The intent is held, its targets
+  refuse guarded operations with `Unresolved`, and it stays held until the
+  files return to a recorded state or an operator calls `discard_intent`.
+
+Established guarantee, for writers that route supported mutations through this
+guard on one machine, against process interruption at any point: no guarded
+operation proceeds on a target while an interrupted operation on it is
+unresolved; a set is never left half-applied once any later guarded operation
+has run; recovery never writes over bytes other than the ones the interrupted
+commit itself verified, so it cannot overwrite a newer guarded write or an
+external edit; a guard read never observes part of a set; each interruption's
+resolution is recorded once. This is tested by stopping real processes at each
+file boundary. It is **not** a power-loss guarantee: no directory is fsynced,
+and the filesystem's rename durability after an OS crash is not tested.
 """
 from contextlib import contextmanager
 from dataclasses import dataclass, field
@@ -76,6 +103,23 @@ class Unsupported(GuardError):
     reason = "unsupported_mutation"
 
 
+class Unresolved(GuardError):
+    """An interrupted write on these targets could not be resolved safely and is held."""
+    reason = "unresolved_interrupted_write"
+
+
+#: Outcomes that settle an intent for good.
+SETTLED = frozenset({"committed", "rolled_forward", "recovered_applied", "rolled_back", "intent_discarded"})
+
+
+class _Held(Exception):
+    """Recovery must not write: the intent is held with this outcome."""
+
+    def __init__(self, outcome: str, observed: dict):
+        super().__init__(outcome)
+        self.outcome, self.observed = outcome, observed
+
+
 def sha256(data: bytes) -> str:
     return "sha256:" + hashlib.sha256(data).hexdigest()
 
@@ -111,7 +155,7 @@ class WriteGuard:
         self.state_path = Path(registration.runtime_path)
         self.intent_dir = Path(registration.common_dir) / "memex" / "guard" / self.worktree_id
         self.intent_dir.mkdir(parents=True, exist_ok=True)
-        with self._transaction() as db:
+        with self._transaction(recover=False) as (db, _):
             db.execute("""CREATE TABLE IF NOT EXISTS guard_generations (
                 worktree_id TEXT NOT NULL, target TEXT NOT NULL, generation INTEGER NOT NULL,
                 PRIMARY KEY(worktree_id, target))""")
@@ -122,26 +166,57 @@ class WriteGuard:
             db.execute("""CREATE TABLE IF NOT EXISTS guard_results (
                 worktree_id TEXT NOT NULL, ordering INTEGER PRIMARY KEY AUTOINCREMENT,
                 holder TEXT NOT NULL, at REAL NOT NULL, outcome TEXT NOT NULL,
-                targets TEXT NOT NULL, result_hashes TEXT NOT NULL DEFAULT '{}')""")
-            self._recover(db)
+                targets TEXT NOT NULL, result_hashes TEXT NOT NULL DEFAULT '{}', intent TEXT)""")
+            # Upgrade: a guard_results table from before intents were recorded
+            # gains the column; its rows are kept and read back with intent NULL.
+            if "intent" not in {row[1] for row in db.execute("PRAGMA table_info(guard_results)")}:
+                db.execute("ALTER TABLE guard_results ADD COLUMN intent TEXT")
+        with self._transaction():
+            pass  # resolve whatever an interrupted writer left
 
     # -- the critical section ------------------------------------------------ #
 
     @contextmanager
-    def _transaction(self):
-        """`BEGIN IMMEDIATE` on the shared control plane: one writer across processes."""
+    def _transaction(self, *, recover: bool = True):
+        """`BEGIN IMMEDIATE` on the shared control plane: one writer across processes.
+
+        Yields `(db, held)`, where `held` maps each target of an unresolved
+        interrupted write to its intent. Recovery runs first, inside the same
+        protected section, and each resolution it makes is committed on its own
+        before the caller's work starts, so a caller's refusal cannot undo it.
+        """
         db = sqlite3.connect(self.state_path, timeout=self.busy_timeout, isolation_level=None)
         db.row_factory = sqlite3.Row
         try:
-            db.execute("BEGIN IMMEDIATE")
+            held = {}
+            while True:
+                db.execute("BEGIN IMMEDIATE")
+                try:
+                    changed, settled, held = self._recover(db) if recover else (False, [], {})
+                except BaseException:
+                    db.execute("ROLLBACK")
+                    raise
+                if not changed:
+                    break
+                db.execute("COMMIT")
+                for intent in settled:
+                    self._discard_files(intent)
             try:
-                yield db
+                yield db, held
             except BaseException:
                 db.execute("ROLLBACK")
                 raise
             db.execute("COMMIT")
         finally:
             db.close()
+
+    @staticmethod
+    def _refuse_held(keys, held) -> None:
+        blocked = sorted({k for k in keys if k in held or (k == WORKTREE and held) or WORKTREE in held})
+        if blocked:
+            intents = sorted(set(held.values()))
+            raise Unresolved(f"{', '.join(blocked)}: an interrupted guarded write is unresolved "
+                             f"(intent {', '.join(intents)}); inspect it, then discard it explicitly")
 
     # -- paths --------------------------------------------------------------- #
 
@@ -191,7 +266,8 @@ class WriteGuard:
         if not keys:
             raise Unsupported("a lease needs at least one target")
         now, expires = self.clock(), self.clock() + (ttl or self.ttl)
-        with self._transaction() as db:
+        with self._transaction() as (db, held):
+            self._refuse_held(keys, held)
             live = {row["target"]: row for row in db.execute(
                 "SELECT * FROM guard_leases WHERE worktree_id=? AND expires_at>?", (self.worktree_id, now))}
             for key in keys:
@@ -215,7 +291,9 @@ class WriteGuard:
         return Lease(holder, generations, expires)
 
     def release(self, lease: Lease) -> None:
-        with self._transaction() as db:
+        # Releasing writes no file and needs no recovery: every operation that
+        # could use the released targets recovers before it proceeds.
+        with self._transaction(recover=False) as (db, _):
             for key, generation in lease.generations.items():
                 db.execute("DELETE FROM guard_leases WHERE worktree_id=? AND target=? AND holder=? AND generation=?",
                            (self.worktree_id, key, lease.holder, generation))
@@ -241,6 +319,23 @@ class WriteGuard:
             raise Unsupported(f"{relative}: not a regular file")
         return sha256(path.read_bytes())
 
+    def read(self, raw: str) -> tuple[str, bytes | None]:
+        """A file's bytes as of a point where no guarded set is partly applied.
+
+        The read happens inside the protected section, after recovery, so it can
+        neither interleave with a commit's replacements nor see the half of an
+        interrupted set that recovery has not completed.
+        """
+        relative = self.relative(raw)
+        with self._transaction() as (_, held):
+            self._refuse_held([self.canonical(relative)], held)
+            path = self._absolute(relative)
+            if not path.exists():
+                return relative, None
+            if not path.is_file():
+                raise Unsupported(f"{relative}: not a regular file")
+            return relative, path.read_bytes()
+
     def commit(self, lease: Lease, mutations) -> dict:
         """Apply `mutations` atomically if, and only if, the lease and every hash are current.
 
@@ -253,31 +348,38 @@ class WriteGuard:
                 raise Unsupported(f"{m.op}: not a supported mutation")
             if m.op == "write" and m.content is None:
                 raise Unsupported(f"{m.path}: a write needs content")
+            if m.op != "write" and m.expected is None:
+                raise Unsupported(f"{m.path}: a {m.op} needs an existing file")
             to = self.relative(m.to) if m.op == "rename" else None
             plan.append((m, self.relative(m.path), to))
-        paths = {p for _, p, _ in plan} | {t for _, _, t in plan if t}
-        keys = {self.canonical(p) for p in paths}
+        named = [p for _, p, _ in plan] + [t for _, _, t in plan if t]
+        keys = {self.canonical(p) for p in named}
+        if len(keys) != len(named):
+            raise Unsupported("a set names one file more than once")
+        intent = None
         try:
-            with self._transaction() as db:
+            with self._transaction() as (db, held):
+                self._refuse_held(keys, held)
                 self._fence(db, lease, keys)
                 for m, path, to in plan:
                     if self.observed(path) != m.expected:
                         raise StaleWrite(path, m.expected, self.observed(path))
                     if to is not None and self.observed(to) != m.expected_to:
                         raise StaleWrite(to, m.expected_to, self.observed(to))
-                steps = self._stage(plan)
-                intent = self.intent_dir / f"intent-{secrets.token_hex(8)}.json"
-                self._durable(intent, json.dumps(steps).encode())
-                self._apply(steps)
-                intent.unlink()
-                results = {path: self.observed(path) for path in sorted(paths)}
+                intent = self._intent(lease, plan, keys)
+                self._write_intent(intent)  # durable before anything visible changes
+                self._stage(intent, plan)
+                for step in intent["steps"]:
+                    self._apply_step(step)
+                results = {path: self.observed(path) for path in sorted(named)}
                 # Protection is retained through result capture; the lease is
                 # released only after the outcome is recorded.
-                self._record(db, lease.holder, "committed", keys, results)
+                self._record(db, lease.holder, "committed", keys, results, intent=intent["id"])
         except GuardError as exc:
-            with self._transaction() as db:
+            with self._transaction() as (db, _):
                 self._record(db, lease.holder, exc.reason, keys, {})
             raise
+        self._discard_files(intent)  # the outcome is durable; only now is the intent spent
         return results
 
     def apply(self, label: str, mutations, *, ttl: float | None = None) -> dict:
@@ -289,23 +391,42 @@ class WriteGuard:
         finally:
             self.release(lease)
 
-    def _stage(self, plan):
-        """Write new contents beside their targets. Nothing visible changes yet."""
+    # -- intents ------------------------------------------------------------- #
+
+    def _intent(self, lease: Lease, plan, keys) -> dict:
+        """Every step with its target's hash before and after it, so recovery can tell an
+        unapplied step, an applied one, and a file someone else has since changed."""
+        intent_id = secrets.token_hex(8)
         steps = []
         for m, path, to in plan:
-            target = self._absolute(path)
             if m.op == "write":
-                target.parent.mkdir(parents=True, exist_ok=True)
-                staged = target.with_name(f".{target.name}.memex-{secrets.token_hex(4)}")
-                self._durable(staged, m.content)
-                steps.append({"op": "replace", "from": str(staged), "to": str(target)})
+                staged = (Path(path).parent / f".{Path(path).name}.memex-{intent_id}").as_posix()
+                steps.append({"op": "write", "path": path, "staged": staged,
+                              "before": m.expected, "after": sha256(m.content)})
             elif m.op == "delete":
-                steps.append({"op": "delete", "path": str(target)})
+                steps.append({"op": "delete", "path": path, "before": m.expected, "after": None})
             else:
-                destination = self._absolute(to)
-                destination.parent.mkdir(parents=True, exist_ok=True)
-                steps.append({"op": "replace", "from": str(target), "to": str(destination)})
-        return steps
+                steps.append({"op": "rename", "path": path, "to": to, "before": m.expected,
+                              "before_to": m.expected_to})
+        return {"version": 1, "id": intent_id, "holder": lease.holder, "keys": sorted(keys),
+                "generations": {k: lease.generations[k] for k in sorted(keys)}, "steps": steps,
+                "file": str(self.intent_dir / f"intent-{intent_id}.json")}
+
+    def _write_intent(self, intent: dict) -> None:
+        """Atomic: an intent file is either absent or complete, never torn."""
+        temporary = self.intent_dir / f"tmp-{intent['id']}.json"
+        self._durable(temporary, json.dumps({k: v for k, v in intent.items() if k != "file"}).encode())
+        os.replace(temporary, intent["file"])
+
+    def _stage(self, intent: dict, plan) -> None:
+        """Write new contents beside their targets. Nothing visible changes yet."""
+        for step, (m, _, to) in zip(intent["steps"], plan, strict=True):
+            if step["op"] == "write":
+                staged = self._absolute(step["staged"])
+                staged.parent.mkdir(parents=True, exist_ok=True)
+                self._durable(staged, m.content)
+            elif step["op"] == "rename":
+                self._absolute(to).parent.mkdir(parents=True, exist_ok=True)
 
     @staticmethod
     def _durable(path: Path, data: bytes) -> None:
@@ -314,31 +435,157 @@ class WriteGuard:
             stream.flush()
             os.fsync(stream.fileno())
 
-    @staticmethod
-    def _apply(steps) -> None:
-        """Idempotent, so an interrupted run can be completed by replaying it."""
-        for step in steps:
-            if step["op"] == "replace":
-                if os.path.exists(step["from"]):
-                    os.replace(step["from"], step["to"])
-            elif step["op"] == "delete" and os.path.exists(step["path"]):
-                os.unlink(step["path"])
+    def _apply_step(self, step: dict) -> None:
+        if step["op"] == "write":
+            os.replace(self._absolute(step["staged"]), self._absolute(step["path"]))
+        elif step["op"] == "delete":
+            os.unlink(self._absolute(step["path"]))
+        else:
+            os.replace(self._absolute(step["path"]), self._absolute(step["to"]))
 
-    def _recover(self, db) -> None:
-        """Roll forward any intent a crash left mid-replacement."""
-        for intent in sorted(self.intent_dir.glob("intent-*.json")):
-            try:
-                steps = json.loads(intent.read_text(encoding="utf-8"))
-            except (OSError, ValueError):
+    def _peek(self, relative: str) -> str | None:
+        """The current hash; a value matching no recorded hash if it is not a regular file."""
+        try:
+            return self.observed(relative)
+        except (Unsupported, OSError):
+            return "not-a-regular-file"
+
+    def _step_state(self, step: dict) -> str:
+        if step["op"] == "rename":
+            source, destination = self._peek(step["path"]), self._peek(step["to"])
+            if source is None and destination == step["before"]:
+                return "done"
+            if source == step["before"] and destination == step["before_to"]:
+                return "pending"
+            return "conflict"
+        current = self._peek(step["path"])
+        if current == step["after"]:
+            return "done"
+        return "pending" if current == step["before"] else "conflict"
+
+    def _observe(self, intent: dict) -> dict:
+        paths = {s["path"] for s in intent["steps"]} | {s["to"] for s in intent["steps"] if s.get("to")}
+        return {p: self._peek(p) for p in sorted(paths)}
+
+    def _load_intent(self, path: Path) -> dict:
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            data = None
+        if isinstance(data, dict) and data.get("version") == 1:
+            return {**data, "file": str(path)}
+        # A previous version's intent: bare steps with no hashes. Whether a newer
+        # write followed it cannot be known, so it is held, never replayed.
+        legacy = [s for s in data if isinstance(s, dict)] if isinstance(data, list) else []
+        keys = set()
+        for step in legacy:
+            for raw in (step.get("to"), step.get("path")):
+                if raw:
+                    try:
+                        keys.add(self.canonical(raw))
+                    except GuardError:
+                        keys.add(WORKTREE)
+        staged = [s["from"] for s in legacy
+                  if s.get("op") == "replace" and ".memex-" in Path(s.get("from", "")).name]
+        return {"version": 0, "id": path.stem.removeprefix("intent-"), "holder": "unknown",
+                "keys": sorted(keys) or [WORKTREE], "steps": [], "legacy_staged": staged, "file": str(path)}
+
+    def _staged_files(self, intent: dict) -> list[Path]:
+        return ([self._absolute(s["staged"]) for s in intent["steps"] if s["op"] == "write"]
+                + [Path(p) for p in intent.get("legacy_staged", [])])
+
+    def _discard_files(self, intent: dict) -> None:
+        """Remove what an intent left behind. The intent file goes last, so an
+        interrupted cleanup is simply repeated by the next recovery."""
+        for staged in self._staged_files(intent):
+            staged.unlink(missing_ok=True)
+        Path(intent["file"]).unlink(missing_ok=True)
+
+    def _resolve(self, intent: dict) -> str:
+        """Finish or undo one interrupted commit, or raise `_Held` without writing."""
+        if intent["version"] != 1:
+            raise _Held("unresolved_legacy_intent", {})
+        states = [self._step_state(step) for step in intent["steps"]]
+        if "conflict" in states:
+            raise _Held("unresolved_conflict", self._observe(intent))
+        if all(state == "done" for state in states):
+            return "recovered_applied"
+        if all(state == "pending" for state in states):
+            return "rolled_back"  # nothing visible changed, and the writer never learned of success
+        for step, state in zip(intent["steps"], states, strict=True):
+            if state == "pending" and step["op"] == "write" and self._peek(step["staged"]) != step["after"]:
+                raise _Held("unresolved_conflict", self._observe(intent))
+        try:
+            for step, state in zip(intent["steps"], states, strict=True):
+                if state == "pending":
+                    self._apply_step(step)
+        except OSError:
+            raise _Held("unresolved_io_error", self._observe(intent)) from None
+        return "rolled_forward"
+
+    def _recover(self, db):
+        """Resolve every interrupted commit. Runs at the start of every protected section.
+
+        Returns `(changed, settled, held)`: whether anything was recorded, the
+        intents settled now (their files are removed once this commits), and the
+        targets of held intents.
+        """
+        changed, settled, held = False, [], {}
+        for orphan in self.intent_dir.glob("tmp-*.json"):
+            orphan.unlink(missing_ok=True)  # a torn intent: its writer had replaced nothing
+        for path in sorted(self.intent_dir.glob("intent-*.json")):
+            intent = self._load_intent(path)
+            recorded = {row[0] for row in db.execute(
+                "SELECT outcome FROM guard_results WHERE worktree_id=? AND intent=?",
+                (self.worktree_id, intent["id"]))}
+            if recorded & SETTLED:
+                self._discard_files(intent)  # the outcome is already durable; cleanup was lost
                 continue
-            self._apply(steps)
-            intent.unlink()
-            self._record(db, "recovery", "rolled_forward", [], {})
+            try:
+                outcome = self._resolve(intent)
+            except _Held as hold:
+                held.update({key: intent["id"] for key in intent["keys"]})
+                if hold.outcome not in recorded:
+                    self._record(db, intent["holder"], hold.outcome, intent["keys"], hold.observed,
+                                 intent=intent["id"])
+                    changed = True
+                continue
+            self._record(db, intent["holder"], outcome, intent["keys"], self._observe(intent),
+                         intent=intent["id"])
+            settled.append(intent)
+            changed = True
+        return changed, settled, held
 
-    def _record(self, db, holder, outcome, keys, results) -> None:
-        db.execute("INSERT INTO guard_results(worktree_id,holder,at,outcome,targets,result_hashes) "
-                   "VALUES(?,?,?,?,?,?)", (self.worktree_id, holder, self.clock(), outcome,
-                                           json.dumps(sorted(keys)), json.dumps(results)))
+    def unresolved(self) -> list[dict]:
+        """Interrupted writes that are held, with what recovery last observed."""
+        with self._transaction() as (db, held):
+            found = []
+            for intent_id in sorted(set(held.values())):
+                row = db.execute("SELECT * FROM guard_results WHERE worktree_id=? AND intent=? "
+                                 "ORDER BY ordering DESC LIMIT 1", (self.worktree_id, intent_id)).fetchone()
+                found.append({"intent": intent_id, "holder": row["holder"], "outcome": row["outcome"],
+                              "targets": json.loads(row["targets"]),
+                              "observed": json.loads(row["result_hashes"])})
+            return found
+
+    def discard_intent(self, intent_id: str, actor: str) -> None:
+        """An operator's explicit decision to abandon a held intent.
+
+        Nothing in the worktree changes: its files stay as they are now, and the
+        intent's staged copies are removed. The decision is recorded under the
+        actor's name. Only a held intent can be discarded.
+        """
+        with self._transaction() as (db, held):
+            if intent_id not in held.values():
+                raise GuardError(f"{intent_id} is not an unresolved interrupted write")
+            intent = self._load_intent(self.intent_dir / f"intent-{intent_id}.json")
+            self._record(db, actor, "intent_discarded", intent["keys"], self._observe(intent), intent=intent_id)
+        self._discard_files(intent)
+
+    def _record(self, db, holder, outcome, keys, results, intent=None) -> None:
+        db.execute("INSERT INTO guard_results(worktree_id,holder,at,outcome,targets,result_hashes,intent) "
+                   "VALUES(?,?,?,?,?,?,?)", (self.worktree_id, holder, self.clock(), outcome,
+                                             json.dumps(sorted(keys)), json.dumps(results), intent))
 
     def results(self) -> list[dict]:
         db = sqlite3.connect(self.state_path, timeout=self.busy_timeout)
@@ -364,7 +611,8 @@ class WriteGuard:
             raise Unsupported("a guarded commit names its paths")
         lease = self.acquire(self.holder(label), [WORKTREE], ttl=ttl)
         try:
-            with self._transaction() as db:
+            with self._transaction() as (db, held):
+                self._refuse_held([WORKTREE], held)
                 self._fence(db, lease, [WORKTREE])
                 staged = self._git("diff", "--cached", "--name-only").splitlines()
                 others = sorted(set(staged) - set(keys))

@@ -28,11 +28,15 @@ MAX_READ_BYTES = 2_000_000
 
 
 def read(guard: WriteGuard, path: str) -> dict:
-    relative = guard.relative(path)
-    target = guard.root / relative
-    if not target.exists():
+    """Read inside the guard's protected section: never half of a guarded set."""
+    try:
+        relative, data = guard.read(path)
+    except GuardError as exc:
+        return {"path": path, "outcome": "refused", "reason": exc.reason, "detail": str(exc)[:300],
+                "instruction": "This file is part of an unresolved interrupted write. Do not edit it; "
+                               "report it so an operator can inspect and resolve it."}
+    if data is None:
         return {"path": relative, "sha256": None, "exists": False, "text": ""}
-    data = target.read_bytes()
     if len(data) > MAX_READ_BYTES:
         return {"path": relative, "sha256": sha256(data), "exists": True, "text": None,
                 "note": "file exceeds the guard read limit; read it natively and use this hash"}
