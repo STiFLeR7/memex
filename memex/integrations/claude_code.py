@@ -44,7 +44,7 @@ from memex.context.live import (
     ActionRequest, DeliveryReceipt, OpenTaskRequest, PacketBudget, SessionIdentity,
 )
 from memex.runtime.trace import TraceStore
-from memex.runtime.views import discover_repository
+from memex.runtime.views import discover_repository, git_output
 
 ADAPTER_VERSION = "claude-code.v1"
 HARNESS = "claude_code"
@@ -250,13 +250,22 @@ class ClaudeCodeAdapter:
                                principal_id=self.capability.principal_id)
 
     def verify_worktree(self, cwd: str) -> None:
-        """Refuse to serve a session whose directory is not this registration."""
+        """Refuse to serve a session whose directory is not this registration.
+
+        Compare working-tree paths before touching identities. `discover_repository`
+        allocates and writes identity files, and a hook firing in an unrelated
+        repository must not leave memex state behind in it just to be told it is
+        the wrong repository.
+        """
         if not cwd:
             raise PermissionError("host payload carries no working directory")
         try:
-            observed = discover_repository(cwd)
+            toplevel = Path(git_output(cwd, "rev-parse", "--show-toplevel")).resolve()
         except Exception as exc:
-            raise PermissionError("host working directory is not a registered repository") from exc
+            raise PermissionError("host working directory is not a Git repository") from exc
+        if toplevel != self.root:
+            raise PermissionError("host session names a different worktree than this registration")
+        observed = discover_repository(cwd)  # Our own identity files already exist.
         if (observed.repo_id, observed.worktree_id) != (self.registration.repo_id, self.registration.worktree_id):
             raise PermissionError("host session names a different worktree than this registration")
 
@@ -459,12 +468,9 @@ class ClaudeCodeAdapter:
         self.verify_worktree(payload.get("cwd", ""))
         source = payload.get("source") or "startup"
 
-        if source == "compact":
-            # Compaction may have dropped the working set. Never assume retention.
-            existing = self._binding(native)
-            if existing is not None:
-                self._set_context_retained(native, False)
-
+        # Every SessionStart, including `compact` and `resume`, opens a task whose
+        # first packet is a full replacement. Retention is never assumed: the
+        # working set is redelivered rather than inferred to have survived.
         result = await self.engine.indexer.refresh()
         frame = await self.engine.open_task(OpenTaskRequest(
             session=session, view=result.view,
@@ -539,8 +545,16 @@ class ClaudeCodeAdapter:
 
         try:
             request, replayed = self._stored_attempt(task_id, attempt_id)
-            if replayed is not None:
-                return replayed  # Same host action, same answer.
+            if request is not None:
+                # Replay must still pass through the core. Its cached-attempt path
+                # rechecks source authorization and attempt expiry, and returning
+                # stored text directly would hand back assertions the principal may
+                # since have lost access to.
+                check = await asyncio.wait_for(self.engine.check_action(request),
+                                               self.deadline_seconds)
+                if replayed is not None:
+                    return replayed  # Same host action, same answer.
+                original = request.original_attempt_id
             if request is None:
                 state = self.engine.tasks.get(task_id, session, now=self.clock())
                 request = ActionRequest(
@@ -550,9 +564,8 @@ class ClaudeCodeAdapter:
                     scope_complete=True, context_retained=bool(binding["context_retained"]),
                 )
                 self._store_request(task_id, request)
-            else:
-                original = request.original_attempt_id
-            check = await asyncio.wait_for(self.engine.check_action(request), self.deadline_seconds)
+                check = await asyncio.wait_for(self.engine.check_action(request),
+                                               self.deadline_seconds)
         except PermissionError as exc:
             # Authorization failures must not disclose assertion text.
             self.trace.record(at=self.clock(), session=session, event="action_check",
@@ -632,9 +645,14 @@ class ClaudeCodeAdapter:
         self._store_response(task_id, attempt_id, response)
         return response
 
+    #: Matches the source-capture per-file ceiling in `runtime.views`.
+    MAX_DIGEST_BYTES = 5_000_000
+
     def _observed_digest(self, path: str) -> str | None:
         target = self.root / path
         try:
+            if target.stat().st_size > self.MAX_DIGEST_BYTES:
+                return None  # Out of capture scope; report nothing rather than stall the hook.
             return "sha256:" + hashlib.sha256(target.read_bytes()).hexdigest()
         except OSError:
             return None

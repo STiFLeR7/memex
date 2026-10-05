@@ -346,6 +346,48 @@ async def test_replayed_attempt_identity_is_idempotent(host):
 
 
 @pytest.mark.asyncio
+async def test_replay_after_revoked_access_stops_disclosing_the_correction(host):
+    """A cached hook answer must not outlive the authorization it was built on."""
+    adapter, repo, _ = host
+    await adapter.on_session_start(payload("SessionStart", repo))
+    (repo / "api.py").write_text("def send(payload, retries=3):\n    return payload\n")
+    first = await adapter.on_pre_tool_use(edit_payload(repo, attempt="toolu_revoke_replay"))
+    assert first.decision == "deny"
+    assert "send() returns its payload unchanged" in first.reason
+
+    object.__setattr__(adapter.capability, "denied_paths", ("api.py",))
+    again = await adapter.on_pre_tool_use(edit_payload(repo, attempt="toolu_revoke_replay"))
+    assert again.decision is None
+    assert "not authorized" in again.reason
+    assert "send() returns its payload unchanged" not in again.reason
+
+
+@pytest.mark.asyncio
+async def test_worktree_check_leaves_no_state_in_an_unrelated_repository(host, tmp_path):
+    adapter, _, _ = host
+    other = tmp_path / "unrelated"
+    other.mkdir()
+    subprocess.run(["git", "init", str(other)], check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    with pytest.raises(PermissionError):
+        adapter.verify_worktree(str(other))
+    # Being told "wrong repository" must not have written memex identities into it.
+    assert not (other / ".git" / "memex").exists()
+
+
+@pytest.mark.asyncio
+async def test_compaction_redelivers_a_full_working_set(host):
+    adapter, repo, _ = host
+    first = await adapter.on_session_start(payload("SessionStart", repo))
+    assert first.additional_context
+    compacted = await adapter.on_session_start(payload("SessionStart", repo, source="compact"))
+    starts = [e for e in adapter.trace.events(native_session_id=NATIVE) if e["event"] == "session_start"]
+    assert len(starts) == 2
+    assert starts[1]["task_id"] != starts[0]["task_id"]   # a fresh baseline, not an assumed one
+    assert starts[1]["insertion"] == "accepted"
+    assert "send() returns its payload unchanged" in compacted.additional_context
+
+
+@pytest.mark.asyncio
 async def test_bounded_reconsideration_stops_retrying_the_same_mutation(host):
     adapter, repo, _ = host
     await adapter.on_session_start(payload("SessionStart", repo))
