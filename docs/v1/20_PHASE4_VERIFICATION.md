@@ -1,11 +1,11 @@
 # Phase 4 verification: concurrent clients and a second host
 
-Status: W12–W15 complete and verified. Every required native concurrency gate passed with Claude Code and Codex live at the same time, in both Claude-first and Codex-first orderings. Date: 5 October 2026.
+Status: W12–W15 implemented. Every required native concurrency gate passed with Claude Code and Codex live at the same time, in both orderings, on `30cc96d`. Review then found two recovery defects, in guarded-write recovery and in delivery confirmation; both are corrected and verified with deterministic real-process tests. **The native gates have not been rerun on the corrected code**, because isolated client authentication was not available (see [Not run, and why](#not-run-and-why)). Phase 4's exit is therefore not re-established on the corrected code. Date: 5 October 2026.
 Branch: `codex/v1-phase4`, from accepted Phase 3 commit `1390f15`. Plan: [19_PHASE4_EXECUTION_PLAN.md](19_PHASE4_EXECUTION_PLAN.md).
 
 Clients: **Claude Code 2.1.289** (model `claude-opus-5-5`) and **codex-cli 0.157.1** (model `gpt-6-sol`, app-server mode). Version remains **0.9.0**; nothing was merged, deployed or released.
 
-Commits: `0a5f4ad` (plan), `a4facb9` (shared adapter lifecycle, host namespacing, complete-packet rule), `cf537c1` (Codex adapter), `dce2469` (native Codex gate), `ed777e8` (write guard), `885d06d` (guard server and guarded mode), `092a456` (worktree tests), `b6da6f9` (shared-checkout and continuity tests), `5047884` (concurrent-confirmation fix and shared-checkout gate), `fd47af9` (gate diagnostics), `c49461c` (worktrees gate), `e14878e` (guarded race gate).
+Commits: `0a5f4ad` (plan), `a4facb9` (shared adapter lifecycle, host namespacing, complete-packet rule), `cf537c1` (Codex adapter), `dce2469` (native Codex gate), `ed777e8` (write guard), `885d06d` (guard server and guarded mode), `092a456` (worktree tests), `b6da6f9` (shared-checkout and continuity tests), `5047884` (concurrent-confirmation fix and shared-checkout gate), `fd47af9` (gate diagnostics), `c49461c` (worktrees gate), `e14878e` (guarded race gate), `102a3fe` and `30cc96d` (report). Corrections: `88bfbe5` (guard recovery), `ff723a1` (atomic confirmation), `2c5f381` (isolated native client homes).
 
 ## S02: measured Codex semantics
 
@@ -45,7 +45,7 @@ The rollout layout is `<CODEX_HOME or ~/.codex>/sessions/YYYY/MM/DD/rollout-<tim
 | W12 | `memex/integrations/host_adapter.py`: the host-independent lifecycle shared by both adapters. `memex/integrations/codex.py`: `apply_patch` targets, rollout provenance and records, turn-bound corrections, 4,000-character cap, launcher, wrapped hook installation, session flags | [Codex adapter tests](../../tests/test_live_codex_adapter.py), [native Codex gate](../../tests/test_phase4_native_codex.py) |
 | W13 | No new module: the P2 core's per-view verification, worktree-scoped claims and evidence, and test-view binding, proven across real linked worktrees | [Worktree tests](../../tests/test_phase4_worktrees.py), [native worktrees gate](../../tests/test_phase4_native_worktrees.py) |
 | W14 | Default mode: per-host tasks and cursors over the shared core. Guarded mode: `memex/runtime/guard.py` (leases, fencing enforced at commit, intents, Git) and `memex/integrations/guard_mcp.py` (opt-in two-tool server); both adapters deny native edits in guarded mode | [Guard race tests](../../tests/test_phase4_guard.py), [guarded mode](../../tests/test_phase4_guarded_mode.py), [shared checkout](../../tests/test_phase4_shared_checkout.py), [native shared gate](../../tests/test_phase4_native_shared_checkout.py), [native guarded gate](../../tests/test_phase4_native_guarded.py) |
-| W15 | Host-namespaced control state and its migration; fresh redelivery on compaction and resume for both hosts; bounded conflicts | [Migration](../../tests/test_phase4_migration.py), [shared checkout](../../tests/test_phase4_shared_checkout.py), [confirmation race](../../tests/test_phase4_confirmation_race.py) |
+| W15 | Host-namespaced control state and its migration; fresh redelivery on compaction and resume for both hosts; bounded conflicts | [Migration](../../tests/test_phase4_migration.py), [shared checkout](../../tests/test_phase4_shared_checkout.py), [confirmation recovery](../../tests/test_phase4_confirmation_recovery.py), [guard recovery](../../tests/test_phase4_guard_recovery.py) |
 
 ### What changed in the shared adapter
 
@@ -53,7 +53,7 @@ The rollout layout is `<CODEX_HOME or ~/.codex>/sessions/YYYY/MM/DD/rollout-<tim
 
 **Confirmation requires the whole packet, on every host.** S02-18 showed a truncated packet keeping its marker. Each packet's SHA-256 fingerprint, length and marker offset are recorded at preparation, and an insertion confirms only if the exact window around its marker hashes to that fingerprint. A partial insertion fails at once as `host_truncated` and the packet stays pending. This also tightened the accepted Claude adapter; its Phase 3 tests now insert the real rendered packet, and a truncated-packet case was added.
 
-**A packet is confirmed exactly once under concurrent hooks.** The first native shared-checkout run caught two Codex hook processes confirming one correction: the core's receipt is idempotent, so the cursor moved once, but the trace recorded two confirmations. The `emitted → confirmed` transition is now claimed with a conditional update before acknowledging, so only one process wins it. The regression starts two real processes behind a file barrier and fails without the fix with two acknowledgements.
+**A packet is confirmed exactly once under concurrent hooks.** The first native shared-checkout run caught two Codex hook processes confirming one correction: the core's receipt is idempotent, so the cursor moved once, but the trace recorded two confirmations. The first fix claimed the `emitted → confirmed` transition with a conditional update *before* acknowledging. Review found that this saved a confirmation the core might never make. The claim, the core's baseline update and the trace event now commit in one transaction; see [Defect 2](#defect-2-a-confirmation-could-be-saved-without-the-cores-acknowledgement).
 
 ### The write guard
 
@@ -66,7 +66,7 @@ The guard closes the check-to-write gap for one bounded set of mutations from co
 | Recheck hashes inside the protected write | Inside that transaction: every expected hash is rechecked on disk, then files are staged, an intent is made durable, files are replaced and result hashes captured |
 | Retain protection through execution and capture | The lease is released only after the outcome is recorded |
 | Reject expired or replaced holders before commit | Inside the transaction, each lease's holder, fencing generation and expiry are rechecked; generations only increase per target |
-| Recover after crashes without permanent locks | SQLite's lock dies with the process; an expired lease is reclaimable; an intent left mid-replacement is rolled forward on the next guard entry |
+| Recover after crashes without permanent locks | SQLite's lock dies with the process; an expired lease is reclaimable. An interrupted commit's intent is resolved inside the next protected section of *any* guarded operation: rolled back, rolled forward, or held if a target changed. See [Defect 1](#defect-1-guard-recovery-could-replay-an-old-write-over-a-newer-one) |
 
 The fencing token is enforced by the write path, not stored and trusted: a paused holder that wakes after expiry and replacement fails the generation check at commit, and the race test proves it with a real paused process.
 
@@ -74,7 +74,79 @@ Lease keys collapse case, separators, `.`/`..` segments, 8.3 short names and in-
 
 Hosts reach the guard through `guard_mcp.py`, a separate stdio MCP server exposing exactly `guard_read` and `guard_write`, started only for a worktree in guarded mode. The public memex server still has fourteen tools. In guarded mode both adapters deny native declared edits with an instruction to use the guard, and `guard_write` itself receives the ordinary context check before the guard's hash check, so a dependency correction still arrives before a guarded write.
 
+## Recovery corrections after review
+
+A review of the reported Phase 4 state (`30cc96d`) found two recovery defects, both reproduced with real files, SQLite and processes. Both are corrected (`88bfbe5`, `ff723a1`). Every regression below was first run against the unchanged `30cc96d` code; the failures quoted are from that run.
+
+### Defect 1: guard recovery could replay an old write over a newer one
+
+**Reproduction.** Recovery ran only when a `WriteGuard` was constructed. Two guards exist; the first starts a two-file write of `a.txt` and `b.txt` and is interrupted after replacing `a.txt`, leaving its durable intent and the staged `b.txt`. The already-running second guard then commits newer contents to `b.txt`, because nothing made it look at the intent. A third guard is constructed, its recovery replays the old staged file, and the newer committed `b.txt` is lost. On `30cc96d`: *"recovery replayed an old intent over a newer committed write"*. The same gap let recovery overwrite an external edit with an old staged file, let a guard read return half of an interrupted set, credited every recovery to a generic `recovery` holder, lost the outcome of a write that stopped after replacing its files but before recording, and recorded a write that stopped after recording as a second, recovered write.
+
+**Correction** (`memex/runtime/guard.py`).
+
+- **Recovery runs inside every protected section.** Every guarded operation -- acquire, read, commit, Git commit, and construction -- first resolves outstanding intents inside its own `BEGIN IMMEDIATE`, on any guard instance in any process, and commits each resolution before its own work starts. No conflicting guarded operation proceeds while an older one is unresolved. Release writes no file and does not recover.
+- **Intents record what recovery must verify.** Each intent is written atomically (temporary file, `fsync`, rename) *before* staging, and records every step with its target's hash before and after, plus the holder and fencing generations. Recovery classifies each step as applied, unapplied, or neither.
+- **Recovery writes only over bytes the interrupted commit itself verified.** Nothing applied: `rolled_back`, and the staged files are removed. Partly applied, every target still in its recorded before-or-after state: `rolled_forward`. Fully applied but unrecorded: `recovered_applied`. Any target in neither state, which means an external writer changed it, or a step that cannot complete: nothing is written. The intent is *held*, its targets refuse guarded operations with `unresolved_interrupted_write`, and it stays held until the files return to a recorded state or an operator calls `discard_intent`. That call is explicit, recorded under the operator's name, and changes no worktree file. A newer guarded write cannot be overwritten: it could not have run before recovery, and if anything else changed a target, recovery refuses to write.
+- **Outcomes are recorded once and attributed.** `guard_results` gains an `intent` column. A resolution is recorded under the original holder, keyed by intent, so a repeated or interrupted recovery never records twice. The intent file is removed only after its outcome commits, and an intent whose outcome is already recorded is only cleaned up.
+- **Reads are consistent.** `guard_read` reads inside the protected section after recovery, so it never observes part of a set, whether in flight or interrupted. A read of a held target is refused with an instruction to report it.
+- **Fencing is unchanged.** Holder, generation and expiry are still rechecked inside the commit's transaction; a lease taken after an interruption is taken after its recovery, with a newer generation.
+
+**Upgrade.** An existing `guard_results` table gains the `intent` column inside `BEGIN IMMEDIATE`. Rows, leases and generations are preserved, and concurrent initialization is safe. An intent left by `30cc96d` carries no hashes, so whether a newer write followed it cannot be known. It is held as `unresolved_legacy_intent`, never replayed, until an operator discards it.
+
+**The guarantee these tests establish.** For writers that route supported mutations through the guard on one machine, against a process stopping at any point:
+
+- no guarded operation proceeds on a target while an interrupted operation on it is unresolved;
+- once any later guarded operation has run, no set is left half-applied unless it is held;
+- recovery never writes over bytes other than those the interrupted commit verified, so it overwrites neither a newer guarded write nor an external edit;
+- a guard read never observes part of a set;
+- each interruption's resolution is recorded once.
+
+It is not a power-loss guarantee: no directory is fsynced, and rename durability after an operating-system crash was not tested.
+
+| Regression (`tests/test_phase4_guard_recovery.py`) | Interruption | On `30cc96d` |
+| --- | --- | --- |
+| The reported sequence, two guards existing before the interruption | In-process stop after the first replacement | Failed: newer `b.txt` overwritten |
+| Real process stopped between replacements | `os._exit` before the second replacement | Failed: recorded as generic `recovery` |
+| Conflicting writer during recovery | Recovery process held at a barrier inside the protected section; a second process attempts a write | Passed: the old constructor's lock already serialized this case; kept as a regression |
+| Recovery itself stopped, then restart and repeated recovery | `os._exit` mid-recovery; three later guards | Passed |
+| Expired, replaced lease holder | Stopped holder's lease expires; an existing guard takes a new lease | Failed: stale write committed |
+| External edit after interruption | Editor writes a target before recovery | Failed: external edit overwritten |
+| Interrupted create, delete, rename and write set, at each of four boundaries | `os._exit` before mutation 0, 1, 2 and 3 | Failed at boundary 0: unapplied set applied |
+| Stop after replacement, before outcome recording | `os._exit` in the committed record | Failed: no outcome recorded |
+| Stop after outcome recording, before intent cleanup | `os._exit` at intent removal | Failed: recorded as a second write |
+| Read after an interruption, by a guard already running | Process stop, then `guard_read` | Failed: half of the set |
+| Read during an in-flight set | Writer held at a barrier between replacements | Failed: half of the set |
+| Populated `30cc96d` database and legacy intent, two concurrent initializers | Barrier-released together | Failed: legacy intent replayed |
+
+Each stop is placed by counting the guard's own visible worktree mutations, not by naming its private methods, so the same boundary was hit on the old and new code.
+
+### Defect 2: a confirmation could be saved without the core's acknowledgement
+
+**Reproduction.** `_confirm_delivery` committed the ledger's `emitted -> confirmed` claim, then called the core's acknowledgement. A process stopped between the two left the row `confirmed` while the core still held the packet pending with zero acknowledgements, and every retry skipped it because the row was no longer `emitted`. On `30cc96d`, with the real `TaskStore`: *"confirmed, but the core never accepted it"*, for both an initial snapshot and a correction. A process stopped right after the acknowledgement also left no `confirmed` trace event. The concurrency fix described above prevented duplicates only while the winning process stayed alive.
+
+**Correction** (`memex/integrations/host_adapter.py`, `memex/runtime/tasks.py`, `memex/runtime/actions.py`, `memex/runtime/trace.py`). The ledger and the task store share one SQLite control plane, so the transition is now atomic. `TaskStore.ack_delivery` accepts a `record` callback that runs inside its own `BEGIN IMMEDIATE`, after the baseline update, and `LiveContextEngine.ack_delivery` passes it through. The adapter's callback claims `emitted -> confirmed` with a conditional update, sets the session's retained-context flag, and appends the `confirmed` trace event on the same connection. If the claim is lost to another process, the callback raises and the whole acknowledgement rolls back. A process stopping anywhere leaves either all of it or none of it, so a claimed confirmation is never mistaken for a completed one, and an unfinished confirmation is simply retried by the next hook from the same complete insertion evidence. The core's duplicate-receipt rule still keeps a repeated receipt from moving the baseline. Receipt rejection and revoked authorization still write nothing to the ledger or baseline, and source authorization is unchanged. The adapter refuses to confirm if its ledger and the task store are not one control plane.
+
+**Upgrade.** No schema changes. A row the previous version stranded, `confirmed` while its live task's acknowledged sequence is below it, cannot arise under atomic confirmation. On the next hook it is reopened to `emitted` and must be confirmed again from complete insertion evidence. A task closed since is left alone.
+
+| Regression (`tests/test_phase4_confirmation_recovery.py`, each for snapshot and correction) | On `30cc96d` |
+| --- | --- |
+| Stop immediately before the core acknowledgement, then restart | Failed: confirmed, never accepted |
+| Stop inside the acknowledgement, after the baseline update, before or after the ledger update | Not applicable (no shared transaction existed) |
+| Stop right after the acknowledgement returns, then restart | Failed: no `confirmed` trace event |
+| Two confirmers, the winner stopping midway before, or while holding, the transaction | Failed / not applicable |
+| Two confirmers released together | Passed |
+| Duplicate recovery, plus a raw duplicate receipt, after the stream has moved on | Passed |
+| Revoked authorization, then restored | Passed |
+| A rejected (superseded) receipt | Passed |
+| A stranded confirmation in the exact state the previous code left | Failed: never acknowledged |
+
+These tests drive `LiveContextEngine.ack_delivery` over a real `TaskStore` in the registration's control plane, real `CodexAdapter` confirmation over a rollout carrying the complete insertion, and real processes stopped with `os._exit` and ordered by file barriers. They check the baseline itself, not an acknowledgement counter. The previous stub-engine race test, `test_phase4_confirmation_race.py`, is replaced by them.
+
+**Raw evidence.** The failing run's output is kept in the execution worktree at `output/phase4/recovery/red-30cc96d.txt` (uncommitted, like other runtime output).
+
 ## Native gates
+
+**Every result in this section was measured on `30cc96d` code, before the recovery corrections, and with the maintainer's real client homes.** None has been rerun since; see [Not run, and why](#not-run-and-why).
 
 Every native run used real clients, the isolated native Neo4j fixture and real Git. A harness held each live session with a barrier hook after its first read and released the sessions in the order under test, so ordering was chosen and recorded rather than inferred from timing. The harness declines every approval request; every run asserted that none arrived.
 
@@ -156,7 +228,7 @@ The accepted Claude native ordering gate was rerun on the final Phase 4 code, be
 | Guarded writers race | Ordered and simultaneous: exactly one current write commits; the loser replans | guard, native guarded |
 | Paused, replaced holder | Fencing rejects it at commit; generation 2 recorded | guard |
 | Crashed holder | Blocks only until expiry; no permanent lock | guard |
-| Crash mid-replacement | Rolled forward on next entry | guard |
+| Crash mid-replacement | Resolved inside the next guarded operation on any guard: rolled back, rolled forward or held; never over a newer write or external edit; a read never sees half a set | guard recovery |
 | Multi-target ordering | All-or-none; opposite orders never deadlock; no partial lease | guard |
 | External writer | Detected as a stale write; not prevented, and not claimed to be | guard |
 | Create, delete, rename, multi-file | Supported and atomic; one stale member refuses the set | guard |
@@ -166,7 +238,7 @@ The accepted Claude native ordering gate was rerun on the final Phase 4 code, be
 | Session ID collision | Identical native IDs keep separate identities, bindings, ledgers, tasks and cursors | Codex adapter, migration, shared checkout |
 | Compaction and resume | Fresh task and redelivery per host; a historical packet does not count | Codex adapter, shared checkout |
 | Restart, expiry | Bindings survive restart; a lapsed task yields an advisory, never a certificate | shared checkout |
-| Duplicate and concurrent confirmation | Exactly one confirmation and one acknowledgement | confirmation race |
+| Duplicate, concurrent and interrupted confirmation | Ledger, baseline and trace commit together; one acceptance, one record; a stopped confirmer is completed by the next | confirmation recovery |
 | Failed or truncated insertion | Never acknowledged; truncation fails at once as `host_truncated` | Codex and Claude adapters |
 | Backend outage | Unknown freshness; a known pending correction still requires replan | shared checkout |
 | Overflow | Resynchronization requested; no delivery prepared | shared checkout |
@@ -180,21 +252,25 @@ All results below are fresh from this phase. No earlier count is reused.
 
 | Run | Command | Result |
 | --- | --- | --- |
-| Phase 4 deterministic | `pytest tests/test_live_codex_adapter.py tests/test_phase4_migration.py tests/test_phase4_guard.py tests/test_phase4_guarded_mode.py tests/test_phase4_worktrees.py tests/test_phase4_shared_checkout.py tests/test_phase4_confirmation_race.py -q` | **52 passed** |
-| Native Codex gate | `MEMEX_PHASE4_NATIVE=1 pytest tests/test_phase4_native_codex.py -q` | **1 passed** (twice: once at introduction, once on final code) |
-| Native shared checkout | `MEMEX_PHASE4_NATIVE=1 pytest tests/test_phase4_native_shared_checkout.py -q` | **Claude-first and Codex-first passed** |
-| Native worktrees | `MEMEX_PHASE4_NATIVE=1 pytest tests/test_phase4_native_worktrees.py -q` | **Claude-first and Codex-first passed** |
-| Native guarded race | `MEMEX_PHASE4_NATIVE=1 pytest tests/test_phase4_native_guarded.py -q` | **Claude-first and Codex-first passed** |
-| Phase 3 native regression | `MEMEX_PHASE3_NATIVE=1 pytest tests/test_phase3_native_loop.py -q` | **1 passed** |
+| Recovery regressions, failing first | Both new files against `30cc96d` | **24 failed, 13 passed**, each failure for the reason quoted above |
+| Recovery regressions | `pytest tests/test_phase4_guard_recovery.py tests/test_phase4_confirmation_recovery.py -q` | **37 passed**, and again three times in a row |
+| Phase 4 deterministic | `pytest tests/test_live_codex_adapter.py tests/test_phase4_migration.py tests/test_phase4_guard.py tests/test_phase4_guard_recovery.py tests/test_phase4_guarded_mode.py tests/test_phase4_worktrees.py tests/test_phase4_shared_checkout.py tests/test_phase4_confirmation_recovery.py -q` | **88 passed** |
+| Native Codex gate | `MEMEX_PHASE4_NATIVE=1 pytest tests/test_phase4_native_codex.py -q` | Passed on `30cc96d` code. **Not run on the corrected code** |
+| Native shared checkout | `MEMEX_PHASE4_NATIVE=1 pytest tests/test_phase4_native_shared_checkout.py -q` | Both orderings passed on `30cc96d` code. **Not run on the corrected code** |
+| Native worktrees | `MEMEX_PHASE4_NATIVE=1 pytest tests/test_phase4_native_worktrees.py -q` | Both orderings passed on `30cc96d` code. **Not run on the corrected code** |
+| Native guarded race | `MEMEX_PHASE4_NATIVE=1 pytest tests/test_phase4_native_guarded.py -q` | Both orderings passed on `30cc96d` code. **Not run on the corrected code** |
+| Phase 3 native regression | `MEMEX_PHASE3_NATIVE=1 pytest tests/test_phase3_native_loop.py -q` | Passed on `30cc96d` code. **Not run on the corrected code** |
 | Phase 3 mechanism | `pytest tests/test_live_claude_adapter.py tests/test_phase3_compat.py tests/test_phase3_schema_upgrade.py -q` | **64 passed** |
 | Phase 1 + 2 inherited | The 12 files listed in [18](18_PHASE3_VERIFICATION.md#reproduce) | **74 passed** |
-| Broad compatibility | `pytest tests -m "not integration" -q` | **712 passed, 1 skipped, 132 deselected** |
+| Broad compatibility | `pytest tests -m "not integration" -q` | **748 passed, 1 skipped, 132 deselected** |
 | Dependencies | `pip check` | No broken requirements |
 | Lint | `ruff check --select E,F,B,W --line-length 120` on every Phase 3 and 4 file | Passed |
 | Whitespace | `git diff --check 1390f15 HEAD` | Passed |
+
+The rows above the native gates, plus dependency, lint, whitespace and package checks, are fresh from the corrected code, in the pinned environment (Python 3.12.4, FastAPI 0.142.2). Under the machine's system Python, one unrelated HTTP transport test fails to import `fastapi.routing.iter_route_contexts` (FastAPI 0.115.0). That is an environment difference, not a regression.
 | Package | `python -m build`, `twine check` | Both passed; every Phase 3 and 4 module in the wheel |
 
-The broad figure is Phase 3's 686 plus the 26 Phase 4 cases that need no graph backend: 7 migration, 1 confirmation race, 11 guard, 2 guarded mode and 5 Codex parsing and configuration. The 132 deselected are Phase 3's 98, plus 33 Phase 4 integration cases (26 deterministic, 7 native parametrizations), plus the one Phase 3 truncation case added in this phase. All were run explicitly above. The one skip is the pre-existing Windows symlink case.
+The broad figure is Phase 3's 686 plus the 62 Phase 4 cases that need no graph backend: 7 migration, 11 guard, 15 guard recovery, 22 confirmation recovery, 2 guarded mode and 5 Codex parsing and configuration. The 132 deselected are Phase 3's 98, plus 33 Phase 4 integration cases (26 deterministic, 7 native parametrizations), plus the one Phase 3 truncation case added in this phase. All were run explicitly above. The one skip is the pre-existing Windows symlink case.
 
 **Failing first.** The migration tests were run with the session rebuild disabled and failed (2 of 6 run). The confirmation-race test failed before its fix with two acknowledgements. The Phase 3 suite failed against the complete-packet rule until its tests inserted real packets, which is the intended tightening. The guard, Codex adapter and guarded-mode suites were written against modules that did not exist; their first runs exercised new code. The guard caught its own Windows case-folding defect in review before any test ran.
 
@@ -205,6 +281,8 @@ The broad figure is Phase 3's 686 plus the 26 Phase 4 cases that need no graph b
 
 ### Not run, and why
 
+**The native gates on the corrected code.** Both corrections change shared behavior: every native gate confirms deliveries, and the guarded race uses recovery. Every gate therefore needs a rerun in both orderings. That rerun must not use the maintainer's real client homes, and their login cannot be copied without authorization. No separately authenticated home exists, and no credential is set in the environment. The harness now refuses to run without isolated homes (`MEMEX_NATIVE_CODEX_HOME`, `MEMEX_NATIVE_CLAUDE_CONFIG_DIR`) and fails if either names the real `~/.codex` or `~/.claude`. Because Codex filters hook environments (S02-13), the Codex launcher now carries `CODEX_HOME`, without which an isolated Codex home would never confirm. The access needed is in the Phase 5 handoff below.
+
 The two Phase 2 end-to-end cases that need real Gemini credentials remain unrun, as in Phases 2 and 3. No statistical efficacy, latency or cost measurement was attempted; those are Phase 5. The interactive Codex TUI was not measured; app-server threads are the measured and supported mode.
 
 ## Reproduce
@@ -214,8 +292,10 @@ Use the Phase 3 environment and isolated Neo4j fixture recipe in [18](18_PHASE3_
 ```powershell
 $env:MEMEX_PHASE1_NEO4J_URI='bolt://127.0.0.1:17687'
 python -m pytest tests/test_live_codex_adapter.py tests/test_phase4_migration.py tests/test_phase4_guard.py `
-  tests/test_phase4_guarded_mode.py tests/test_phase4_worktrees.py tests/test_phase4_shared_checkout.py `
-  tests/test_phase4_confirmation_race.py -q
+  tests/test_phase4_guard_recovery.py tests/test_phase4_guarded_mode.py tests/test_phase4_worktrees.py `
+  tests/test_phase4_shared_checkout.py tests/test_phase4_confirmation_recovery.py -q
+# Native runs: dedicated, separately authenticated client homes, never ~/.codex or ~/.claude
+$env:MEMEX_NATIVE_CODEX_HOME='<isolated codex home>'; $env:MEMEX_NATIVE_CLAUDE_CONFIG_DIR='<isolated claude home>'
 $env:MEMEX_PHASE4_NATIVE='1'; $env:PYTHONPATH=(Get-Location).Path
 python -m pytest tests/test_phase4_native_codex.py tests/test_phase4_native_shared_checkout.py `
   tests/test_phase4_native_worktrees.py tests/test_phase4_native_guarded.py -q
@@ -237,7 +317,9 @@ These are properties of the integration as measured.
 
 **Fail-open on both hosts.** A timed-out or failing hook lets the action proceed on Claude and on Codex. The gate is a check, not a lock, in default mode.
 
-**Guarded mode protects only cooperating writes through the guard.** Editors, shell redirection, other tools, external Git operations and other machines bypass it. The guard detects their drift as a stale write when a participant next writes; it does not prevent them, and no such claim is made. It coordinates processes on one machine through a local SQLite file, and must not be used on a network filesystem. While a guarded commit replaces files it holds the control plane's write lock, briefly blocking other memex writers. A multi-file commit is crash-consistent through roll-forward, but an outside reader could observe a partially replaced set during the commit window. Only `git commit --only` of named paths is a supported Git mutation; checkout, reset, rebase, merge, stash and the rest are reported unsupported.
+**Guarded mode protects only cooperating writes through the guard.** Editors, shell redirection, other tools, external Git operations and other machines bypass it. The guard detects their drift as a stale write when a participant next writes; it does not prevent them, and no such claim is made. It coordinates processes on one machine through a local SQLite file, and must not be used on a network filesystem. While a guarded commit replaces files it holds the control plane's write lock, briefly blocking other memex writers. Interrupted commits are resolved before any later guarded operation, against process interruption, not power loss. An intent that an external change made unsafe to finish is held, and blocks its targets until the files return to a recorded state or an operator discards it. A guard read never sees part of a set, but a reader outside the guard can, during the commit window. Only `git commit --only` of named paths is a supported Git mutation; checkout, reset, rebase, merge, stash and the rest are reported unsupported.
+
+**Confirmation is atomic only on one control plane.** The ledger, baseline and trace commit together because they share the registration's SQLite file. The adapter refuses to confirm otherwise.
 
 **Codex fixture sessions write the user's global configuration.** The client itself persists project trust for every directory a session starts in (S02-22). memex writes none of it, but a native Codex run on a developer machine leaves trust grants behind, including for pytest temporary paths that a later run recreates. A harness that must not touch global state needs an isolated `CODEX_HOME` with its own authentication.
 
@@ -249,7 +331,13 @@ These are properties of the integration as measured.
 
 Entry state: `codex/v1-phase4` at the head recorded in the commit list, not merged and not deployed. Version **0.9.0**.
 
-Phase 4 satisfies its exit gate. Claude Code and Codex worked simultaneously, both live, in separate worktrees of one repository and in one checkout. Each received context for its own view with independent delivery state, and relevant changes reached each affected agent before its supported mutation executed. All of this held in both orderings. Participating clients could not commit a stale guarded mutation. Phase 4 is ready for Phase 5.
+Phase 4 satisfied its exit gate on `30cc96d`: Claude Code and Codex worked simultaneously, both live, in separate worktrees of one repository and in one checkout, each with context for its own view and independent delivery state, relevant changes reaching each affected agent before its supported mutation executed, in both orderings, and participating clients unable to commit a stale guarded mutation. Review then found two recovery defects beneath that evidence. Their corrections change the confirmation path every gate uses and the guard the race uses. **Until the native gates are rerun on the corrected code, in both orderings, Phase 4 is not re-established and Phase 5 should not start.**
+
+Access needed for that rerun, and nothing more:
+
+1. A dedicated Codex home, for example `C:\memex-native\codex-home`, authenticated by the maintainer: `$env:CODEX_HOME='C:\memex-native\codex-home'; codex login`.
+2. A dedicated Claude Code configuration directory, for example `C:\memex-native\claude-config`, authenticated by the maintainer: `$env:CLAUDE_CONFIG_DIR='C:\memex-native\claude-config'; claude`, then `/login`.
+3. Then set `MEMEX_NATIVE_CODEX_HOME` and `MEMEX_NATIVE_CLAUDE_CONFIG_DIR` to those directories and run the native commands under [Reproduce](#reproduce). Fixture trust and session history then land in those homes, not in the real ones.
 
 What P5 inherits:
 
@@ -267,15 +355,25 @@ What P5 must establish, and Phase 4 did not:
 
 Four cautions carry forward:
 
-1. **Run native trials in an isolated client home.** Codex persisted project trust in the user's real configuration for every fixture directory (S02-22). W16/W17 harnesses should provision a dedicated `CODEX_HOME` (and Claude config directory) with their own authentication, so trials neither read nor write a maintainer's own client state.
+1. **Run native trials in an isolated client home.** Codex persisted project trust in the user's real configuration for every fixture directory (S02-22). The Phase 4 harness now requires dedicated homes and refuses the real ones; W16/W17 harnesses should reuse `isolate_clients`.
 2. **Fixture isolation is part of the measurement.** A user plugin's failure changed an agent's behavior. W17's independent-maintainer pilot will run in uncontrolled environments, and trial protocols must record what else was loaded.
 3. **A host's concurrency is a property to measure, not assume.** Claude serialized parallel edits; Codex ran hooks concurrently, and that exposed a real race in code that Phase 3 had accepted.
 4. **Identity is still not delivery.** On both hosts the confirmation signal is a record written because the client used the output. Any third host must find its own, and must fail closed if it has none.
 
 ## Cleanup
 
-The isolated Neo4j server started for this phase is the only service started, and only it is stopped at handoff. Runtimes, the virtual environment, the S02 probe harness, the built wheel and native evidence remain under the execution worktree's `output/` and are not committed, matching earlier phases. The committed tests and this report are the portable evidence.
+The isolated Neo4j server started for this phase is the only service started, and only it is stopped at handoff. It was started again for the corrections and stopped again at their handoff. Runtimes, the virtual environment, the S02 probe harness, the built wheel and native evidence remain under the execution worktree's `output/` and are not committed, matching earlier phases. The committed tests and this report are the portable evidence.
 
 Fixture runs necessarily left session history in the user's own clients: Codex rollouts under `~/.codex/sessions/2026/10/05/` and Claude transcripts under `~/.claude/projects/` for temporary fixture directories. They are history, not configuration. They were not deleted, because deleting inside a client's own store was not authorized.
 
-**Global configuration: one side effect, not reverted.** `~/.codex/config.toml` *was* changed during this phase, by the Codex client rather than by memex: it appended 26 `[projects.'<fixture directory>'] trust_level = "trusted"` blocks (S02-22), for the 15 S02 probe repositories under this worktree's `output/phase4/s02` and 11 pytest temporary directories of the native tests. memex wrote no hook trust and no other key. Removing those blocks edits the user's real global configuration, so it was not done without authorization. `output/phase4/remove_fixture_trust.py` removes exactly those blocks, after verifying each holds only that one line and after backing the file up; it was run in dry-run mode only. `~/.codex/hooks.json` was not modified. `~/.claude/settings.json` changed once during the phase, to `model: "opus"`, from the maintainer's own `/model` command; it carries no memex hook. The separate `D:\memex` checkout and its concurrent work were not touched.
+**Global configuration: one side effect, not reverted.** `~/.codex/config.toml` *was* changed during this phase, by the Codex client rather than by memex: it appended 26 `[projects.'<fixture directory>'] trust_level = "trusted"` blocks (S02-22), for the 15 S02 probe repositories under this worktree's `output/phase4/s02` and 11 pytest temporary directories of the native tests. memex wrote no hook trust and no other key. Removing those blocks edits the user's real global configuration, so it was not done without authorization. **It still requires separate approval.** The corrections added no entry: no Codex client was started, and a fresh dry run lists the same 26 paths.
+
+Reviewing the cleanup script found a defect that was never applied. It read and wrote text, which on Windows would have rewritten every LF line ending in the LF-only file as CRLF, contradicting its "every other byte unchanged" claim. The script now works on bytes. Before any write it verifies that the result equals the original with exactly the 26 blocks cut out, and that the result parses as TOML with every other key unchanged. It gained a `--rehearse <copy>` mode. A rehearsal on a copy removed 78 lines (26 headers, 26 trust lines, 26 blank separators), added none, kept LF endings, and left `config.toml`'s hash unchanged. The copy was deleted afterwards because it held the user's configuration.
+
+The reviewed procedure, to run only after approval:
+
+1. Close every Codex client, so nothing rewrites `config.toml` meanwhile.
+2. `python output/phase4/remove_fixture_trust.py`: a dry run that must list exactly the 26 paths below.
+3. `python output/phase4/remove_fixture_trust.py --apply`: copies the file to `config.toml.memex-backup`, writes the result and re-verifies it. To revert, copy the backup back.
+
+The 26 paths: the S02 probe repositories `repo-exec1`, `-exec2`, `-exec3`, `-as1` to `-as6`, `-diag1`, `-diag2`, `-b1`, `-b2`, `-caps1` and `-mcp` under `c:\users\stifl\.codex\worktrees\v1-phase1\memex\output\phase4\s02\`. And, under `c:\users\stifl\appdata\local\temp\pytest-of-stifl\`: `pytest-591` and `pytest-615\test_native_codex_semantically0\repo`; `pytest-603`, `-604`, `-608` (`ch0` and `ch1`) and `-609\test_both_hosts_live_in_one_ch*\repo`; `pytest-610` and `-611\test_unmerged_change_stays_out0\main`; and `pytest-612` and `-613\test_racing_guarded_writers_lo0\repo`. `~/.codex/hooks.json` was not modified. `~/.claude/settings.json` changed once during the phase, to `model: "opus"`, from the maintainer's own `/model` command; it carries no memex hook. The separate `D:\memex` checkout and its concurrent work were not touched.

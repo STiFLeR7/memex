@@ -111,4 +111,10 @@ Two further findings were corrected after the hardening pass; [18_PHASE3_VERIFIC
 
 **V1-011 is implemented with fencing on the write path.** A token stored in SQLite and checked before a host's own write would not stop a paused holder. The guard rechecks holder, generation, expiry and expected hashes inside the same SQLite write transaction that replaces the files.
 
+**Recovery is part of every protected section, not of construction.** A guard that already existed could commit while an older interrupted write's intent was unresolved, and a later guard then replayed it over the newer write. Every guarded operation now resolves intents first, inside its own write lock. An intent records before and after hashes, so recovery writes only over bytes the interrupted commit verified; anything else is held for an explicit operator decision.
+
+**A confirmation commits with the baseline it certifies.** Claiming `confirmed` and then acknowledging left a window where a stopped process stranded a confirmation the core never made. The ledger transition, the core's baseline update and the trace event now share one transaction on the shared control plane.
+
+**Native fixtures run only in isolated client homes.** Codex wrote trust for fixture directories into the maintainer's real configuration. Native harnesses now refuse to run without dedicated, separately authenticated homes.
+
 **Fixture isolation is part of a native measurement.** A user's failing global plugin told an agent memex was offline and changed its first proposal. Native fixtures now load only their own project settings, per invocation.
