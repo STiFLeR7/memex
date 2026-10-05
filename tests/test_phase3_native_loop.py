@@ -152,7 +152,7 @@ def run_contract(repo: Path, api_source: str, tmp_path: Path, label: str):
 async def native(tmp_path, monkeypatch):
     if os.getenv("MEMEX_PHASE3_NATIVE") != "1":
         pytest.skip("native host run is opt-in; set MEMEX_PHASE3_NATIVE=1")
-    support.isolate_clients(monkeypatch)
+    support.select_clients(monkeypatch)
     uri = os.getenv("MEMEX_PHASE1_NEO4J_URI")
     if not uri:
         pytest.skip("isolated native Neo4j required")
