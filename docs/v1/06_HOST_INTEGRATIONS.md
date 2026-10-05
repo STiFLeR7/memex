@@ -15,7 +15,7 @@ All hosts use the same action contract, including unavailable coverage and resyn
 | `session_context` | Insert a bounded initial working set |
 | `action_observation` | Observe proposed action and declared targets |
 | `action_reconsideration` | Prevent a material stale pending action, supply correction and resume model planning |
-| `delivery_ack` | Confirm insertion into the intended session |
+| `delivery_ack` | Confirm insertion into the intended session, identifying *which* packet |
 | `resume_identity` | Verify session continuity after restart |
 | `guarded_write` | Supported writes execute with expected-hash checking in a cooperating guard |
 
@@ -28,6 +28,8 @@ Use documented session/prompt/action hooks for registration and action checks. C
 S01 measured this on version 2.1.289 and the concern was correct: `additionalContext` arrives alongside the tool result, so allow-plus-correction would let the stale action run first. The supported route is a synchronous `PreToolUse` returning `permissionDecision:"deny"`, which prevented the pending mutation with the target bytes unchanged and delivered the reason to the model as an `is_error` tool result that it then acted on. Deny is honored even under `bypassPermissions`.
 
 Two measured constraints bound the gate. A hook exceeding its configured `timeout` does **not** block, so the write proceeds; the adapter keeps an inner deadline and records a fail-open advisory rather than implying it gated anything. And `permissionDecision:"defer"` ends a non-interactive turn with `stop_reason: tool_deferred`, abandoning the action instead of failing open, so the adapter emits `deny` or no decision at all. It subtracts permission and never grants it: emitting `allow` would bypass the user's own permission policy on a memex outage.
+
+Measured delivery confirmation: the installed client's transcript records each hook invocation's raw stdout with an exit code, and records a denial's text as a `tool_result`, both tagged with the session ID. That is the only signal this host exposes that identifies which packet entered which session, so each delivery embeds a marker of its own identity and is acknowledged only when that marker is observed. Returning from a hook, writing to stdout and exiting zero identify no packet and are not acceptance. A correction names the evidence paths whose bytes changed, not only the action target, so the agent knows which dependency to recheck.
 
 Do not use permission escalation to ask the human about every correction. Return a machine-readable reconsideration reason and bound repeated attempts. Do not alter permission policy, auto-approve tools or rewrite tool arguments merely to deliver context. Claude's documented defer path has version/mode restrictions; it is not a universal interactive-session pause mechanism.
 

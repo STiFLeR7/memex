@@ -80,3 +80,13 @@ W09–W11 implement R06/R10/R11/R12 on one host. V1-009 is satisfied for Claude 
 Two decisions are worth carrying forward. **The adapter only ever subtracts permission.** It emits `deny` or no decision; `allow` would bypass the user's permission policy on a memex outage, and a measured `defer` abandons the pending action in a non-interactive session instead of failing open. **A hook payload is not an authenticator.** The principal comes from an owner-only capability file in the Git common directory and the memex session is an HMAC of the native session under that secret, so a forged payload cannot address another principal's stream.
 
 V1-011 and V1-012 are unchanged and now have measured edges. The gate is a check, not a lock: a hook timeout fails open, opaque shell actions are explicitly not certified, and a writer arriving after the check is not prevented. No claim is made that an action check protects against arbitrary writers.
+
+## Phase 3 hardening decisions
+
+Three findings against the original P3 result were corrected; [18_PHASE3_VERIFICATION.md](18_PHASE3_VERIFICATION.md) records the reproductions.
+
+**The core's current result is authoritative, always.** An adapter may cache rendered output for idempotency, but only alongside the verdict it answers, and must discard it when the core changes its mind. The original replay path returned a stale non-denial after the core had expired the attempt.
+
+**V1-012 is sharpened: acknowledgement requires per-packet evidence.** Preparing a response, printing it, and the host inserting it are three different events. Only evidence that identifies a specific packet in a specific session advances the accepted baseline; a later hook invocation, a successful stdout write or a zero exit code does not. Unconfirmed packets stay pending and are re-offered, and recovery is bounded. Where a host offers no such evidence, retain pending state and record the limitation rather than acknowledge optimistically.
+
+**A phase gate must discriminate.** A native demonstration whose objective assertions hold whether or not the premise changed proves interception, not reconsideration. The exit now requires the originally proposed mutation to fail an objective contract that the revised one passes. A new attempt identifier and a `reconsidered` flag are not evidence of semantic reconsideration.

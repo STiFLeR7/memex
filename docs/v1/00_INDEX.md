@@ -2,7 +2,7 @@
 
 Planning baseline: 3 October 2026. Inspected source commit: `d7614cdaa70947fdf77d43e5235616ff73e9e7fc` on `master`; local source was read without alteration.
 
-**Product direction: approved by the maintainer. P1/P2 implementation: complete and verified on 4 October 2026. P3: complete and verified on 5 October 2026, with the native ordering gate passing against Claude Code 2.1.289.** The maintainer explicitly approved the Live Context thesis and requested the v1 roadmap and supporting execution documents. These documents define the baseline design. P1 delivers trustworthy repository views; P2 implements immutable evidence, scoped verification and durable task/action corrections; P3 delivers one native action loop on a single host. The second host, concurrency and guarded writes remain P4; evaluation targets are not measured product results.
+**Product direction: approved by the maintainer. P1/P2 implementation: complete and verified on 4 October 2026. P3: complete, verified and hardened on 5 October 2026, with a discriminating native ordering gate passing against Claude Code 2.1.289.** The maintainer explicitly approved the Live Context thesis and requested the v1 roadmap and supporting execution documents. These documents define the baseline design. P1 delivers trustworthy repository views; P2 implements immutable evidence, scoped verification and durable task/action corrections; P3 delivers one native action loop on a single host. The second host, concurrency and guarded writes remain P4; evaluation targets are not measured product results.
 
 Memex v1 maintains an agent's engineering working context against changing evidence, then supplies corrections before its next relevant action. Simultaneous Claude Code and Codex sessions, both in separate worktrees and in a shared checkout, are required v1 scenarios.
 
@@ -46,7 +46,7 @@ Memex v1 maintains an agent's engineering working context against changing evide
 | P0: planning baseline | Complete for this documentation pass | Numbered package, source audit and traceability table |
 | P1: trustworthy repository views | Complete, opt-in implementation | [80 phase checks, native graph/daemon evidence and review fixes](14_PHASE1_VERIFICATION.md) |
 | P2: evidence validity | Complete, opt-in core | [38 phase checks, 118 combined checks and review regressions](16_PHASE2_VERIFICATION.md) |
-| P3: one native action loop | Complete, verified on one host | [Native mutation-before-edit trace, 34 phase checks and 679 compatibility checks](18_PHASE3_VERIFICATION.md) |
+| P3: one native action loop | Complete, verified and hardened on one host | [Discriminating native trace, 50 phase checks and 679 compatibility checks](18_PHASE3_VERIFICATION.md) |
 | P4: concurrent agents and second host | Not started | Two-host concurrency matrix |
 | P5: efficacy, migration and OSS release | Not started | Preregistered results and release checklist |
 

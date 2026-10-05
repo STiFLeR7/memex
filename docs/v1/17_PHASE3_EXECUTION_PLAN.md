@@ -1,6 +1,6 @@
 # Phase 3 execution plan
 
-Status: executing W09–W11 from verified Phase 2 commit `3194450` on `codex/v1-phase3`.
+Status: W09–W11 executed from verified Phase 2 commit `3194450` on `codex/v1-phase3`, then hardened against three findings. See the [verification report](18_PHASE3_VERIFICATION.md) for measured results and the hardening record.
 Spec: [06_HOST_INTEGRATIONS.md](06_HOST_INTEGRATIONS.md), [04_CONTEXT_CONTRACTS.md](04_CONTEXT_CONTRACTS.md), [05_MULTI_AGENT_CONCURRENCY.md](05_MULTI_AGENT_CONCURRENCY.md).
 Verification report: [18_PHASE3_VERIFICATION.md](18_PHASE3_VERIFICATION.md).
 
@@ -31,9 +31,9 @@ Produce `memex/integrations/claude_code.py`: a hook entry point plus the adapter
 
 **Trust.** A hook payload is not an authenticator. Registration writes a capability file under the repository's Git common directory (`<common_dir>/memex/adapters/claude-code.json`, owner-only) holding a random secret and the authorized `principal_id`. The adapter reads its principal from that file, never from stdin. `memex_session_id` is derived as an HMAC of the native session ID under that secret, so a forged native session ID cannot address another stream. The payload `cwd` must resolve through `discover_repository` to the registered `worktree_id`; a mismatch is refused rather than served.
 
-**Lifecycle.** `SessionStart` resolves the view, calls `open_task` and returns the bounded packet as `additionalContext`; `ack_delivery` runs only after the host accepted the insertion. `PreToolUse` on a declared edit tool normalizes targets relative to the registered root, derives `expected_hashes` from the acknowledged baseline's own `support_hashes` (what memex actually told this session), and calls `check_action` with `attempt_id = tool_use_id`. A reconsidered attempt carries the prior denied `tool_use_id` as `original_attempt_id`, so the engine's two-attempt ceiling applies. `SessionEnd` closes the task.
+**Lifecycle.** `SessionStart` resolves the view, calls `open_task` and returns the bounded packet as `additionalContext`. Acknowledgement runs only on per-packet evidence that the host inserted it, which the hardening pass implemented as a marker-in-transcript confirmation: preparation and printing are distinct from confirmed insertion and never stand in for it. `PreToolUse` on a declared edit tool normalizes targets relative to the registered root, derives `expected_hashes` from the acknowledged baseline's own `support_hashes` (what memex actually told this session), and calls `check_action` with `attempt_id = tool_use_id`. A reconsidered attempt carries the prior denied `tool_use_id` as `original_attempt_id`, so the engine's two-attempt ceiling applies. `SessionEnd` closes the task.
 
-**Outcome mapping.** `replan` and `resync_required` deny with the correction text. `proceed` allows. `unavailable` defers to normal permission flow with an explicit unknown-freshness advisory, because fail-open must not look like certification.
+**Outcome mapping.** `replan` and `resync_required` deny with the correction text, which names the evidence paths whose bytes changed rather than only the action target. A replayed attempt is answered from the core's current verdict, so an expired attempt requests a new attempt ID instead of reusing an earlier non-denial. `proceed` allows. `unavailable` defers to normal permission flow with an explicit unknown-freshness advisory, because fail-open must not look like certification.
 
 **Action kinds.** `Edit`, `Write`, `MultiEdit` and `NotebookEdit` declare their targets and are gated. `Bash` and other opaque tools cannot enumerate targets; they are recorded with `scope_complete=False` and deferred, never denied and never certified. Undeclared mutation coverage is not claimed.
 
@@ -65,7 +65,7 @@ Write failing tests first, then implement. Commit W11.
 
 The exit requires one real client run in which an initial packet is used, supporting evidence then changes, the materially affected mutation is prevented before it executes, the correction reaches that session, the model proposes a revised action, and the revised action executes and passes an objective check.
 
-The demonstration uses genuine drift, because S01 showed the model correctly rejects a correction it can disprove. The stale edit must be one that cannot still apply, and the objective check must confirm the revised write preserved the external change instead of clobbering it.
+The demonstration uses genuine drift, because S01 showed the model correctly rejects a correction it can disprove. It must also require a *different implementation*: the drift is a dependency contract change, and the objective contract is evaluated against both the reconstructed denied proposal, which must fail, and the shipped implementation, which must pass. A patch that satisfies the contract either way cannot show the correction changed anything, which is why two earlier fixtures were discarded.
 
 Required coverage beyond the exit trace:
 
