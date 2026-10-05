@@ -5,7 +5,7 @@ Branch: `codex/v1-phase4`, from accepted Phase 3 commit `1390f15`. Plan: [19_PHA
 
 Clients: **Claude Code 2.1.289** (model `claude-opus-5-5`) and **codex-cli 0.157.1** (model `gpt-6-sol`, app-server mode). Version remains **0.9.0**; nothing was merged, deployed or released.
 
-Commits: `0a5f4ad` (plan), `a4facb9` (shared adapter lifecycle, host namespacing, complete-packet rule), `cf537c1` (Codex adapter), `dce2469` (native Codex gate), `ed777e8` (write guard), `885d06d` (guard server and guarded mode), `092a456` (worktree tests), `b6da6f9` (shared-checkout and continuity tests), `5047884` (concurrent-confirmation fix and shared-checkout gate), `fd47af9` (gate diagnostics), `c49461c` (worktrees gate), `e14878e` (guarded race gate), `102a3fe` and `30cc96d` (report). Corrections: `88bfbe5` (guard recovery), `ff723a1` (atomic confirmation), `2c5f381` (native client homes and launcher `CODEX_HOME`), `42503d8` (report). Native rerun: `dd85c90` (harness uses the existing logins and tracks configuration entries), then this report.
+Commits: `0a5f4ad` (plan), `a4facb9` (shared adapter lifecycle, host namespacing, complete-packet rule), `cf537c1` (Codex adapter), `dce2469` (native Codex gate), `ed777e8` (write guard), `885d06d` (guard server and guarded mode), `092a456` (worktree tests), `b6da6f9` (shared-checkout and continuity tests), `5047884` (concurrent-confirmation fix and shared-checkout gate), `fd47af9` (gate diagnostics), `c49461c` (worktrees gate), `e14878e` (guarded race gate), `102a3fe` and `30cc96d` (report). Corrections: `88bfbe5` (guard recovery), `ff723a1` (atomic confirmation), `2c5f381` (native client homes and launcher `CODEX_HOME`), `42503d8` (report). Native rerun: `dd85c90` (harness uses the existing logins and tracks configuration entries), then `3a876ad` (report). Cleanup helper: `27af7a9`.
 
 
 ## S02: measured Codex semantics
@@ -145,6 +145,39 @@ These tests drive `LiveContextEngine.ack_delivery` over a real `TaskStore` in th
 
 **Raw evidence.** The failing run's output is kept in the execution worktree at `output/phase4/recovery/red-30cc96d.txt` (uncommitted, like other runtime output).
 
+### Cleanup helper: a concurrent client change could be lost (`27af7a9`)
+
+**Reproduction.** `cleanup()` read `config.toml`, prepared the removal of this run's trust entries, then wrote that earlier content back. A setting another client changed between the read and the write was lost: a concurrent change from `model = "old"` to `model = "new"` disappeared. The Claude JSON path had the same race: it read `~/.claude.json`, re-serialized it and replaced the file. Atomic replacement and a hash check before writing do not close this: the clients share no lock, so a write can still land after the check.
+
+**Fix.** Cleanup now opens each file with no sharing (Windows share mode 0). While that handle is open, no other process can open, read, write, replace or delete the file. The removal is recomputed from the bytes read through that handle and written back through the same handle, so no other writer's content can be overwritten. If exclusive access is not obtained within a bounded time, or the platform has no mandatory exclusion, the file is left unchanged and cleanup is reported pending (exit status 3).
+
+Replacing the file from a temporary copy would need the handle closed first, reopening the race. The write therefore happens in place, ordered so the file is always complete. The new content, never longer than the old, is written over the old at the old length, padded with trailing newlines, and flushed; then the padding is truncated.
+
+Removal is unchanged in scope: only entries absent from the pre-run snapshot and naming the run's own fixture directories. A Codex block is removed only in the client's own single-quoted form with exactly `trust_level = "trusted"`, and the result must parse to the original minus those projects. Anything else is preserved and reported pending, where the old helper aborted. The Claude file is rewritten only if its exact layout can be reproduced. No credential file is read.
+
+**Evidence** (`tests/test_phase4_client_config.py`, temporary configuration files only). A concurrent client is a real thread doing its own unsynchronized read-modify-write. It starts either before cleanup takes exclusive access or while cleanup holds it.
+
+| Case | Unfixed helper | Fixed |
+| --- | --- | --- |
+| Codex setting changed before exclusive access | Failed: setting lost | Passed: change kept |
+| Codex setting changed during exclusive access | Not applicable: no such boundary | Passed: the client was blocked, retried and its change kept |
+| Claude setting changed before exclusive access | Failed: setting lost | Passed |
+| Claude setting changed during exclusive access | Not applicable | Passed |
+| Only this run's entries removed, every other byte kept, LF and CRLF | Passed | Passed |
+| Repeated cleanup rewrites nothing | Passed | Passed |
+| Double-quoted header, unexpected block content, non-reproducible JSON layout | Failed: aborted instead of reporting pending | Passed: left unchanged, pending |
+| File held open by another process | Failed: no pending report | Passed: unchanged, pending |
+| Stop before the write, and between write and truncation (real process) | Not applicable | Passed: always a valid file; a later cleanup completes |
+
+Run first against the unfixed helper: **8 failed, 3 passed**. Against the fix: **11 passed**, and again five times in a row.
+
+Checks run for this fix:
+- these 11 tests, plus their five repeats;
+- `ruff check --select E,F,B,W` on both files;
+- the broad suite: **759 passed, 1 skipped, 132 deselected** with the Neo4j fixture up. A run with the fixture stopped had 3 failures, which a rerun with it up cleared; the change touches no graph code.
+
+No native trial was rerun: the fix changes neither product behavior nor how native gates execute, only the helper run after them. The real client configuration files were not read or written while testing this fix.
+
 ## Native gates
 
 **Two runs.** The narratives below, including the hold times, are from the first runs on `30cc96d`. Every gate was rerun on the corrected code: product code at `2c5f381`, harness at `dd85c90`, the same client versions and models, and the pinned environment. Every gate passed again, in both orderings; see [Executed evidence](#executed-evidence). The rerun used the client logins already on the machine. Each fixture loaded only its own project settings, and the configuration entries the run created were tracked and removed (see [Cleanup](#cleanup)).
@@ -263,7 +296,7 @@ All results below are fresh from this phase. No earlier count is reused.
 | Phase 3 native regression (corrected code) | `MEMEX_PHASE3_NATIVE=1 pytest tests/test_phase3_native_loop.py -v` | **1 passed** (37 s); also passed on `30cc96d` |
 | Phase 3 mechanism | `pytest tests/test_live_claude_adapter.py tests/test_phase3_compat.py tests/test_phase3_schema_upgrade.py -q` | **64 passed** |
 | Phase 1 + 2 inherited | The 12 files listed in [18](18_PHASE3_VERIFICATION.md#reproduce) | **74 passed** |
-| Broad compatibility | `pytest tests -m "not integration" -q` | **748 passed, 1 skipped, 132 deselected** |
+| Broad compatibility | `pytest tests -m "not integration" -q` | **748 passed, 1 skipped, 132 deselected**; **759 passed** after the cleanup-helper tests were added |
 | Dependencies | `pip check` | No broken requirements |
 | Lint | `ruff check --select E,F,B,W --line-length 120` on every Phase 3 and 4 file | Passed |
 | Whitespace | `git diff --check 1390f15 HEAD` | Passed |
@@ -326,7 +359,9 @@ These are properties of the integration as measured.
 
 **Confirmation is atomic only on one control plane.** The ledger, baseline and trace commit together because they share the registration's SQLite file. The adapter refuses to confirm otherwise.
 
-**Native fixture sessions write the user's client configuration.** The Codex client persists project trust for every directory a session starts in (S02-22); memex writes none of it. A native run against the machine's own logins therefore adds one trust entry per fixture directory. `tests/phase4_client_config.py` removes exactly the entries that were absent from its snapshot and name the run's own pytest base directory, edited as bytes and verified. The corrected-code rerun added 7 and removed 7. Session history (Codex rollouts, Claude transcripts) is history, not configuration, and is left in the clients' own stores.
+**Native fixture sessions write the user's client configuration.** The Codex client persists project trust for every directory a session starts in (S02-22); memex writes none of it. A native run against the machine's own logins therefore adds one trust entry per fixture directory. `tests/phase4_client_config.py` removes exactly the entries that were absent from its snapshot and name the run's own pytest base directory. The corrected-code rerun added 7 and removed 7. Session history (Codex rollouts, Claude transcripts) is history, not configuration, and is left in the clients' own stores.
+
+**Cleanup excludes other writers only on Windows, and only briefly.** Neither client takes a lock memex could share. Cleanup holds the file with no sharing for the milliseconds of its read and write. A client that writes in that moment gets a sharing violation and must retry; whether it does is the client's behavior, not memex's. Where exclusive access is unavailable within the bound, or on a platform without mandatory exclusion, nothing is written and cleanup is reported pending. An interruption between its two write steps leaves valid content with extra trailing newlines, which later cleanups do not remove. A Claude state file whose layout cannot be reproduced exactly is reported pending, not rewritten.
 
 **Fixture-only conditions.** The Claude guarded run allow-listed the two guard tools for that one invocation, as Phase 3 used `acceptEdits`. Both clients ran isolated from the user's plugins. Neither choice is something memex performs on a user's behalf.
 
