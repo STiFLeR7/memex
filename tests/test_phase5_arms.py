@@ -142,3 +142,19 @@ async def test_a_surviving_alternative_support_separates_hash_notes_from_live_co
     await session.start()
     change()
     assert ((await session.edit(D06)).decision == "deny") is interrupts
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("mechanism", sorted(fixtures.MECHANISMS))
+async def test_every_mechanism_seeds_its_graph(tmp_path, mechanism):
+    """Seeding must succeed for every mechanism before any trial is spent on it."""
+    uri = os.getenv("MEMEX_PHASE1_NEO4J_URI")
+    if not uri:
+        pytest.skip("isolated native Neo4j required")
+    history = next(h for h in fixtures.DEV_HISTORIES + fixtures.confirmatory_histories(tuple(fixtures.MECHANISMS))
+                   if h.mechanism == mechanism)
+    made = fixtures.materialize(history, tmp_path)
+    seeded = await fixtures.seed_graph(history, pathlib.Path(made["repo"]), uri)
+    assert seeded["repo_id"]
+    ids = [c["revision_id"] for batch in fixtures.claim_plan(history) for c in batch["claims"]]
+    assert len(ids) == len(set(ids)), "revision ids are unique within a repository"

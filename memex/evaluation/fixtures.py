@@ -1136,7 +1136,7 @@ def claim_plan(h: History) -> list[dict]:
                    "assertion": t.assertion, "support_sets": support})
     if m == "governed":
         evidence.append({"evidence_id": "e-approval-rule", "source_kind": "approval", "approver": "maintainer"})
-        claims.append({"claim_id": "c-rule", "revision_id": "r1", "authority": "human_approved",
+        claims.append({"claim_id": "c-rule", "revision_id": "r-rule-1", "authority": "human_approved",
                        "assertion": f"Approved rule: {t.rule}",
                        "support_sets": [["e-approval-rule", source("DECISIONS.md")]]})
     return [{"evidence": evidence, "claims": claims}]
