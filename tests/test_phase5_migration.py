@@ -352,3 +352,17 @@ async def test_off_and_shadow_deliver_and_deny_nothing(tmp_path, mode):
         assert not [e for e in events if e["event"] == "delivery" and e["insertion"] == "emitted"]
     else:
         assert not shadows
+
+
+def test_doctor_on_a_fresh_install_says_what_to_do_next(tmp_path):
+    from memex.cli import main
+    repo = make_repo(tmp_path / "fresh")
+    from memex.runtime.diagnostics import diagnose, render
+    registration = discover_repository(repo)
+    report = diagnose(registration)
+    assert report["capabilities"]["codex"]["registered"] is False
+    assert "not a freshness result" in render(report)
+    with pytest.raises(SystemExit) as exit_info:
+        main(["v1", "install", "claude", "--repo", str(repo)])
+    assert exit_info.value.code == 0
+    assert diagnose(registration)["capabilities"]["claude_code"]["hooks_installed"] is True

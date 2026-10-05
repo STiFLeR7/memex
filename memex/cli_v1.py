@@ -29,6 +29,14 @@ def add_parser(subparsers, parent_parser) -> None:
     doctor.add_argument("--json", action="store_true")
     sub.add_parser("legacy", help="List legacy_unverified knowledge (historical retrieval only)",
                    parents=[parent_parser])
+    for name, text in (("install", "Register a host for this worktree and install its project hooks"),
+                       ("uninstall", "Remove memex's project hooks for a host, leaving other hooks intact")):
+        host = sub.add_parser(name, help=text, parents=[parent_parser])
+        host.add_argument("host", choices=("claude", "codex"))
+        if name == "install":
+            host.add_argument("--principal", default=os.getenv("USERNAME") or os.getenv("USER") or "owner")
+            host.add_argument("--neo4j-uri", help="Graph URI for Codex hooks, which receive a filtered "
+                                                  "environment (no credentials are stored)")
 
 
 def _registration(repo_root: str | None):
@@ -77,6 +85,8 @@ def run(args) -> int:
         return asyncio.run(_migrate(args))
     if command == "legacy":
         return asyncio.run(_legacy(args))
+    if command in ("install", "uninstall"):
+        return _install(args, command == "install")
     print(f"unknown v1 command {command}", file=sys.stderr)
     return 2
 
@@ -124,4 +134,36 @@ async def _legacy(args) -> int:
         print(f"[{claim['coverage']}, {claim['authority']}] {claim.get('kind')}: {claim.get('text')}")
     if not claims:
         print("no legacy knowledge imported for this repository")
+    return 0
+
+
+def _install(args, install: bool) -> int:
+    """Project-scope hooks only. The user's global client configuration is never edited."""
+    registration = _registration(args.repo)
+    root = Path(registration.root)
+    if args.host == "claude":
+        from memex.integrations import claude_code
+        settings = root / ".claude" / "settings.json"
+        if install:
+            claude_code.register(root, args.principal)
+            claude_code.install_hooks(settings)
+            print(f"Claude Code: registered {args.principal} and installed hooks in {settings}.")
+            print("Next: run `memex v1 doctor`, then start Claude Code in this checkout.")
+        else:
+            claude_code.uninstall_hooks(settings)
+            print(f"Claude Code: removed memex hooks from {settings}; other hooks were kept.")
+        return 0
+    from memex.integrations import codex
+    hooks = root / ".codex" / "hooks.json"
+    launcher = codex.write_launcher(registration)
+    if install:
+        backend = {"neo4j_uri": args.neo4j_uri} if args.neo4j_uri else None
+        codex.register(root, args.principal, backend=backend)
+        codex.install_hooks(hooks, launcher)
+        print(f"Codex: registered {args.principal} and installed hooks in {hooks}.")
+        print("Next: open Codex in this checkout and review the hooks with /hooks; untrusted hooks do not run.")
+        print("Codex's supported route is an interactive or IDE (app-server) session; `codex exec` runs no hooks.")
+    else:
+        codex.uninstall_hooks(hooks, launcher)
+        print(f"Codex: removed memex hooks from {hooks}; other hooks were kept.")
     return 0

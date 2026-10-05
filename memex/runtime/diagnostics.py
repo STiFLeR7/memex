@@ -32,7 +32,10 @@ def diagnose(registration, *, graph_ok: bool | None = None) -> dict:
 
     report: dict = {"repository": {"repo_id": registration.repo_id, "worktree_id": registration.worktree_id,
                                    "root": registration.root, "common_dir": registration.common_dir},
-                    "mode": read_mode(registration), "guarded_writes": guard.guarded(registration)}
+                    "mode": read_mode(registration), "guarded_writes": guard.guarded(registration),
+                    "graph": ("reachable" if graph_ok else "unreachable" if graph_ok is False else "not checked")
+                    + " (connection health only; not a freshness result)",
+                    "capabilities": capabilities(registration)}
     runtime = Path(registration.runtime_path)
     if not runtime.exists():
         finding("warning", "no_runtime",
@@ -95,7 +98,6 @@ def diagnose(registration, *, graph_ok: bool | None = None) -> dict:
     finally:
         db.close()
 
-    report["capabilities"] = capabilities(registration)
     for host, cap in report["capabilities"].items():
         if not cap["registered"]:
             finding("info", f"{host}_not_registered", f"{host} is not registered for this worktree; it gets no "
@@ -112,8 +114,6 @@ def diagnose(registration, *, graph_ok: bool | None = None) -> dict:
         finding("warning", "guarded_without_live",
                 "guarded writes are on but v1 is not live: the guard still fences its own writes, but native "
                 "edits are not redirected to it.")
-    report["graph"] = ("reachable" if graph_ok else "unreachable" if graph_ok is False else "not checked") + \
-        " (connection health only; not a freshness result)"
     report["findings"] = findings
     return report
 
