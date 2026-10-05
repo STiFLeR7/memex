@@ -34,6 +34,7 @@ S02 ran against the installed client before any adapter code, with an instrument
 | S02-19 | The app-server's own `hook/completed` `context` entry is the hook's output | Present whether or not insertion happened | Not insertion evidence, like Claude's `hook_success` |
 | S02-20 | An interrupt during a turn left the target unchanged | `turn/interrupt` → `interrupted`; target hash unchanged 25 s later | Partially isolated: the interrupt landed during a read, not inside a sleeping `apply_patch` hook |
 | S02-21 | Codex calls MCP tools under the user's default approval policy without an approval request | The harness, which declines every approval, declined none; `guard_read` and `guard_write` completed | Guarded writes are reachable on Codex without changing any policy |
+| S02-22 | Starting a Codex session in a directory makes the client **persist `trust_level = "trusted"` for that project in the user's own `~/.codex/config.toml`** | Discovered at handoff: 26 entries, one per fixture directory a session started in (for linked worktrees, keyed to the main worktree), each containing only that line; the per-invocation `projects.<path>` override had been ignored (S02-3) | Native fixtures cannot avoid writing the user's global Codex configuration without an isolated `CODEX_HOME`, which needs its own authentication. Recorded as a limitation and a P5 requirement |
 
 The rollout layout is `<CODEX_HOME or ~/.codex>/sessions/YYYY/MM/DD/rollout-<time>-<thread>.jsonl`, and its first record is `session_meta` naming the thread. Both are checked before anything in the file is read.
 
@@ -238,6 +239,8 @@ These are properties of the integration as measured.
 
 **Guarded mode protects only cooperating writes through the guard.** Editors, shell redirection, other tools, external Git operations and other machines bypass it. The guard detects their drift as a stale write when a participant next writes; it does not prevent them, and no such claim is made. It coordinates processes on one machine through a local SQLite file, and must not be used on a network filesystem. While a guarded commit replaces files it holds the control plane's write lock, briefly blocking other memex writers. A multi-file commit is crash-consistent through roll-forward, but an outside reader could observe a partially replaced set during the commit window. Only `git commit --only` of named paths is a supported Git mutation; checkout, reset, rebase, merge, stash and the rest are reported unsupported.
 
+**Codex fixture sessions write the user's global configuration.** The client itself persists project trust for every directory a session starts in (S02-22). memex writes none of it, but a native Codex run on a developer machine leaves trust grants behind, including for pytest temporary paths that a later run recreates. A harness that must not touch global state needs an isolated `CODEX_HOME` with its own authentication.
+
 **Fixture-only conditions.** The Claude guarded run allow-listed the two guard tools for that one invocation, as Phase 3 used `acceptEdits`. Both clients ran isolated from the user's plugins. Neither choice is something memex performs on a user's behalf.
 
 **Scope.** One machine, one model per host, one claim shape per scenario, and a single run per ordering. This is mechanism evidence, not efficacy: no comparison against fresh retrieval or hash-bound notes, no confidence analysis, no latency or cost result. Those are Phase 5.
@@ -262,14 +265,17 @@ What P5 must establish, and Phase 4 did not:
 - **Migration and rollback (W18).** Adapter schema upgrades are tested, but a downgrade path and legacy backfill are not.
 - **Release documentation (W19).** It must carry the limitations above verbatim, especially fail-open, host trust, undocumented record formats and the guard's bypasses.
 
-Three cautions carry forward:
+Four cautions carry forward:
 
-1. **Fixture isolation is part of the measurement.** A user plugin's failure changed an agent's behavior. W17's independent-maintainer pilot will run in uncontrolled environments, and trial protocols must record what else was loaded.
-2. **A host's concurrency is a property to measure, not assume.** Claude serialized parallel edits; Codex ran hooks concurrently, and that exposed a real race in code that Phase 3 had accepted.
-3. **Identity is still not delivery.** On both hosts the confirmation signal is a record written because the client used the output. Any third host must find its own, and must fail closed if it has none.
+1. **Run native trials in an isolated client home.** Codex persisted project trust in the user's real configuration for every fixture directory (S02-22). W16/W17 harnesses should provision a dedicated `CODEX_HOME` (and Claude config directory) with their own authentication, so trials neither read nor write a maintainer's own client state.
+2. **Fixture isolation is part of the measurement.** A user plugin's failure changed an agent's behavior. W17's independent-maintainer pilot will run in uncontrolled environments, and trial protocols must record what else was loaded.
+3. **A host's concurrency is a property to measure, not assume.** Claude serialized parallel edits; Codex ran hooks concurrently, and that exposed a real race in code that Phase 3 had accepted.
+4. **Identity is still not delivery.** On both hosts the confirmation signal is a record written because the client used the output. Any third host must find its own, and must fail closed if it has none.
 
 ## Cleanup
 
 The isolated Neo4j server started for this phase is the only service started, and only it is stopped at handoff. Runtimes, the virtual environment, the S02 probe harness, the built wheel and native evidence remain under the execution worktree's `output/` and are not committed, matching earlier phases. The committed tests and this report are the portable evidence.
 
-Fixture runs necessarily left session history in the user's own clients: Codex rollouts under `~/.codex/sessions/2026/10/05/` and Claude transcripts under `~/.claude/projects/` for temporary fixture directories. They are history, not configuration. They were not deleted, because deleting inside a client's own store was not authorized. `~/.codex/config.toml`, `~/.codex/hooks.json` and `~/.claude/settings.json` were not modified, and no hook trust was written. The separate `D:\memex` checkout and its concurrent work were not touched.
+Fixture runs necessarily left session history in the user's own clients: Codex rollouts under `~/.codex/sessions/2026/10/05/` and Claude transcripts under `~/.claude/projects/` for temporary fixture directories. They are history, not configuration. They were not deleted, because deleting inside a client's own store was not authorized.
+
+**Global configuration: one side effect, not reverted.** `~/.codex/config.toml` *was* changed during this phase, by the Codex client rather than by memex: it appended 26 `[projects.'<fixture directory>'] trust_level = "trusted"` blocks (S02-22), for the 15 S02 probe repositories under this worktree's `output/phase4/s02` and 11 pytest temporary directories of the native tests. memex wrote no hook trust and no other key. Removing those blocks edits the user's real global configuration, so it was not done without authorization. `output/phase4/remove_fixture_trust.py` removes exactly those blocks, after verifying each holds only that one line and after backing the file up; it was run in dry-run mode only. `~/.codex/hooks.json` was not modified. `~/.claude/settings.json` changed once during the phase, to `model: "opus"`, from the maintainer's own `/model` command; it carries no memex hook. The separate `D:\memex` checkout and its concurrent work were not touched.
