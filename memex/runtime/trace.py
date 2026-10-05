@@ -3,8 +3,13 @@
 Three dimensions are deliberately distinct columns, because conflating them is
 how an integration starts claiming success it never measured:
 
-* ``insertion`` is delivery exposure. The host accepted, refused, or never
-  answered. Nothing about the agent follows from it.
+* ``insertion`` is where a packet got to, and the four values are not
+  interchangeable: ``prepared`` means the text exists in the adapter and nowhere
+  else, ``emitted`` means it was written to the host's pipe, ``confirmed`` means
+  the packet's own marker was found in the intended session's transcript, and
+  ``failed`` means no evidence arrived in the bounded window. Only ``confirmed``
+  is host-confirmed insertion, and only ``confirmed`` advances the accepted
+  baseline. Nothing about the agent follows from any of them.
 * ``gate`` is what the adapter did to the pending action, and ``reconsidered``
   is whether a later attempt actually arrived. An agent may ignore a
   correction; a prevented write is not a complied-with correction.
