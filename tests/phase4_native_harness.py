@@ -61,7 +61,8 @@ CODEX_PROMPT = (
 class ClaudeRun:
     """A live `claude -p` session in a fixture checkout."""
 
-    def __init__(self, repo: pathlib.Path, prompt: str, stream: pathlib.Path, *, max_turns: int = 30):
+    def __init__(self, repo: pathlib.Path, prompt: str, stream: pathlib.Path, *, max_turns: int = 30,
+                 extra_args: tuple = ()):
         env = dict(os.environ, PYTHONPATH=str(support.CHECKOUT))
         self.stream_path = stream
         self._out = open(stream, "w", encoding="utf-8")
@@ -73,7 +74,7 @@ class ClaudeRun:
             # proposal turned defensive. Nothing global is changed.
             ["claude", "-p", prompt, "--permission-mode", "acceptEdits", "--output-format", "stream-json",
              "--verbose", "--max-turns", str(max_turns), "--setting-sources", "project,local",
-             "--strict-mcp-config"],
+             "--strict-mcp-config", *extra_args],
             cwd=repo, env=env, stdin=subprocess.DEVNULL, stdout=self._out, stderr=subprocess.PIPE, text=True)
 
     def alive(self) -> bool:

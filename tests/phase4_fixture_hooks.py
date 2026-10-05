@@ -33,7 +33,7 @@ CHANGED = '''def validate(payload):
 def mentions(payload: dict, name: str) -> bool:
     tool_input = payload.get("tool_input") or {}
     if isinstance(tool_input, dict):
-        path = tool_input.get("file_path") or ""
+        path = tool_input.get("file_path") or tool_input.get("path") or ""
         command = tool_input.get("command") or ""
     else:
         path, command = "", str(tool_input)
