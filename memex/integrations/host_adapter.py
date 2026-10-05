@@ -38,6 +38,7 @@ import time
 from memex.context.live import (
     ActionRequest, DeliveryReceipt, OpenTaskRequest, PacketBudget, SessionIdentity,
 )
+from memex.runtime.modes import read_mode
 from memex.runtime.guard import classify_git, guarded
 from memex.runtime.trace import TraceStore
 from memex.runtime.views import discover_repository, git_output
@@ -1288,7 +1289,21 @@ class HostAdapter:
         handler = handlers.get(event)
         if handler is None:
             return HookResponse()
-        return await handler(payload)
+        mode = read_mode(self.registration)
+        if mode == "off":
+            return HookResponse(reason="memex: v1 is off for this worktree")
+        response = await handler(payload)
+        if mode == "shadow":
+            # Record what live mode would have done; deliver nothing and deny
+            # nothing, so no agent is described as corrected.
+            if native and (response.decision or response.additional_context):
+                self.trace.record(at=self.clock(), session=self.session_identity(native), event="shadow",
+                                  adapter_version=self.adapter_version, tool_name=payload.get("tool_name"),
+                                  attempt_id=payload.get("tool_use_id"),
+                                  gate="shadow_would_prevent" if response.decision else "shadow_would_deliver",
+                                  reason=response.reason[:300] if response.decision else event, insertion="none")
+            return HookResponse(reason=f"memex shadow: {response.reason}"[:500])
+        return response
 
 
 # --------------------------------------------------------------------------- #
