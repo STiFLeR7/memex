@@ -271,6 +271,17 @@ async def test_native_claude_code_semantically_reconsiders_a_stale_mutation(nati
                     denial_index = index
     assert denial_index is not None, "the correction never reached the session as a tool result"
 
+    # ...and memex confirmed *that* insertion from the host's own records, keyed
+    # to this packet and to the call it answers rather than to hook diagnostics.
+    correction = [e for e in confirmed if e["sequence"] == denial["sequence"]]
+    assert correction, (
+        "the correction packet was never confirmed as inserted; "
+        f"confirmed sequences={[e['sequence'] for e in confirmed]}, "
+        f"correction sequence={denial['sequence']}")
+    assert correction[0]["attempt_id"] == denial["attempt_id"], \
+        "the confirmed correction is not correlated with the denied call"
+    assert correction[0]["task_id"] == denial["task_id"]
+
     # --- 7. the dependency was rechecked after the correction, and a different
     #        attempt followed, linked to the prevented one
     reread = [

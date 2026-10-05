@@ -54,12 +54,15 @@ class Clock:
 
 
 @pytest_asyncio.fixture(loop_scope="function")
-async def host(tmp_path):
+async def host(tmp_path, monkeypatch):
     uri = os.getenv("MEMEX_PHASE1_NEO4J_URI")
     if not uri:
         pytest.skip("isolated native Neo4j required")
     repo = tmp_path / "repo"
     repo.mkdir()
+    # The adapter resolves transcripts under the client's config home, so the
+    # fixture relocates that home the same way the client itself honors it.
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(config_home(repo)))
     subprocess.run(["git", "init", str(repo)], check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     (repo / "api.py").write_text("def send(payload):\n    return payload\n")
     (repo / "other.py").write_text("def other():\n    return 1\n")
@@ -97,28 +100,107 @@ async def host(tmp_path):
     await driver.close()
 
 
+def config_home(repo) -> pathlib.Path:
+    """Stands in for the client's config home, which the fixture exports."""
+    return pathlib.Path(repo).parent / "claude-config"
+
+
 def transcript_for(repo, session=NATIVE):
-    """Stands in for the host's per-session transcript file."""
-    path = pathlib.Path(repo).parent / f"transcript-{session}.jsonl"
+    """The host's per-session transcript, at its measured real location.
+
+    Claude Code 2.1.289 writes `<config home>/projects/<slug>/<session_id>.jsonl`,
+    and the adapter refuses to read anything else. Building these paths the same
+    way is what makes the provenance check part of every test here rather than a
+    special case in one of them.
+    """
+    path = config_home(repo) / "projects" / "test-slug" / f"{session}.jsonl"
+    path.parent.mkdir(parents=True, exist_ok=True)
     if not path.exists():
         path.write_text("", newline="\n")
     return str(path)
 
 
-def host_consumes(adapter, response, event, repo, session=NATIVE):
-    """Emit, then record what the host injected, the way a real transcript does.
+# -- the client's own record shapes, copied from a captured transcript ------- #
 
-    The host writes our raw stdout into the transcript, which is how a delivery's
-    own marker becomes observable evidence that the packet reached the session.
+def additional_context_record(text, session=NATIVE, *, hook_event="SessionStart"):
+    """Insertion. The client rendered this text into the conversation."""
+    return {
+        "type": "attachment", "sessionId": session, "isSidechain": False,
+        "attachment": {"type": "hook_additional_context", "hookName": hook_event,
+                       "toolUseID": hook_event, "hookEvent": hook_event,
+                       "content": [text]},
+        "rendered": [{"content": f"<system-reminder>\n{hook_event} hook additional "
+                                 f"context: {text}\n</system-reminder>"}],
+        "renderedRole": "system", "version": "2.1.289",
+    }
+
+
+def hook_stdout_record(stdout, session=NATIVE, *, exit_code=0, hook_event="SessionStart",
+                       attachment_type="hook_success"):
+    """Diagnostics about the hook *process*, carrying its raw stdout.
+
+    The client writes this whether or not it used the output, which is why it is
+    never insertion evidence at any exit code.
+    """
+    return {
+        "type": "attachment", "sessionId": session, "isSidechain": False,
+        "attachment": {"type": attachment_type, "hookName": f"{hook_event}:Edit",
+                       "toolUseID": "hook-run", "hookEvent": hook_event, "content": "",
+                       "stdout": stdout, "stderr": "", "exitCode": exit_code,
+                       "command": "python -m memex.integrations.claude_code",
+                       "durationMs": 31},
+        "version": "2.1.289",
+    }
+
+
+def denial_record(reason, tool_use_id, session=NATIVE, *, is_error=True, tool="Edit"):
+    """Insertion. A denial reason reached the model, naming the call it stopped."""
+    return {
+        "type": "user", "sessionId": session, "isSidechain": False,
+        "message": {"role": "user", "content": [
+            {"type": "tool_result", "is_error": is_error, "tool_use_id": tool_use_id,
+             "content": f"PreToolUse:{tool} hook error: {reason}"}]},
+        "version": "2.1.289",
+    }
+
+
+def prose_record(text, session=NATIVE, role="assistant"):
+    """Someone merely talking about a marker is not a delivery."""
+    return {"type": role, "sessionId": session, "isSidechain": False,
+            "message": {"role": role, "content": [{"type": "text", "text": text}]}}
+
+
+def write_transcript(repo, *records, session=NATIVE, mode="w"):
+    with open(transcript_for(repo, session), mode, encoding="utf-8", newline="\n") as stream:
+        for record in records:
+            stream.write((record if isinstance(record, str) else json.dumps(record)) + "\n")
+
+
+def delivery_attempt(adapter, response, session=NATIVE):
+    """The denied call a correction packet answers, as the ledger recorded it."""
+    task_id, _, sequence = response.delivery_key.rpartition(":")
+    for row in adapter.delivery_states(session):
+        if row["task_id"] == task_id and row["sequence"] == int(sequence):
+            return row["attempt_id"]
+    return None
+
+
+def host_consumes(adapter, response, event, repo, session=NATIVE):
+    """Emit, then append every record a real client writes for that response.
+
+    The `hook_success` diagnostic is written alongside the insertion record on
+    purpose: it carries the same marker in its raw stdout, so including it keeps
+    these tests from ever passing on diagnostics alone.
     """
     buffer = io.StringIO()
     adapter.emit(response, event, buffer)
-    with open(transcript_for(repo, session), "a", encoding="utf-8", newline="\n") as stream:
-        stream.write(json.dumps({
-            "type": "user", "sessionId": session,
-            "message": {"content": [{"type": "tool_result", "is_error": True,
-                                     "content": buffer.getvalue()}]},
-        }) + "\n")
+    records = [hook_stdout_record(buffer.getvalue(), session, hook_event=event)]
+    if event == "SessionStart":
+        records.append(additional_context_record(response.additional_context, session))
+    elif response.decision == "deny":
+        records.append(denial_record(response.reason,
+                                     delivery_attempt(adapter, response, session), session))
+    write_transcript(repo, *records, session=session, mode="a")
     return buffer.getvalue()
 
 
@@ -746,16 +828,6 @@ def acked(adapter, delivery_key):
     return adapter.engine.tasks.get(task_id, session, now=adapter.clock()).ack_sequence
 
 
-def write_transcript(repo, *contents, session=NATIVE):
-    with open(transcript_for(repo, session), "w", encoding="utf-8", newline="\n") as stream:
-        for content in contents:
-            stream.write(json.dumps({
-                "type": "user", "sessionId": session,
-                "message": {"content": [{"type": "tool_result", "is_error": True,
-                                         "content": content}]},
-            }) + "\n")
-
-
 @pytest.mark.asyncio
 async def test_preparation_alone_never_advances_the_baseline(host):
     """A rendered packet that was never printed has not been delivered."""
@@ -835,7 +907,9 @@ async def test_interruption_between_preparation_and_output_is_never_delivered(ho
     session = adapter.session_identity(NATIVE)
     marker = ledger(adapter, started.delivery_key)["marker"]
 
-    write_transcript(repo, f"PreToolUse:Edit hook error: [{marker}]")
+    # Genuine insertion evidence of exactly the right kind, and it still loses:
+    # a packet that never left this process cannot have been the one inserted.
+    write_transcript(repo, additional_context_record(f"memex engineering context [{marker}]"))
     adapter.confirm_deliveries(session, transcript_for(repo))
     assert ledger(adapter, started.delivery_key)["state"] == "failed"
     assert acked(adapter, started.delivery_key) == 0
@@ -880,19 +954,197 @@ async def test_a_confirmed_correction_advances_the_baseline(host):
 
 
 @pytest.mark.asyncio
-async def test_confirmation_requires_the_intended_session(host):
+async def test_another_sessions_records_cannot_confirm_this_sessions_packet(host):
+    """Confirmation runs *for* the intended session over foreign records.
+
+    The earlier version of this test confirmed for the other session, which
+    selects none of this session's ledger rows and so could not fail. The real
+    hazard is the reverse: our own session asking about its own packet, in a file
+    whose records belong to someone else.
+    """
     adapter, repo, _ = host
+    session = adapter.session_identity(NATIVE)
     started = await adapter.dispatch(payload("SessionStart", repo))
     adapter.emit(started, "SessionStart", io.StringIO())
     marker = ledger(adapter, started.delivery_key)["marker"]
 
-    # Another session's transcript is not this packet's evidence. Confirmation
-    # reads only the invoking session's transcript, and only its own ledger rows.
-    write_transcript(repo, f"[{marker}]", session="other-native")
-    other = adapter.session_identity("other-native")
-    adapter.confirm_deliveries(other, transcript_for(repo, "other-native"))
+    write_transcript(
+        repo,
+        additional_context_record(f"memex engineering context [{marker}]", "different-session"),
+        denial_record(f"memex: outcome=replan\n[{marker}]", "toolu_1", "different-session"),
+    )
+    adapter.confirm_deliveries(session, transcript_for(repo))
     assert ledger(adapter, started.delivery_key)["state"] == "emitted"
     assert acked(adapter, started.delivery_key) == 0
+
+    # A record with no session attribution at all is no better.
+    anonymous = additional_context_record(f"ctx [{marker}]")
+    del anonymous["sessionId"]
+    write_transcript(repo, anonymous)
+    adapter.confirm_deliveries(session, transcript_for(repo))
+    assert acked(adapter, started.delivery_key) == 0
+
+
+@pytest.mark.asyncio
+async def test_a_transcript_naming_another_session_is_not_read(host):
+    """The payload's `transcript_path` is a claim about provenance.
+
+    The supported boundary is one file per session, named for that session,
+    inside the client's project tree. A file holding our own session's records
+    under another session's name is outside it.
+    """
+    adapter, repo, _ = host
+    session = adapter.session_identity(NATIVE)
+    started = await adapter.dispatch(payload("SessionStart", repo))
+    adapter.emit(started, "SessionStart", io.StringIO())
+    marker = ledger(adapter, started.delivery_key)["marker"]
+    evidence = additional_context_record(f"memex engineering context [{marker}]")
+
+    write_transcript(repo, evidence, session="someone-else")
+    adapter.confirm_deliveries(session, transcript_for(repo, "someone-else"))
+    assert acked(adapter, started.delivery_key) == 0
+
+    # Nor a path outside the client's project tree, however well-named.
+    stray = pathlib.Path(repo) / f"{NATIVE}.jsonl"
+    stray.write_text(json.dumps(evidence) + "\n", newline="\n")
+    adapter.confirm_deliveries(session, str(stray))
+    assert acked(adapter, started.delivery_key) == 0
+
+    # The real location, with the same bytes, does confirm.
+    write_transcript(repo, evidence)
+    adapter.confirm_deliveries(session, transcript_for(repo))
+    assert acked(adapter, started.delivery_key) == int(started.delivery_key.rpartition(":")[2])
+
+
+@pytest.mark.asyncio
+async def test_hook_stdout_is_a_diagnostic_and_never_an_insertion(host):
+    """A hook printed its packet. That is not the client having used it.
+
+    Both exit codes are covered, because the reproduction that motivated this
+    confirmed a delivery from a *failed* hook's stdout, and because a zero exit
+    says the process succeeded, not that the output was applied.
+    """
+    adapter, repo, _ = host
+    session = adapter.session_identity(NATIVE)
+    started = await adapter.dispatch(payload("SessionStart", repo))
+    buffer = io.StringIO()
+    adapter.emit(started, "SessionStart", buffer)
+    stdout = buffer.getvalue()
+    assert ledger(adapter, started.delivery_key)["marker"] in stdout
+
+    for exit_code in (1, 0):
+        write_transcript(repo, hook_stdout_record(stdout, exit_code=exit_code))
+        adapter.confirm_deliveries(session, transcript_for(repo))
+        assert acked(adapter, started.delivery_key) == 0, (
+            f"hook stdout with exitCode={exit_code} must not confirm a delivery")
+        assert ledger(adapter, started.delivery_key)["state"] in ("emitted", "failed")
+
+    # A hook system message carrying the same text is equally insufficient.
+    write_transcript(repo, hook_stdout_record(stdout, attachment_type="hook_system_message"))
+    adapter.confirm_deliveries(session, transcript_for(repo))
+    assert acked(adapter, started.delivery_key) == 0
+
+
+@pytest.mark.asyncio
+async def test_a_marker_quoted_in_prose_is_not_an_insertion(host):
+    adapter, repo, _ = host
+    session = adapter.session_identity(NATIVE)
+    started = await adapter.dispatch(payload("SessionStart", repo))
+    adapter.emit(started, "SessionStart", io.StringIO())
+    marker = ledger(adapter, started.delivery_key)["marker"]
+
+    write_transcript(
+        repo,
+        prose_record(f"I notice memex tagged that packet [{marker}]."),
+        prose_record(f"Yes, [{marker}] is the one.", role="user"),
+        # A *successful* tool result quoting it is not a denial reaching anyone.
+        denial_record(f"done [{marker}]", "toolu_1", is_error=False),
+    )
+    adapter.confirm_deliveries(session, transcript_for(repo))
+    assert acked(adapter, started.delivery_key) == 0
+
+
+@pytest.mark.asyncio
+async def test_malformed_and_partial_records_are_insufficient_evidence(host):
+    """A tail can start mid-record, and a transcript can be truncated mid-write."""
+    adapter, repo, _ = host
+    session = adapter.session_identity(NATIVE)
+    started = await adapter.dispatch(payload("SessionStart", repo))
+    adapter.emit(started, "SessionStart", io.StringIO())
+    marker = ledger(adapter, started.delivery_key)["marker"]
+    good = json.dumps(additional_context_record(f"ctx [{marker}]"))
+
+    write_transcript(
+        repo,
+        good[len(good) // 2:],                       # tail beginning mid-record
+        good[:len(good) - 10],                       # truncated mid-write
+        f'{{"type":"attachment","sessionId":"{NATIVE}","attachment":"[{marker}]"}}',
+        f'["not-an-object","{marker}"]',
+        f'{{"type":"user","sessionId":"{NATIVE}","message":"[{marker}]"}}',
+        f'{{"type":"user","sessionId":"{NATIVE}","message":{{"content":"[{marker}]"}}}}',
+        f"plain text mentioning [{marker}]",
+    )
+    adapter.confirm_deliveries(session, transcript_for(repo))
+    assert acked(adapter, started.delivery_key) == 0
+
+    # And the whole file being one unterminated line is no different.
+    write_transcript(repo, good[:-1])
+    adapter.confirm_deliveries(session, transcript_for(repo))
+    assert acked(adapter, started.delivery_key) == 0
+
+
+@pytest.mark.asyncio
+async def test_a_correction_needs_the_denial_of_its_own_call(host):
+    """Right kind, right marker, wrong call. Still not this packet's receipt."""
+    adapter, repo, _ = host
+    session = adapter.session_identity(NATIVE)
+    await started_session(adapter, repo)
+    (repo / "api.py").write_text("def send(payload, retries=3):\n    return payload\n")
+    denied = await adapter.dispatch(edit_payload(repo, attempt="toolu_denied"))
+    assert denied.decision == "deny"
+    adapter.emit(denied, "PreToolUse", io.StringIO())
+    marker = ledger(adapter, denied.delivery_key)["marker"]
+    baseline = acked(adapter, denied.delivery_key)  # the confirmed snapshot
+
+    # A denial of a different call, and the right call with the wrong marker.
+    write_transcript(repo, denial_record(f"memex: outcome=replan\n[{marker}]", "toolu_other"),
+                     denial_record("memex: outcome=replan\n[memex-delivery:0123456789abcdef]",
+                                   "toolu_denied"))
+    adapter.confirm_deliveries(session, transcript_for(repo))
+    assert acked(adapter, denied.delivery_key) == baseline
+
+    # A snapshot-shaped insertion cannot confirm a correction either.
+    write_transcript(repo, additional_context_record(f"ctx [{marker}]"))
+    adapter.confirm_deliveries(session, transcript_for(repo))
+    assert acked(adapter, denied.delivery_key) == baseline
+
+    # The denial of the call it actually answers does.
+    write_transcript(repo, denial_record(f"memex: outcome=replan\n[{marker}]", "toolu_denied"))
+    adapter.confirm_deliveries(session, transcript_for(repo))
+    assert acked(adapter, denied.delivery_key) == int(denied.delivery_key.rpartition(":")[2])
+
+
+@pytest.mark.asyncio
+async def test_confirmation_keeps_nothing_from_the_transcript(host):
+    """Inspection is bounded and leaves no transcript content behind.
+
+    The trace is the only thing confirmation writes, and a reason there is the
+    packet's kind, never a line it read.
+    """
+    adapter, repo, _ = host
+    session = adapter.session_identity(NATIVE)
+    started = await adapter.dispatch(payload("SessionStart", repo))
+    secret_text = "SECRET-REASONING-abcdef and a password=hunter2"
+    host_consumes(adapter, started, "SessionStart", repo)
+    write_transcript(repo, prose_record(secret_text), mode="a")
+    adapter.confirm_deliveries(session, transcript_for(repo))
+
+    rows = json.dumps(adapter.trace.events(native_session_id=NATIVE))
+    assert "SECRET-REASONING" not in rows and "hunter2" not in rows
+    assert "hookSpecificOutput" not in rows
+    confirmed = [e for e in adapter.trace.events(native_session_id=NATIVE)
+                 if e["insertion"] == "confirmed"]
+    assert len(confirmed) == 1 and confirmed[0]["reason"] == "snapshot"
 
 
 @pytest.mark.asyncio
@@ -909,9 +1161,11 @@ async def test_a_wrong_sequence_receipt_is_rejected_without_writing_off_the_pack
         db.execute("INSERT INTO live_adapter_deliveries"
                    "(task_id,sequence,native_session_id,view_id,marker,kind,attempt_id,state)"
                    " VALUES(?,?,?,?,?,?,?, 'emitted')",
-                   (task_id, 99, NATIVE, "view:bogus", "memex-delivery:bogus", "correction", None))
+                   (task_id, 99, NATIVE, "view:bogus", "memex-delivery:00ff00ff00ff00ff",
+                    "correction", None))
     db.close()
-    write_transcript(repo, "[memex-delivery:bogus]")
+    write_transcript(repo, denial_record("memex: outcome=replan\n[memex-delivery:00ff00ff00ff00ff]",
+                                         "toolu_whatever"))
     adapter.confirm_deliveries(session, transcript_for(repo))
 
     rejected = [e for e in adapter.trace.events(native_session_id=NATIVE)

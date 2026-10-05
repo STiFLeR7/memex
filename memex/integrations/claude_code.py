@@ -34,6 +34,7 @@ import hmac
 import json
 import os
 from pathlib import Path
+import re
 import secrets
 import sqlite3
 import stat
@@ -72,6 +73,24 @@ MAX_DELIVERY_CONFIRMATIONS = 3
 
 #: A hook runs against a deadline, so transcript inspection reads a tail only.
 TRANSCRIPT_TAIL_BYTES = 2_000_000
+
+#: And parses only this many marker-bearing records out of that tail. A pending
+#: packet needs one matching record; anything beyond this is not more evidence.
+MAX_EVIDENCE_RECORDS = 64
+
+#: Exactly the marker shape `delivery_marker` emits, so a scan extracts packet
+#: identities instead of testing whether a blob happens to contain a substring.
+MARKER_PATTERN = re.compile(re.escape(DELIVERY_MARKER) + r":[0-9a-f]{16}")
+
+#: The record that proves injected context entered the session, measured on
+#: Claude Code 2.1.289: the client writes an `attachment` of this type holding
+#: the text it actually rendered into the conversation.
+INSERTION_ATTACHMENT = "hook_additional_context"
+
+#: Which record shape may confirm which delivery kind. A snapshot travels as
+#: `additionalContext` and a correction as a denial reason, so the evidence for
+#: one is not evidence for the other.
+EVIDENCE_FOR_KIND = {"snapshot": "additional_context", "correction": "tool_denial"}
 
 CAPABILITY_RELATIVE = Path("memex") / "adapters" / "claude-code.json"
 
@@ -181,6 +200,140 @@ def declared_targets(tool_name: str, tool_input: dict) -> tuple[str, ...] | None
     if not isinstance(raw, str) or not raw:
         return ()
     return (raw,)
+
+
+# --------------------------------------------------------------------------- #
+# Insertion evidence
+# --------------------------------------------------------------------------- #
+#
+# A valid marker proves packet identity. It does not prove delivery, so what
+# carries the marker decides whether anything was delivered.
+#
+# Measured on Claude Code 2.1.289, a `SessionStart` hook that returns
+# `additionalContext` produces two records: an `attachment` of type
+# `hook_success` holding the hook process's raw stdout, exit code and duration,
+# and an `attachment` of type `hook_additional_context` holding the text the
+# client rendered into the conversation. Only the second is insertion. The first
+# is written whether or not the client used the output, and is written for a
+# failed hook too, so neither its presence nor a zero exit code says the packet
+# reached the model. A denied `PreToolUse` reaches the model differently: as a
+# `tool_result` part with `is_error` true, carrying the denied call's
+# `tool_use_id`.
+#
+# Everything else in the file -- hook stdout at any exit code, hook system
+# messages, assistant or user prose quoting a marker, records belonging to
+# another session, truncated or malformed lines -- is insufficient evidence.
+
+
+def transcript_roots() -> tuple[Path, ...]:
+    """Directories the installed client keeps session transcripts under.
+
+    Measured: with `CLAUDE_CONFIG_DIR` set, the client writes
+    `<CLAUDE_CONFIG_DIR>/projects/<slug>/<session_id>.jsonl`; unset, it uses
+    `~/.claude` as that config home.
+    """
+    roots = []
+    configured = os.getenv("CLAUDE_CONFIG_DIR")
+    if configured:
+        roots.append(Path(configured))
+    roots.append(Path.home() / ".claude")
+    return tuple(root / "projects" for root in roots)
+
+
+def authorized_transcript(transcript_path, native_session_id: str) -> Path | None:
+    """This session's own transcript file, or None.
+
+    `transcript_path` arrives in the hook payload, so it is a claim rather than a
+    fact. The supported boundary is one file per session inside the client's
+    project tree, named for that session. A path naming another session, or
+    sitting outside that tree, is read as no evidence at all rather than as
+    somebody else's evidence.
+    """
+    if not transcript_path or not native_session_id:
+        return None
+    try:
+        candidate = Path(transcript_path).resolve()
+    except (OSError, ValueError):
+        return None
+    if candidate.suffix != ".jsonl" or candidate.stem != native_session_id:
+        return None
+    for root in transcript_roots():
+        try:
+            if candidate.is_relative_to(root.resolve()):
+                return candidate
+        except (OSError, ValueError):
+            continue
+    return None
+
+
+def _markers_in(value, found: set[str], depth: int = 0) -> None:
+    """Collect marker identities from a record's rendered text, bounded."""
+    if depth > 4:
+        return
+    if isinstance(value, str):
+        found.update(MARKER_PATTERN.findall(value))
+    elif isinstance(value, list):
+        for entry in value[:64]:
+            _markers_in(entry, found, depth + 1)
+    elif isinstance(value, dict):
+        for key in ("text", "content"):
+            if key in value:
+                _markers_in(value[key], found, depth + 1)
+
+
+def insertion_evidence(blob: str, native_session_id: str) -> set[tuple[str, str, str | None]]:
+    """Parse a transcript tail into `(evidence_kind, marker, tool_use_id)` triples.
+
+    Only the two measured insertion shapes qualify, and only for the intended
+    session. Nothing else is extracted or retained: not the record, not the
+    surrounding text, not the tool output it may quote.
+    """
+    evidence: set[tuple[str, str, str | None]] = set()
+    if not blob or not native_session_id:
+        return evidence
+    seen = 0
+    # A tail can begin mid-record; such a line fails to parse and is skipped.
+    for line in blob.splitlines():
+        if DELIVERY_MARKER not in line:
+            continue  # Cheap prefilter; the decision below is still structural.
+        if seen >= MAX_EVIDENCE_RECORDS:
+            break
+        seen += 1
+        try:
+            record = json.loads(line)
+        except (json.JSONDecodeError, ValueError):
+            continue
+        if not isinstance(record, dict) or record.get("sessionId") != native_session_id:
+            continue
+
+        attachment = record.get("attachment")
+        if isinstance(attachment, dict):
+            if (attachment.get("type") == INSERTION_ATTACHMENT
+                    and attachment.get("hookEvent") == "SessionStart"):
+                markers: set[str] = set()
+                _markers_in(attachment.get("content"), markers)
+                evidence.update(("additional_context", marker, None) for marker in markers)
+            continue  # Any other attachment, `hook_success` included, is diagnostic.
+
+        if record.get("type") != "user":
+            continue
+        message = record.get("message")
+        if not isinstance(message, dict):
+            continue
+        parts = message.get("content")
+        if not isinstance(parts, list):
+            continue
+        for part in parts[:64]:
+            if not isinstance(part, dict) or part.get("type") != "tool_result":
+                continue
+            if part.get("is_error") is not True:
+                continue  # A successful result did not carry a denial reason.
+            markers = set()
+            _markers_in(part.get("content"), markers)
+            tool_use_id = part.get("tool_use_id")
+            tool_use_id = tool_use_id if isinstance(tool_use_id, str) else None
+            evidence.update(("tool_denial", marker, tool_use_id) for marker in markers)
+    return evidence
 
 
 def normalize_target(root: Path, raw: str) -> str:
@@ -555,11 +708,12 @@ class ClaudeCodeAdapter:
                           sequence=sequence, attempt_id=row["attempt_id"],
                           checked_view_id=row["view_id"], insertion="failed", reason=reason)
 
-    def _transcript_tail(self, transcript_path: str | None) -> str:
-        if not transcript_path:
+    def _transcript_tail(self, transcript_path, native_session_id: str) -> str:
+        authorized = authorized_transcript(transcript_path, native_session_id)
+        if authorized is None:
             return ""
         try:
-            with open(transcript_path, "rb") as stream:
+            with open(authorized, "rb") as stream:
                 stream.seek(0, os.SEEK_END)
                 size = stream.tell()
                 stream.seek(max(0, size - TRANSCRIPT_TAIL_BYTES))
@@ -567,13 +721,31 @@ class ClaudeCodeAdapter:
         except OSError:
             return ""
 
-    def confirm_deliveries(self, session, transcript_path: str | None) -> None:
-        """Acknowledge only packets whose own marker is in this session's transcript.
+    def _has_insertion_evidence(self, row, evidence) -> bool:
+        """Does this packet have a record that actually inserted *it*?
 
-        The transcript is read for one membership test per pending marker and
-        nothing from it is retained: no transcript text, no reasoning, no tool
-        output. This is the only signal the host exposes that identifies which
-        packet entered which session.
+        Three things must line up, and the marker alone settles only the first:
+        packet identity (its HMAC marker), the kind of record that carries that
+        kind of packet, and for a correction the denied call it answers.
+        """
+        wanted = EVIDENCE_FOR_KIND.get(row["kind"])
+        if wanted is None:
+            return False
+        for kind, marker, tool_use_id in evidence:
+            if kind != wanted or marker != row["marker"]:
+                continue
+            if wanted == "tool_denial" and row["attempt_id"] and tool_use_id != row["attempt_id"]:
+                continue  # Another call's denial is not this correction's receipt.
+            return True
+        return False
+
+    def confirm_deliveries(self, session, transcript_path=None) -> None:
+        """Acknowledge only packets the host's own records show it inserted.
+
+        The transcript is located through `authorized_transcript`, read as a
+        bounded tail, and parsed for the two measured insertion shapes. Nothing
+        from it is retained: the only thing that survives this call is, per
+        pending packet, whether its evidence was present.
         """
         db = self._connect()
         try:
@@ -585,9 +757,11 @@ class ClaudeCodeAdapter:
             db.close()
         if not rows:
             return
-        blob = self._transcript_tail(transcript_path)
+        evidence = insertion_evidence(
+            self._transcript_tail(transcript_path, session.native_session_id),
+            session.native_session_id)
         for row in rows:
-            if row["state"] == "emitted" and blob and row["marker"] in blob:
+            if row["state"] == "emitted" and self._has_insertion_evidence(row, evidence):
                 self._confirm_delivery(row, session)
                 continue
             # `prepared` on a later invocation means emission never completed.
