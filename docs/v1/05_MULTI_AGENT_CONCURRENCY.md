@@ -1,6 +1,6 @@
 # Claude Code and Codex concurrency
 
-Status: P2 core tests verify separate worktree evidence and independent shared-checkout session corrections. Actual native two-host insertion/action ordering and guarded writes remain required P3/P4 behavior. Applies to simultaneous Claude Code and Codex sessions in separate worktrees or the same checkout. See [04_CONTEXT_CONTRACTS.md](04_CONTEXT_CONTRACTS.md).
+Status: verified in P4 ([20_PHASE4_VERIFICATION.md](20_PHASE4_VERIFICATION.md)). Claude Code and Codex ran live together in separate worktrees and in one checkout, in both orderings, and two live clients raced guarded writes. Every row of the acceptance matrix below has executed evidence. Applies to simultaneous Claude Code and Codex sessions in separate worktrees or the same checkout. See [04_CONTEXT_CONTRACTS.md](04_CONTEXT_CONTRACTS.md).
 
 ## Shared repository, separate views and sessions
 
@@ -83,3 +83,11 @@ If the service is unavailable, default fail-open continuation explicitly loses c
 | Compaction/resume | Fresh working-set delivery or verified continuity, no assumed retention |
 
 Run the native-host matrix with both Claude-first and Codex-first orderings. A mocked fixture demonstrates core semantics only; P4 additionally requires real clients and recorded action ordering.
+
+## Measured implementation (P4)
+
+**Default mode** needs no new mechanism: each host session has its own task, cursor and receipts over the shared core, and its own host-namespaced adapter state. One host's acknowledgement never suppresses another's correction, which the native shared-checkout gate showed in both orderings.
+
+**Guarded mode** is `memex/runtime/guard.py`, reached through the opt-in `guard_read`/`guard_write` server. Its supported set is whole-file create, update, delete and rename inside one worktree, singly or all-or-nothing, plus `git commit --only` of named paths under a worktree-wide lease. The fencing generation is enforced inside the guarded commit's SQLite write transaction, so a paused, replaced holder fails at commit. In guarded mode both adapters deny native edits rather than let them bypass the guard. Editors, shell writes, external Git and other machines remain outside it; their drift is detected at the next participating write, not prevented.
+
+**Worktree isolation** comes from the P2 core: per-view verification, worktree-scoped claims and evidence, and test evidence bound to its tested view. P4 proved it on real linked worktrees, including merge, conflict resolution, cherry-pick and rebase.

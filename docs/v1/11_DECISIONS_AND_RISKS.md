@@ -27,7 +27,7 @@ Status: baseline design derived from the maintainer-approved thesis. Accepted en
 | Spike | Owner / required output | Entry / exit |
 | --- | --- | --- |
 | S01 Claude action semantics | Integration owner records installed client version, synchronous interception, denied/batched-action feedback and native reconsideration trace | Begin alongside P1; finish before W09. Select supported hook/SDK route or report no viable native route |
-| S02 Codex action semantics | Integration owner records actual installed hook/wrapper API, session identity, shell/edit coverage and native ordering | Begin after contracts freeze; finish before W12. Advisory-only output cannot pass |
+| S02 Codex action semantics | **Closed** in P4 against codex-cli 0.157.1: app-server threads run hooks and deny prevents a pending patch; `codex exec` runs none. Findings in [20_PHASE4_VERIFICATION.md](20_PHASE4_VERIFICATION.md) | Finished before W12 |
 | S03 graph transaction/recovery | Indexing owner source-verifies existing Graphiti/Neo4j driver transaction API, candidate-view publication and replay completion markers | Finish before W03. Produce W03–W05 implementation plan with real method signatures and failure tests |
 | S04 statistical protocol | Evaluation owner runs labeled development pilot when an execution environment is available, freezes sample size/margins/recall/cost/tail limits before disjoint confirmatory trials | Finish before P5 confirmation. No post-hoc gate editing |
 | S05 Windows/Git identity | Runtime owner verifies linked worktree discovery, path aliases/case handling, common-dir and hooksPath composition | Finish W05. Preserve existing hooks; no destructive clone/checkout experiments |
@@ -98,3 +98,17 @@ Two further findings were corrected after the hardening pass; [18_PHASE3_VERIFIC
 **Identity is not delivery, and the carrier decides.** A valid per-packet marker proves which packet some text belongs to. It never proves that the text was inserted into a session. Evidence is admissible only from a record the host writes *because it used the output* — on this client, an injected-context attachment or an error tool result naming the denied call — and never from the host's log of a hook's own stdout, which is written whether the output was used or not and at any exit code. Matching is structural and per-record, validating the session, the record shape against the packet kind, and for a correction the call it answers. The transcript is located through the client's own per-session layout, because a path supplied in a hook payload is a claim rather than a fact. This sharpens V1-012 a second time: the first pass moved acknowledgement behind per-packet evidence, and this one defines which evidence counts.
 
 **A schema addition is not applied by declaring it.** `CREATE TABLE IF NOT EXISTS` leaves an existing table exactly as it was, so every column added after a release needs an explicit, idempotent `ALTER TABLE` guarded by `PRAGMA table_info`, tolerant of losing the race to a concurrent process, and paired with a defined conservative reading of rows written before it. The control plane is shared by concurrent adapter processes and must never require a manual reset or lose task state to an upgrade.
+
+## Phase 4 decisions
+
+**Codex integrates through app-server threads, not `codex exec`.** S02 measured no hook running under `exec`, from either the project layer or session flags. The app-server is the protocol Codex's own IDE extension and desktop app use, and in its threads `PreToolUse` deny prevents a pending patch.
+
+**memex never grants hook trust.** Untrusted hooks do not run in app-server threads, and trust cannot be set from session flags. A real installation is trusted by the user's own `/hooks` review. Fixtures trust their own session-flag hooks for one thread through the app-server's `bypass_hook_trust` override and persist nothing.
+
+**One adapter lifecycle, many hosts.** The replay rule, the four-state ledger, denial chains and the complete-packet rule live once in `HostAdapter`. A host contributes only what was measured to differ.
+
+**V1-012 is sharpened a third time: a packet must arrive whole.** A Codex truncation kept both ends of a packet, and so its marker. Acknowledgement now requires the exact packet text around its marker, on both hosts.
+
+**V1-011 is implemented with fencing on the write path.** A token stored in SQLite and checked before a host's own write would not stop a paused holder. The guard rechecks holder, generation, expiry and expected hashes inside the same SQLite write transaction that replaces the files.
+
+**Fixture isolation is part of a native measurement.** A user's failing global plugin told an agent memex was offline and changed its first proposal. Native fixtures now load only their own project settings, per invocation.

@@ -1,6 +1,6 @@
 # Context and action contracts
 
-Status: P1 ships internal RepositoryView/IndexResult. P2 concretizes strict evidence, claim, verification, task, action and receipt models in `memex/context/live.py`; its core engine is opt-in. Host capability/guarded-write projections remain P3/P4. Schema version: `memex.live.v1`. Existing v0.9 APIs remain separate compatible projections; do not describe planned records as shipped.
+Status: P1 ships internal RepositoryView/IndexResult. P2 concretizes strict evidence, claim, verification, task, action and receipt models in `memex/context/live.py`; its core engine is opt-in. P3/P4 project these contracts onto two native hosts and an opt-in write guard without changing the core models (see [20_PHASE4_VERIFICATION.md](20_PHASE4_VERIFICATION.md)). Schema version: `memex.live.v1`. Existing v0.9 APIs remain separate compatible projections; do not describe planned records as shipped.
 
 ## Identity and scope
 

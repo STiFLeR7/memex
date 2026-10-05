@@ -64,3 +64,11 @@ Register → open task and subscribe → initial snapshot → action check → i
 Use bounded local calls and a declared deadline. On daemon/network failure, return unknown freshness with a diagnostic, retain unacknowledged corrections for resynchronization and avoid retry storms. No adapter fabricates a successful receipt after timeout. After compaction, either prove retained context or redeliver the bounded working set.
 
 Debug artifacts include IDs, ordering, hashes, adapter version and coverage. Raw credentials, transcripts and complete tool outputs are unnecessary. Host-local integration logs are not automatically ingested as engineering knowledge.
+
+## Codex adapter (measured in S02, P4)
+
+Measured on codex-cli 0.157.1; full evidence in [20_PHASE4_VERIFICATION.md](20_PHASE4_VERIFICATION.md). Hooks do not run under `codex exec`; the supported mode is an **app-server thread**. `PreToolUse` fires for `apply_patch` and for shell as `Bash`, and `permissionDecision:"deny"` blocks the patch with the target unchanged; the reason reaches the model as `Command blocked by PreToolUse hook: <reason>`. One patch can touch several files, and every header is a declared target. A hook that times out or fails lets the action proceed, as on Claude. Hooks run concurrently. Hook processes receive a filtered environment, so the adapter reads backend settings from its capability file and runs through a launcher.
+
+Insertion evidence is the rollout named by `transcript_path`, provenance-checked by location, name and its own `session_meta`. A snapshot is confirmed by a `developer` message tagged `hooks.additional_context`; a correction by a tool-call output carrying the denial prefix and the turn's `turn_id`, because a code-mode patch's nested call ID never reaches the rollout. Codex middle-truncates oversized context while keeping both ends, so on both hosts a packet is acknowledged only when its whole text, fingerprinted around its marker, is present.
+
+Untrusted hooks do not run in app-server threads. memex never writes hook trust: a user trusts its hooks through Codex's own `/hooks` review. The two hosts' state is namespaced, so identical native session IDs never share a binding, cursor or delivery.

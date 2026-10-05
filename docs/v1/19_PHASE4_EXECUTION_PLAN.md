@@ -1,6 +1,6 @@
 # Phase 4 execution plan
 
-Status: executing W12–W15 from accepted Phase 3 commit `1390f15` on `codex/v1-phase4`. Measured results are recorded in [20_PHASE4_VERIFICATION.md](20_PHASE4_VERIFICATION.md).
+Status: W12–W15 executed from accepted Phase 3 commit `1390f15` on `codex/v1-phase4`, and the native gates passed in both orderings. Measured results, including what deviated from this plan, are recorded in [20_PHASE4_VERIFICATION.md](20_PHASE4_VERIFICATION.md).
 Spec: [05_MULTI_AGENT_CONCURRENCY.md](05_MULTI_AGENT_CONCURRENCY.md), [06_HOST_INTEGRATIONS.md](06_HOST_INTEGRATIONS.md), [04_CONTEXT_CONTRACTS.md](04_CONTEXT_CONTRACTS.md).
 
 ## Constraints

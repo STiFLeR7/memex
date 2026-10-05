@@ -1,6 +1,6 @@
 # Dependency-ordered v1 roadmap
 
-Status: P1/P2 complete and verified 4 October 2026; P3 complete, verified and twice hardened 5 October 2026 on one host; P4-P5 remain planned. No calendar or staffing estimate is asserted. Phase exits require evidence. Detailed first-wave tasks are in [09_FIRST_WAVE_IMPLEMENTATION_PLAN.md](09_FIRST_WAVE_IMPLEMENTATION_PLAN.md).
+Status: P1/P2 complete and verified 4 October 2026; P3 complete, verified and twice hardened 5 October 2026 on one host; P4 complete and verified 5 October 2026 with both hosts live; P5 remains planned. No calendar or staffing estimate is asserted. Phase exits require evidence. Detailed first-wave tasks are in [09_FIRST_WAVE_IMPLEMENTATION_PLAN.md](09_FIRST_WAVE_IMPLEMENTATION_PLAN.md).
 
 ## Dependency sequence
 
@@ -51,7 +51,9 @@ P3 exit (satisfied; see [18_PHASE3_VERIFICATION.md](18_PHASE3_VERIFICATION.md)):
 | W14 | Shared-checkout coordination and optional supported guarded writes | W09,W12 | F10,F11; leases/fencing/expiry; explicit bypass limits |
 | W15 | Session resume/compaction and repeated conflict handling | W07,W14 | F12; two-host ID collision; bounded retries; no project-wide exposure suppression |
 
-P4 exit: complete concurrency acceptance matrix with Claude-first and Codex-first orderings. Worktree isolation and shared-checkout context coordination are mandatory. Supported cooperating write protection is scoped and opt-in; universal arbitrary-writer locking is excluded. If native hosts cannot support guarded writes, expose that limitation and record which wrapper supplies the supported mode.
+P4 exit (satisfied; see [20_PHASE4_VERIFICATION.md](20_PHASE4_VERIFICATION.md)): Claude Code and Codex ran live together in separate worktrees and in one checkout, in both orderings; each received context for its own view with independent delivery state, and each affected mutation was prevented and semantically revised before executing. Two live clients racing guarded writes lost no update and landed no stale write. Codex's supported mode is an app-server thread; hooks do not run under `codex exec`.
+
+Original P4 exit statement: complete concurrency acceptance matrix with Claude-first and Codex-first orderings. Worktree isolation and shared-checkout context coordination are mandatory. Supported cooperating write protection is scoped and opt-in; universal arbitrary-writer locking is excluded. If native hosts cannot support guarded writes, expose that limitation and record which wrapper supplies the supported mode.
 
 ## P5: proof, migration and OSS release
 
