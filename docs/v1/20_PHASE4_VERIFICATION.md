@@ -369,7 +369,7 @@ These are properties of the integration as measured.
 
 ## Phase 5 handoff
 
-Entry state: `codex/v1-phase4` at the head recorded in the commit list, not merged and not deployed. Version **0.9.0**.
+Phase 4 was fast-forwarded into `master` at `721c226` and pushed. Version remains **0.9.0**. No release tag was pushed, and Phase 5 has not started.
 
 **Phase 4 satisfies its exit gate on the corrected code.** Claude Code and Codex worked simultaneously, both live, in separate worktrees of one repository and in one checkout. Each received context for its own view with independent delivery state, and relevant changes reached each affected agent before its supported mutation executed. All of this held in both orderings, on the corrected commit. Participating clients could not commit a stale guarded mutation: in both orderings the second writer was refused and revised. Recovery from interrupted guarded writes and interrupted confirmations is proven by the deterministic real-process tests above, against process interruption, not power loss. Phase 4 is ready for Phase 5, which has not been started.
 
@@ -398,11 +398,11 @@ Four cautions carry forward:
 
 ## Cleanup
 
-The isolated Neo4j server started for this phase is the only service started, and only it is stopped at handoff. It was started again for the corrections and for the native rerun, and stopped after each. Runtimes, the virtual environment, the S02 probe harness, the built wheel and native evidence remain under the execution worktree's `output/` and are not committed, matching earlier phases. The committed tests and this report are the portable evidence.
+The isolated Neo4j server started for this phase was stopped after each run. After Phase 4 merged, the execution worktree was unregistered and its temporary runtimes, virtual environment, fixture repositories and logs were deleted. The cleanup script, failing-run outputs and native ordering and guard-outcome records were preserved in `C:\Users\stifl\memex-phase4-artifacts`. To rerun the native gates, rebuild the environment and isolated Neo4j fixture using the reproduction instructions. The committed tests and this report remain the portable evidence.
 
 Fixture runs necessarily left session history in the user's own clients: Codex rollouts under `~/.codex/sessions/2026/10/05/` and Claude transcripts under `~/.claude/projects/`, for temporary fixture directories, including the corrected-code rerun's. This is history, not configuration, and deleting inside a client's own store was not authorized, so none was deleted.
 
-**The corrected-code rerun's configuration entries were removed.** Before the rerun, a snapshot recorded 69 Codex project entries and 101 Claude project entries. The rerun added 7 Codex trust entries, one per fixture directory under `%TEMP%\memex-p4-native`, and no Claude entries. Exactly those 7 were removed. Afterwards `config.toml` hashed identically to its pre-run state (LF endings kept), `~/.codex/hooks.json` and `~/.claude/settings.json` were unchanged, and no credential file was read. The run's fixture directories and raw transcripts were deleted. Only the recorded orderings and guard outcomes are kept, under the execution worktree's `output/phase4/native-rerun/`.
+**The corrected-code rerun's configuration entries were removed.** Before the rerun, a snapshot recorded 69 Codex project entries and 101 Claude project entries. The rerun added 7 Codex trust entries, one per fixture directory under `%TEMP%\memex-p4-native`, and no Claude entries. Exactly those 7 were removed. Afterwards `config.toml` hashed identically to its pre-run state (LF endings kept), `~/.codex/hooks.json` and `~/.claude/settings.json` were unchanged, and no credential file was read. The run's fixture directories and raw transcripts were deleted. The recorded orderings and guard outcomes were moved to `C:\Users\stifl\memex-phase4-artifacts` before the worktree was deleted.
 
 **Global configuration: one side effect, not reverted.** `~/.codex/config.toml` *was* changed during this phase, by the Codex client rather than by memex: it appended 26 `[projects.'<fixture directory>'] trust_level = "trusted"` blocks (S02-22), for the 15 S02 probe repositories under this worktree's `output/phase4/s02` and 11 pytest temporary directories of the native tests. memex wrote no hook trust and no other key. Removing those blocks edits the user's real global configuration, so it was not done without authorization. **It still requires separate approval.** The corrections added no entry: no Codex client was started, and a fresh dry run lists the same 26 paths.
 
@@ -411,7 +411,7 @@ Reviewing the cleanup script found a defect that was never applied. It read and 
 The reviewed procedure, to run only after approval:
 
 1. Close every Codex client, so nothing rewrites `config.toml` meanwhile.
-2. `python output/phase4/remove_fixture_trust.py`: a dry run that must list exactly the 26 paths below.
-3. `python output/phase4/remove_fixture_trust.py --apply`: copies the file to `config.toml.memex-backup`, writes the result and re-verifies it. To revert, copy the backup back.
+2. `python "C:\Users\stifl\memex-phase4-artifacts\remove_fixture_trust.py"`: a dry run that must list exactly the 26 paths below.
+3. `python "C:\Users\stifl\memex-phase4-artifacts\remove_fixture_trust.py" --apply`: copies the file to `config.toml.memex-backup`, writes the result and re-verifies it. To revert, copy the backup back.
 
 The 26 paths: the S02 probe repositories `repo-exec1`, `-exec2`, `-exec3`, `-as1` to `-as6`, `-diag1`, `-diag2`, `-b1`, `-b2`, `-caps1` and `-mcp` under `c:\users\stifl\.codex\worktrees\v1-phase1\memex\output\phase4\s02\`. And, under `c:\users\stifl\appdata\local\temp\pytest-of-stifl\`: `pytest-591` and `pytest-615\test_native_codex_semantically0\repo`; `pytest-603`, `-604`, `-608` (`ch0` and `ch1`) and `-609\test_both_hosts_live_in_one_ch*\repo`; `pytest-610` and `-611\test_unmerged_change_stays_out0\main`; and `pytest-612` and `-613\test_racing_guarded_writers_lo0\repo`. `~/.codex/hooks.json` was not modified. `~/.claude/settings.json` changed once during the phase, to `model: "opus"`, from the maintainer's own `/model` command; it carries no memex hook. The separate `D:\memex` checkout and its concurrent work were not touched.
