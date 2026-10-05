@@ -227,6 +227,14 @@ class ClaudeCodeAdapter:
         db.row_factory = sqlite3.Row
         return db
 
+    #: Columns added after the first Phase 3 release. An existing control plane
+    #: keeps its original schema through `CREATE TABLE IF NOT EXISTS`, so each
+    #: one needs an explicit `ALTER TABLE`.
+    ADDED_COLUMNS = (
+        ("live_adapter_requests", "check_outcome", "TEXT"),
+        ("live_adapter_requests", "check_reason", "TEXT"),
+    )
+
     def _ensure_state(self) -> None:
         db = self._connect()
         try:
@@ -257,8 +265,32 @@ class ClaudeCodeAdapter:
                         PRIMARY KEY(task_id, sequence)
                     );
                 """)
+                self._migrate(db)
         finally:
             db.close()
+
+    def _migrate(self, db) -> None:
+        """Bring an existing control plane up to the current schema, in place.
+
+        Existing requests, responses, sessions, denials and delivery rows are
+        preserved: a column is added, nothing is rewritten or dropped. A row that
+        predates the verdict columns reads back with `verdict=None`, which can
+        never equal the core's current `(outcome, reason)`, so its cached text is
+        regenerated rather than trusted. That is the conservative direction.
+
+        Two adapter processes may start at once and both observe a column
+        missing, so losing that race is success, not a fault worth failing a hook
+        over.
+        """
+        for table, column, kind in self.ADDED_COLUMNS:
+            present = {row["name"] for row in db.execute(f"PRAGMA table_info({table})")}
+            if not present or column in present:
+                continue  # Freshly created by the DDL above, or already upgraded.
+            try:
+                db.execute(f"ALTER TABLE {table} ADD COLUMN {column} {kind}")
+            except sqlite3.OperationalError as exc:
+                if "duplicate column" not in str(exc).lower():
+                    raise
 
     def session_identity(self, native_session_id: str) -> SessionIdentity:
         """Derive the memex session from the registration secret.
