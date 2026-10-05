@@ -374,6 +374,9 @@ def main(args=None):
         help="Bind 0.0.0.0 instead of 127.0.0.1 (transport=http). Off by default to limit exposure on shared machines.",
     )
 
+    from memex.cli_v1 import add_parser as add_v1_parser
+    add_v1_parser(subparsers, parent_parser)
+
     parsed_args = parser.parse_args(args)
     repo_root = parsed_args.repo
 
@@ -564,6 +567,10 @@ def main(args=None):
         if parsed_args.migrate_command == "project-id":
             from memex.graph.migrate_project_id import run_migrate_project_id_command
             asyncio.run(run_migrate_project_id_command(repo_root or "."))
+
+    elif parsed_args.command == "v1":
+        from memex.cli_v1 import run as run_v1
+        sys.exit(run_v1(parsed_args))
 
     elif parsed_args.command == "memory-tool":
         if parsed_args.memory_tool_command == "serve":
