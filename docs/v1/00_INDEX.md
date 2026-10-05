@@ -2,7 +2,7 @@
 
 Planning baseline: 3 October 2026. Inspected source commit: `d7614cdaa70947fdf77d43e5235616ff73e9e7fc` on `master`; local source was read without alteration.
 
-**Product direction: approved by the maintainer. P1/P2 implementation: complete and verified on 4 October 2026.** The maintainer explicitly approved the Live Context thesis and requested the v1 roadmap and supporting execution documents. These documents define the baseline design. P1 delivers trustworthy repository views; P2 implements immutable evidence, scoped verification and durable task/action corrections. Native host integrations remain P3/P4; evaluation targets are not measured product results.
+**Product direction: approved by the maintainer. P1/P2 implementation: complete and verified on 4 October 2026. P3: complete and verified on 5 October 2026, with the native ordering gate passing against Claude Code 2.1.289.** The maintainer explicitly approved the Live Context thesis and requested the v1 roadmap and supporting execution documents. These documents define the baseline design. P1 delivers trustworthy repository views; P2 implements immutable evidence, scoped verification and durable task/action corrections; P3 delivers one native action loop on a single host. The second host, concurrency and guarded writes remain P4; evaluation targets are not measured product results.
 
 Memex v1 maintains an agent's engineering working context against changing evidence, then supplies corrections before its next relevant action. Simultaneous Claude Code and Codex sessions, both in separate worktrees and in a shared checkout, are required v1 scenarios.
 
@@ -26,6 +26,8 @@ Memex v1 maintains an agent's engineering working context against changing evide
 | [14_PHASE1_VERIFICATION.md](14_PHASE1_VERIFICATION.md) | Executed tests, review fixes, decisions, setup and limits |
 | [15_PHASE2_EXECUTION_PLAN.md](15_PHASE2_EXECUTION_PLAN.md) | W06-W08 implementation and review plan |
 | [16_PHASE2_VERIFICATION.md](16_PHASE2_VERIFICATION.md) | Evidence-to-correction tests, bounded recovery, review fixes and P3 handoff |
+| [17_PHASE3_EXECUTION_PLAN.md](17_PHASE3_EXECUTION_PLAN.md) | S01 findings and the W09-W11 implementation plan |
+| [18_PHASE3_VERIFICATION.md](18_PHASE3_VERIFICATION.md) | Measured host semantics, the native ordering proof, limitations and P4 handoff |
 
 ## Execution rules
 
@@ -44,13 +46,13 @@ Memex v1 maintains an agent's engineering working context against changing evide
 | P0: planning baseline | Complete for this documentation pass | Numbered package, source audit and traceability table |
 | P1: trustworthy repository views | Complete, opt-in implementation | [80 phase checks, native graph/daemon evidence and review fixes](14_PHASE1_VERIFICATION.md) |
 | P2: evidence validity | Complete, opt-in core | [38 phase checks, 118 combined checks and review regressions](16_PHASE2_VERIFICATION.md) |
-| P3: one native action loop | Not started | Mutation-before-edit native-host trace |
+| P3: one native action loop | Complete, verified on one host | [Native mutation-before-edit trace, 34 phase checks and 679 compatibility checks](18_PHASE3_VERIFICATION.md) |
 | P4: concurrent agents and second host | Not started | Two-host concurrency matrix |
 | P5: efficacy, migration and OSS release | Not started | Preregistered results and release checklist |
 
 ## How to begin
 
-P1 execution is recorded in 13/14, P2 in 15/16. Next produce the detailed P3 implementation plan for W09-W11 and perform S01 against the installed native client before promising pre-write ordering. The roadmap contains later work-package specifications; it does not pretend that every later implementation detail has already been source-verified. The owner of each later wave produces its detailed test-first implementation plan after its prerequisite interfaces are accepted, using the contracts and acceptance tests already defined here.
+P1 execution is recorded in 13/14, P2 in 15/16, P3 in 17/18. S01 is closed: its measured findings and their design consequences are in 18. Next perform S02 against the installed Codex client before promising any second-host ordering, then produce the detailed P4 plan for W12-W15. Do not assume the Claude findings transfer. The roadmap contains later work-package specifications; it does not pretend that every later implementation detail has already been source-verified. The owner of each later wave produces its detailed test-first implementation plan after its prerequisite interfaces are accepted, using the contracts and acceptance tests already defined here.
 
 The distinguishing release demonstration is: the agent received valid context, supporting evidence changed while it worked, and Memex corrected the relevant assumption before the agent acted. If the full system cannot beat fresh retrieval and hash-bound notes on that condition, reduce the scope to an incremental release.
 

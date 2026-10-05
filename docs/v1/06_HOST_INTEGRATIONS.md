@@ -1,6 +1,6 @@
 # Host integration and delivery plan
 
-Status: planned adapters. Current installed host behavior must be verified before claiming support. Research snapshot: 3 October 2026.
+Status: the Claude Code adapter is implemented and verified against version 2.1.289; Codex remains planned. Measured host semantics, the native proof and the limitations are in [18_PHASE3_VERIFICATION.md](18_PHASE3_VERIFICATION.md). Research snapshot: 3 October 2026; host measurement: 5 October 2026.
 
 ## Core boundary
 
@@ -25,11 +25,13 @@ A host with session context only remains a v0.9-style integration. Action observ
 
 Use documented session/prompt/action hooks for registration and action checks. Capture the actual native session ID and working directory. Normalize tool paths relative to the registered checkout; prevent a request naming a different worktree without explicit registration.
 
-The current [hooks reference](https://code.claude.com/docs/en/hooks#pretooluse-decision-control) says PreToolUse additional context arrives alongside a tool result. Therefore, returning allow plus a correction may let the stale action run first. For known material drift, verify a deny-and-retry or SDK callback path that prevents the pending mutation and presents the correction to Claude. A notification, asynchronous hook or background model update does not meet this requirement.
+S01 measured this on version 2.1.289 and the concern was correct: `additionalContext` arrives alongside the tool result, so allow-plus-correction would let the stale action run first. The supported route is a synchronous `PreToolUse` returning `permissionDecision:"deny"`, which prevented the pending mutation with the target bytes unchanged and delivered the reason to the model as an `is_error` tool result that it then acted on. Deny is honored even under `bypassPermissions`.
+
+Two measured constraints bound the gate. A hook exceeding its configured `timeout` does **not** block, so the write proceeds; the adapter keeps an inner deadline and records a fail-open advisory rather than implying it gated anything. And `permissionDecision:"defer"` ends a non-interactive turn with `stop_reason: tool_deferred`, abandoning the action instead of failing open, so the adapter emits `deny` or no decision at all. It subtracts permission and never grants it: emitting `allow` would bypass the user's own permission policy on a memex outage.
 
 Do not use permission escalation to ask the human about every correction. Return a machine-readable reconsideration reason and bound repeated attempts. Do not alter permission policy, auto-approve tools or rewrite tool arguments merely to deliver context. Claude's documented defer path has version/mode restrictions; it is not a universal interactive-session pause mechanism.
 
-Spike S01 must establish the installed client's supported output schema, multi-tool batch behavior, denied-action feedback, timeouts, and whether the next model action incorporates the correction. Save a trace showing source mutation, check, prevented write, model reconsideration and final write.
+Spike S01 is closed. Parallel edit calls were serialized by the host, each with its own check/execute pair, so a check certifies its own declared target at its own moment and no batch-wide guarantee may be claimed. The required trace, and the agent correctly overriding a correction it could disprove, are recorded in 18.
 
 ## Codex adapter
 
@@ -47,7 +49,9 @@ Retain existing read-only `MemoryProvider.prefetch()` and current packet formatt
 
 Expose task working-set snapshots and changes through bounded authorized resources and existing compatible retrieval tools. Negotiate the client's protocol version; do not assume the installed Python SDK supports the newest subscription schema.
 
-The [2026-07-28 resource specification](https://modelcontextprotocol.io/specification/2026-07-28/server/resources) documents resource updates through negotiated subscriptions. Host applications decide whether and when to incorporate resources. A resource update is a signal to fetch/check context, not evidence of insertion or action reconsideration. Provide explicit polling/check fallback where the host cannot subscribe.
+The [2026-07-28 resource specification](https://modelcontextprotocol.io/specification/2026-07-28/server/resources) documents resource updates through negotiated subscriptions. A resource update is a signal to fetch/check context, not evidence of insertion or action reconsideration.
+
+Measured: the installed MCP SDK (1.30.0) derives `ResourcesCapability` with `subscribe` hardcoded to false whenever a list-resources handler is registered, so this server cannot advertise resource subscription at any protocol version. Negotiation therefore selects the polling fallback, which is implemented rather than merely documented.
 
 Do not broaden the MCP tool count merely to expose every internal runtime operation. Prefer a small projection of the task snapshot and action-check contract with existing authorization.
 

@@ -61,7 +61,9 @@ Every material change records affected R/W/F IDs, rationale and evidence. Keep c
 
 ## Completed prerequisite spikes
 
-S03: verified Graphiti Neo4jDriver session/execute_write interfaces; tested atomic rollback, completion, concurrent uniqueness, replay and graph-before-SQLite acknowledgement on native Neo4j. S05: real temporary Git tests cover linked worktrees, stable common/worktree IDs, Windows path aliases, detached/unborn HEAD, configured hooksPath and preserved hooks. Both close with P1; [14_PHASE1_VERIFICATION.md](14_PHASE1_VERIFICATION.md) records decisions and evidence. S01/S02/S04 remain open.
+S01: measured Claude Code 2.1.289 directly. A synchronous `PreToolUse` deny prevents the pending mutation and its reason reaches the model, which reconsiders; deny is honored under `bypassPermissions`; a hook that overruns its timeout does not block; parallel edit calls are serialized per target; `defer` ends a non-interactive turn rather than failing open; and an agent correctly overrides a correction it can disprove. The supported route is deny-and-reconsider, with no wrapper or SDK fallback needed on this host. Closes with P3; [18_PHASE3_VERIFICATION.md](18_PHASE3_VERIFICATION.md) records the evidence and the resulting abstain policy. S02 and S04 remain open.
+
+S03: verified Graphiti Neo4jDriver session/execute_write interfaces; tested atomic rollback, completion, concurrent uniqueness, replay and graph-before-SQLite acknowledgement on native Neo4j. S05: real temporary Git tests cover linked worktrees, stable common/worktree IDs, Windows path aliases, detached/unborn HEAD, configured hooksPath and preserved hooks. Both close with P1; [14_PHASE1_VERIFICATION.md](14_PHASE1_VERIFICATION.md) records decisions and evidence.
 
 
 ## Phase 2 implementation decisions
@@ -69,3 +71,12 @@ S03: verified Graphiti Neo4jDriver session/execute_write interfaces; tested atom
 W06–W08 implement R03/R04/R05/R09/R10/R15 using immutable graph proofs, per-view deterministic checks and independent bounded SQLite streams. [16_PHASE2_VERIFICATION.md](16_PHASE2_VERIFICATION.md) records F01/F04/F05/F06/F07/F08/F10/F13/F14/F15/F16 evidence and review fixes. Catch-up at action boundaries closes subscribe/snapshot event gaps without depending on transient notifications. Cold/warm indexing cost, eager dirty propagation and graph-history selection remain optimization work; no efficacy claim follows from these correctness tests.
 
 Critical review fixes enforce source authorization independently of lifecycle and keep unavailable responses assertion-free. Already-known corrections survive outages. Packet/coverage bounds are checked before strict schema construction. Shared bounded CPU worker processes keep AST parsing off the event loop and retain occupied slots until jobs finish. Native authority/authentication bindings and guarded write critical sections remain later integration responsibilities; a source hash and receipt never prove compliance.
+
+
+## Phase 3 implementation decisions
+
+W09–W11 implement R06/R10/R11/R12 on one host. V1-009 is satisfied for Claude Code by measurement rather than by hook naming: the correction is delivered through a synchronous deny that prevents the pending mutation, and the agent's reconsideration is observed in the native stream.
+
+Two decisions are worth carrying forward. **The adapter only ever subtracts permission.** It emits `deny` or no decision; `allow` would bypass the user's permission policy on a memex outage, and a measured `defer` abandons the pending action in a non-interactive session instead of failing open. **A hook payload is not an authenticator.** The principal comes from an owner-only capability file in the Git common directory and the memex session is an HMAC of the native session under that secret, so a forged payload cannot address another principal's stream.
+
+V1-011 and V1-012 are unchanged and now have measured edges. The gate is a check, not a lock: a hook timeout fails open, opaque shell actions are explicitly not certified, and a writer arriving after the check is not prevented. No claim is made that an action check protects against arbitrary writers.

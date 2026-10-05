@@ -1,6 +1,6 @@
 # Dependency-ordered v1 roadmap
 
-Status: P1/P2 complete and verified 4 October 2026; P3-P5 remain planned. No calendar or staffing estimate is asserted. Phase exits require evidence. Detailed first-wave tasks are in [09_FIRST_WAVE_IMPLEMENTATION_PLAN.md](09_FIRST_WAVE_IMPLEMENTATION_PLAN.md).
+Status: P1/P2 complete and verified 4 October 2026; P3 complete and verified 5 October 2026 on one host; P4-P5 remain planned. No calendar or staffing estimate is asserted. Phase exits require evidence. Detailed first-wave tasks are in [09_FIRST_WAVE_IMPLEMENTATION_PLAN.md](09_FIRST_WAVE_IMPLEMENTATION_PLAN.md).
 
 ## Dependency sequence
 
@@ -40,7 +40,7 @@ P2 exit (satisfied; see [16_PHASE2_VERIFICATION.md](16_PHASE2_VERIFICATION.md)):
 | W10 | Delivery/outcome trace projection | W09 | Per-session accepted/failed receipts; objective result distinct from exposure |
 | W11 | Hermes/MCP compatibility projection | W08 | Existing provider/context tests; negotiated capabilities; no transcript capture |
 
-P3 exit: first real native-client end-to-end demonstration; the runtime sends a correction before the materially affected mutation executes. If installed host capabilities cannot achieve this, S01 selects a supported wrapper/SDK route or the phase fails. Advisory delivery is not an acceptable substitute.
+P3 exit (satisfied; see [18_PHASE3_VERIFICATION.md](18_PHASE3_VERIFICATION.md)): a real Claude Code 2.1.289 run received a packet, evidence changed in a file the agent was not editing, the affected mutation was prevented before it executed, the correction reached that session, and the agent reconsidered and executed a revised action that passed an objective check. The supported route is a synchronous `PreToolUse` deny; S01's measured findings and the resulting abstain policy are recorded in 18. The gate is a check, not a lock, and a hook timeout fails open.
 
 ## P4: concurrent agents and second host
 
