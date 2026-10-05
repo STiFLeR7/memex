@@ -43,6 +43,8 @@ import subprocess
 import sys
 
 import pytest
+
+from tests import phase4_support as support
 import pytest_asyncio
 from graphiti_core.driver.neo4j_driver import Neo4jDriver
 
@@ -147,9 +149,10 @@ def run_contract(repo: Path, api_source: str, tmp_path: Path, label: str):
 
 
 @pytest_asyncio.fixture(loop_scope="function")
-async def native(tmp_path):
+async def native(tmp_path, monkeypatch):
     if os.getenv("MEMEX_PHASE3_NATIVE") != "1":
         pytest.skip("native host run is opt-in; set MEMEX_PHASE3_NATIVE=1")
+    support.isolate_clients(monkeypatch)
     uri = os.getenv("MEMEX_PHASE1_NEO4J_URI")
     if not uri:
         pytest.skip("isolated native Neo4j required")

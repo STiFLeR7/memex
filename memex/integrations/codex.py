@@ -260,9 +260,16 @@ CODEX_HOOK_EVENTS = {
 
 
 def write_launcher(registration, *, python_executable: str | None = None,
-                   pythonpath: str | None = None) -> Path:
-    """Write the hook launcher beside the capability file and return its path."""
+                   pythonpath: str | None = None, codex_home: str | None = None) -> Path:
+    """Write the hook launcher beside the capability file and return its path.
+
+    S02 measured Codex filtering its hooks' environment, so a `CODEX_HOME` the
+    client runs under does not reach the hook, which would then look for the
+    thread's rollout under `~/.codex`. The launcher carries it, defaulting to
+    the installing process's `CODEX_HOME`.
+    """
     executable = python_executable or sys.executable
+    codex_home = codex_home or os.getenv("CODEX_HOME")
     directory = Path(registration.common_dir) / "memex" / "adapters"
     directory.mkdir(parents=True, exist_ok=True)
     if os.name == "nt":
@@ -270,6 +277,8 @@ def write_launcher(registration, *, python_executable: str | None = None,
         lines = ["@echo off"]
         if pythonpath:
             lines.append(f'set "PYTHONPATH={pythonpath}"')
+        if codex_home:
+            lines.append(f'set "CODEX_HOME={codex_home}"')
         lines.append(f'"{executable}" -m memex.integrations.codex')
         target.write_text("\r\n".join(lines) + "\r\n", encoding="utf-8")
     else:
@@ -277,6 +286,8 @@ def write_launcher(registration, *, python_executable: str | None = None,
         lines = ["#!/bin/sh"]
         if pythonpath:
             lines.append(f"export PYTHONPATH='{pythonpath}'")
+        if codex_home:
+            lines.append(f"export CODEX_HOME='{codex_home}'")
         lines.append(f"exec '{executable}' -m memex.integrations.codex")
         target.write_text("\n".join(lines) + "\n", encoding="utf-8")
         target.chmod(0o700)

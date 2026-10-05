@@ -54,6 +54,29 @@ ASSERTION = ("validate() returns False for an unusable payload and never raises,
 CODEX_MODEL = os.getenv("MEMEX_PHASE4_CODEX_MODEL", "gpt-6-sol")
 
 
+def isolate_clients(monkeypatch) -> None:
+    """Point both native clients at dedicated configuration homes, or skip.
+
+    A native fixture must not run against the user's real `~/.codex` or
+    `~/.claude`: Codex persists project trust into its home's `config.toml`,
+    and both clients write session history there. The homes are supplied,
+    already authenticated by their owner, through `MEMEX_NATIVE_CODEX_HOME` and
+    `MEMEX_NATIVE_CLAUDE_CONFIG_DIR`; nothing here copies credentials. Child
+    processes, and the Codex hook launcher, inherit them.
+    """
+    import pytest
+
+    homes = {"CODEX_HOME": (os.getenv("MEMEX_NATIVE_CODEX_HOME"), pathlib.Path.home() / ".codex"),
+             "CLAUDE_CONFIG_DIR": (os.getenv("MEMEX_NATIVE_CLAUDE_CONFIG_DIR"), pathlib.Path.home() / ".claude")}
+    for variable, (supplied, real) in homes.items():
+        if not supplied:
+            pytest.skip("native runs need isolated client homes: set MEMEX_NATIVE_CODEX_HOME and "
+                        "MEMEX_NATIVE_CLAUDE_CONFIG_DIR to separately authenticated directories")
+        if pathlib.Path(supplied).resolve() == real.resolve():
+            pytest.fail(f"{variable} must not be the user's real {real}")
+        monkeypatch.setenv(variable, str(pathlib.Path(supplied).resolve()))
+
+
 def git(repo, *args: str) -> str:
     return subprocess.run(["git", "-C", str(repo), *args], check=True, capture_output=True,
                           text=True).stdout.strip()

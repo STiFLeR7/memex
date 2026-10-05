@@ -429,6 +429,10 @@ def test_hook_configuration_is_wrapped_reversible_and_launcher_based(tmp_path):
                                     pythonpath="C:/checkout")
     text = launcher.read_text()
     assert "memex.integrations.codex" in text and "C:/checkout" in text
+    # S02-13: Codex filters a hook's environment, so a non-default CODEX_HOME rides in the launcher.
+    homed = codex.write_launcher(registration, python_executable="C:/Python/python.exe",
+                                 codex_home="C:/isolated/codex-home").read_text()
+    assert "CODEX_HOME=C:/isolated/codex-home" in homed or "CODEX_HOME='C:/isolated/codex-home'" in homed
 
     hooks_json = repo / ".codex" / "hooks.json"
     hooks_json.parent.mkdir()
