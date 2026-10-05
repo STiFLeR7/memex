@@ -909,7 +909,7 @@ async def test_interruption_between_preparation_and_output_is_never_delivered(ho
 
     # Genuine insertion evidence of exactly the right kind, and it still loses:
     # a packet that never left this process cannot have been the one inserted.
-    write_transcript(repo, additional_context_record(f"memex engineering context [{marker}]"))
+    write_transcript(repo, additional_context_record(started.additional_context))
     adapter.confirm_deliveries(session, transcript_for(repo))
     assert ledger(adapter, started.delivery_key)["state"] == "failed"
     assert acked(adapter, started.delivery_key) == 0
@@ -970,15 +970,15 @@ async def test_another_sessions_records_cannot_confirm_this_sessions_packet(host
 
     write_transcript(
         repo,
-        additional_context_record(f"memex engineering context [{marker}]", "different-session"),
-        denial_record(f"memex: outcome=replan\n[{marker}]", "toolu_1", "different-session"),
+        additional_context_record(started.additional_context, "different-session"),
+        denial_record(started.additional_context, "toolu_1", "different-session"),
     )
     adapter.confirm_deliveries(session, transcript_for(repo))
     assert ledger(adapter, started.delivery_key)["state"] == "emitted"
     assert acked(adapter, started.delivery_key) == 0
 
     # A record with no session attribution at all is no better.
-    anonymous = additional_context_record(f"ctx [{marker}]")
+    anonymous = additional_context_record(started.additional_context)
     del anonymous["sessionId"]
     write_transcript(repo, anonymous)
     adapter.confirm_deliveries(session, transcript_for(repo))
@@ -998,7 +998,7 @@ async def test_a_transcript_naming_another_session_is_not_read(host):
     started = await adapter.dispatch(payload("SessionStart", repo))
     adapter.emit(started, "SessionStart", io.StringIO())
     marker = ledger(adapter, started.delivery_key)["marker"]
-    evidence = additional_context_record(f"memex engineering context [{marker}]")
+    evidence = additional_context_record(started.additional_context)
 
     write_transcript(repo, evidence, session="someone-else")
     adapter.confirm_deliveries(session, transcript_for(repo, "someone-else"))
@@ -1058,7 +1058,7 @@ async def test_a_marker_quoted_in_prose_is_not_an_insertion(host):
         prose_record(f"I notice memex tagged that packet [{marker}]."),
         prose_record(f"Yes, [{marker}] is the one.", role="user"),
         # A *successful* tool result quoting it is not a denial reaching anyone.
-        denial_record(f"done [{marker}]", "toolu_1", is_error=False),
+        denial_record(started.additional_context, "toolu_1", is_error=False),
     )
     adapter.confirm_deliveries(session, transcript_for(repo))
     assert acked(adapter, started.delivery_key) == 0
@@ -1072,7 +1072,7 @@ async def test_malformed_and_partial_records_are_insufficient_evidence(host):
     started = await adapter.dispatch(payload("SessionStart", repo))
     adapter.emit(started, "SessionStart", io.StringIO())
     marker = ledger(adapter, started.delivery_key)["marker"]
-    good = json.dumps(additional_context_record(f"ctx [{marker}]"))
+    good = json.dumps(additional_context_record(started.additional_context))
 
     write_transcript(
         repo,
@@ -1094,6 +1094,34 @@ async def test_malformed_and_partial_records_are_insufficient_evidence(host):
 
 
 @pytest.mark.asyncio
+async def test_an_intact_marker_on_a_truncated_packet_is_not_a_delivery(host):
+    """S02 measured Codex keeping a packet's head and tail while dropping its middle.
+
+    Both ends -- and so the marker -- survive such a truncation. The packet
+    must arrive whole to be acknowledged, on every host, and a partial insertion
+    fails at once rather than waiting out the retry budget.
+    """
+    adapter, repo, _ = host
+    session = adapter.session_identity(NATIVE)
+    started = await adapter.dispatch(payload("SessionStart", repo))
+    adapter.emit(started, "SessionStart", io.StringIO())
+    packet = started.additional_context
+    marker = ledger(adapter, started.delivery_key)["marker"]
+    cut = packet.index(marker) + len(marker) + 8
+    head, tail = packet[:cut], packet[-(len(packet) - cut) // 2:]
+    assert ledger(adapter, started.delivery_key)["marker"] in head
+
+    write_transcript(repo, additional_context_record(
+        "Warning: truncated output (original token count: 15628)\n" + head + "\n...\n" + tail))
+    adapter.confirm_deliveries(session, transcript_for(repo))
+    assert acked(adapter, started.delivery_key) == 0
+    assert ledger(adapter, started.delivery_key)["state"] == "failed"
+    failed = [e for e in adapter.trace.events(native_session_id=NATIVE)
+              if e["event"] == "delivery" and e["insertion"] == "failed"]
+    assert failed and failed[-1]["reason"] == "host_truncated"
+
+
+@pytest.mark.asyncio
 async def test_a_correction_needs_the_denial_of_its_own_call(host):
     """Right kind, right marker, wrong call. Still not this packet's receipt."""
     adapter, repo, _ = host
@@ -1107,19 +1135,19 @@ async def test_a_correction_needs_the_denial_of_its_own_call(host):
     baseline = acked(adapter, denied.delivery_key)  # the confirmed snapshot
 
     # A denial of a different call, and the right call with the wrong marker.
-    write_transcript(repo, denial_record(f"memex: outcome=replan\n[{marker}]", "toolu_other"),
+    write_transcript(repo, denial_record(denied.reason, "toolu_other"),
                      denial_record("memex: outcome=replan\n[memex-delivery:0123456789abcdef]",
                                    "toolu_denied"))
     adapter.confirm_deliveries(session, transcript_for(repo))
     assert acked(adapter, denied.delivery_key) == baseline
 
     # A snapshot-shaped insertion cannot confirm a correction either.
-    write_transcript(repo, additional_context_record(f"ctx [{marker}]"))
+    write_transcript(repo, additional_context_record(denied.reason))
     adapter.confirm_deliveries(session, transcript_for(repo))
     assert acked(adapter, denied.delivery_key) == baseline
 
     # The denial of the call it actually answers does.
-    write_transcript(repo, denial_record(f"memex: outcome=replan\n[{marker}]", "toolu_denied"))
+    write_transcript(repo, denial_record(denied.reason, "toolu_denied"))
     adapter.confirm_deliveries(session, transcript_for(repo))
     assert acked(adapter, denied.delivery_key) == int(denied.delivery_key.rpartition(":")[2])
 
@@ -1155,17 +1183,20 @@ async def test_a_wrong_sequence_receipt_is_rejected_without_writing_off_the_pack
     adapter.emit(started, "SessionStart", io.StringIO())
     task_id, _, _ = started.delivery_key.rpartition(":")
 
-    # A ledger row for a sequence the core has no pending packet for.
+    # A ledger row for a sequence the core has no pending packet for, whose
+    # whole packet the host did insert, so only the core can reject it.
+    bogus = "memex: outcome=replan\n[memex-delivery:00ff00ff00ff00ff]"
     db = sqlite3.connect(adapter.state_path)
     with db:
         db.execute("INSERT INTO live_adapter_deliveries"
-                   "(task_id,sequence,native_session_id,view_id,marker,kind,attempt_id,state)"
-                   " VALUES(?,?,?,?,?,?,?, 'emitted')",
+                   "(task_id,sequence,native_session_id,view_id,marker,kind,attempt_id,state,"
+                   "packet_sha256,packet_chars,marker_offset)"
+                   " VALUES(?,?,?,?,?,?,?, 'emitted',?,?,?)",
                    (task_id, 99, NATIVE, "view:bogus", "memex-delivery:00ff00ff00ff00ff",
-                    "correction", None))
+                    "correction", None, digest(bogus.encode()), len(bogus),
+                    bogus.index("memex-delivery")))
     db.close()
-    write_transcript(repo, denial_record("memex: outcome=replan\n[memex-delivery:00ff00ff00ff00ff]",
-                                         "toolu_whatever"))
+    write_transcript(repo, denial_record(bogus, "toolu_whatever"))
     adapter.confirm_deliveries(session, transcript_for(repo))
 
     rejected = [e for e in adapter.trace.events(native_session_id=NATIVE)

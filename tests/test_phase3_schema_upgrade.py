@@ -133,7 +133,9 @@ def test_existing_rows_survive_the_upgrade(legacy):
     finally:
         db.close()
 
+    # Phase 4 rekeys bindings by host; a Phase 3 row is carried over as Claude's.
     assert [dict(r) for r in session] == [{
+        "harness": "claude_code",
         "native_session_id": NATIVE, "memex_session_id": "cc-legacy", "task_id": TASK,
         "continuation_token": "token-legacy", "context_retained": 1}]
     assert [tuple(r) for r in denial] == [(TASK, "api.py", "toolu_root")]
