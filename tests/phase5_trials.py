@@ -47,21 +47,24 @@ from tests.phase5_trial_hooks import encode_plan  # noqa: E402
 HERE = pathlib.Path(__file__).resolve().parent
 CHECKOUT = HERE.parent
 TRIAL_HOOKS = HERE / "phase5_trial_hooks.py"
-HARNESS_VERSION = "phase5-trials.v1"
+HARNESS_VERSION = "phase5-trials.v2-two-turn"
 CLAUDE_MODEL = os.getenv("MEMEX_P5_CLAUDE_MODEL", "claude-sonnet-5-5")
 CODEX_MODEL = os.getenv("MEMEX_P5_CODEX_MODEL", "gpt-6-sol")
 CODEX_EFFORT = os.getenv("MEMEX_P5_CODEX_EFFORT", "medium")
 MAX_TURNS = 30
 TRIAL_TIMEOUT = float(os.getenv("MEMEX_P5_TRIAL_TIMEOUT", "900"))
-PROMPT_SUFFIX = " Edit only {target}. You may read any file in the repository, but do not run code or tests."
+PLAN_SUFFIX = (" First read whatever you need and describe your implementation plan. Do not edit any file in "
+               "this turn, and do not run code or tests.")
+IMPLEMENT = ("Now implement your plan. Edit only {target}. You may read any file in the repository, but do not "
+             "run code or tests.")
 
 
-def prompt_for(h: fixtures.History) -> str:
-    return h.spec.prompt + PROMPT_SUFFIX.format(target=h.spec.target)
+def prompts_for(h: fixtures.History) -> tuple[str, str]:
+    return h.spec.prompt + PLAN_SUFFIX, IMPLEMENT.format(target=h.spec.target)
 
 
 def prompt_hash(h: fixtures.History) -> str:
-    return "sha256:" + hashlib.sha256(prompt_for(h).encode()).hexdigest()[:16]
+    return "sha256:" + hashlib.sha256("\n".join(prompts_for(h)).encode()).hexdigest()[:16]
 
 
 # --------------------------------------------------------------------------- #
@@ -104,8 +107,7 @@ def claude_settings(repo: pathlib.Path, arm: str, arm_launcher, hooks, state, ur
         "PreToolUse": ([{"matcher": edits + "|Bash", "hooks": [memex]}] if hooked else [])
         + [{"matcher": edits, "hooks": [record("proposed")]}],
         "PostToolUse": ([{"matcher": edits, "hooks": [memex]}] if hooked else [])
-        + [{"matcher": edits, "hooks": [record("executed")]},
-           {"hooks": [_entry(f"{hooks.as_posix()} change {state.as_posix()} {uri}", 120)]}],
+        + [{"matcher": edits, "hooks": [record("executed")]}],
         "SessionEnd": [{"hooks": [memex]}] if hooked else [],
     }}
     settings["hooks"] = {k: v for k, v in settings["hooks"].items() if v}
@@ -120,8 +122,7 @@ def codex_flags(arm: str, arm_launcher, hooks, state, uri) -> list[str]:
     record = f"{hooks.as_posix()} record {state.as_posix()}"
     extra = {
         "PreToolUse": [{"matcher": "apply_patch", "hooks": [_entry(f"{record} proposed", 30)]}],
-        "PostToolUse": [{"matcher": "apply_patch", "hooks": [_entry(f"{record} executed", 30)]},
-                        {"hooks": [_entry(f"{hooks.as_posix()} change {state.as_posix()} {uri}", 120)]}],
+        "PostToolUse": [{"matcher": "apply_patch", "hooks": [_entry(f"{record} executed", 30)]}],
     }
     for event, more in extra.items():
         groups.setdefault(event, []).extend(more)
@@ -141,19 +142,20 @@ def codex_flags(arm: str, arm_launcher, hooks, state, uri) -> list[str]:
 # Running the clients
 # --------------------------------------------------------------------------- #
 
-def run_claude(repo: pathlib.Path, prompt: str, scratch: pathlib.Path) -> dict:
+def _claude_turn(repo: pathlib.Path, prompt: str, resume: str | None) -> dict:
     command = ["claude", "-p", prompt, "--model", CLAUDE_MODEL, "--permission-mode", "acceptEdits",
                "--output-format", "stream-json", "--verbose", "--max-turns", str(MAX_TURNS),
                "--setting-sources", "project,local", "--strict-mcp-config"]
-    started = time.time()
+    if resume:
+        command += ["--resume", resume]
     try:
         done = subprocess.run(command, cwd=repo, stdin=subprocess.DEVNULL, capture_output=True, text=True,
                               encoding="utf-8", errors="replace", timeout=TRIAL_TIMEOUT)
-        stdout, code, timed_out = done.stdout, done.returncode, False
-        stderr = done.stderr
+        stdout, code, stderr, timed_out = done.stdout, done.returncode, done.stderr, False
     except subprocess.TimeoutExpired as exc:
-        stdout = (exc.stdout or b"").decode("utf-8", "replace") if isinstance(exc.stdout, bytes) else (exc.stdout or "")
-        stderr, code, timed_out = "", None, True
+        raw = exc.stdout or b""
+        stdout = raw.decode("utf-8", "replace") if isinstance(raw, bytes) else raw
+        code, stderr, timed_out = None, "", True
     records = []
     for line in stdout.splitlines():
         try:
@@ -161,29 +163,56 @@ def run_claude(repo: pathlib.Path, prompt: str, scratch: pathlib.Path) -> dict:
         except json.JSONDecodeError:
             continue
     result = next((r for r in reversed(records) if r.get("type") == "result"), {})
-    usage = result.get("usage") or {}
+    return {"records": records, "result": result, "code": code, "stderr": stderr, "timed_out": timed_out,
+            "session_id": next((r.get("session_id") for r in records if r.get("session_id")), None)}
+
+
+def run_claude(repo: pathlib.Path, prompts: tuple[str, str], between) -> dict:
+    """Turn 1 plans; `between()` applies the change; turn 2 resumes the same session and implements."""
+    started = time.time()
+    turns = [_claude_turn(repo, prompts[0], None)]
+    first = turns[0]
+    out: dict = {"timed_out": first["timed_out"], "client_error": None}
+    if first["timed_out"] or first["code"] != 0 or first["result"].get("is_error") or not first["session_id"]:
+        out["client_error"] = "turn 1: " + (first["stderr"][-400:] or str(first["result"].get("subtype")))
+    else:
+        between()
+        second = _claude_turn(repo, prompts[1], first["session_id"])
+        turns.append(second)
+        out["timed_out"] = second["timed_out"]
+        if not second["timed_out"] and (second["code"] != 0 or second["result"].get("is_error")):
+            out["client_error"] = "turn 2: " + (second["stderr"][-400:] or str(second["result"].get("subtype")))
+        out["resumed_same_session"] = second["session_id"] == first["session_id"]
+    records = [r for t in turns for r in t["records"]]
     tools = []
-    for record in records:
-        if record.get("type") == "assistant":
-            for block in record.get("message", {}).get("content") or []:
-                if isinstance(block, dict) and block.get("type") == "tool_use":
-                    tools.append({"tool": block["name"], "target": _target(block.get("input"))})
-    model = next((r.get("model") for r in records if r.get("type") == "system" and r.get("model")), None)
-    return {
-        "exit_code": code, "timed_out": timed_out, "wall_s": time.time() - started,
-        "client_error": (None if (code == 0 and not result.get("is_error"))
-                         else (stderr[-500:] or result.get("subtype"))),
-        "model_reported": model, "num_turns": result.get("num_turns"),
-        "usage": {"input_tokens": usage.get("input_tokens"), "output_tokens": usage.get("output_tokens"),
-                  "cache_read_input_tokens": usage.get("cache_read_input_tokens"),
-                  "cache_creation_input_tokens": usage.get("cache_creation_input_tokens"),
-                  "cost_usd": result.get("total_cost_usd")} if result else None,
-        "tool_sequence": tools,
-        "denial_texts_seen": sum(1 for r in records if r.get("type") == "user" and "memex" in json.dumps(r)
-                                 and '"is_error": true' in json.dumps(r)),
-        "correction_text_seen": sum(1 for r in records if "outcome=replan" in json.dumps(r)),
-        "context_texts_seen": sum(1 for r in records if "memex" in json.dumps(r)),
-    }
+    for turn_number, turn in enumerate(turns, 1):
+        for record in turn["records"]:
+            if record.get("type") == "assistant":
+                for block in record.get("message", {}).get("content") or []:
+                    if isinstance(block, dict) and block.get("type") == "tool_use":
+                        tools.append({"turn": turn_number, "tool": block["name"],
+                                      "target": _target(block.get("input"))})
+    results = [t["result"] for t in turns if t["result"]]
+    usage = None
+    if results:
+        def total(key):
+            values = [(r.get("usage") or {}).get(key) for r in results]
+            return None if any(v is None for v in values) else sum(values)
+        costs = [r.get("total_cost_usd") for r in results]
+        usage = {"input_tokens": total("input_tokens"), "output_tokens": total("output_tokens"),
+                 "cache_read_input_tokens": total("cache_read_input_tokens"),
+                 "cache_creation_input_tokens": total("cache_creation_input_tokens"),
+                 "cost_usd": None if any(c is None for c in costs) else sum(costs),
+                 "turns_reported": len(results)}
+    out.update(
+        wall_s=time.time() - started,
+        model_reported=next((r.get("model") for r in records if r.get("type") == "system" and r.get("model")), None),
+        num_turns=sum(r.get("num_turns") or 0 for r in results), usage=usage, tool_sequence=tools,
+        denial_texts_seen=sum(1 for r in records if r.get("type") == "user" and "memex" in json.dumps(r)
+                              and '"is_error": true' in json.dumps(r)),
+        correction_text_seen=sum(1 for r in records if "outcome=replan" in json.dumps(r)),
+        context_texts_seen=sum(1 for r in records if "memex" in json.dumps(r)))
+    return out
 
 
 def _target(tool_input) -> str | None:
@@ -193,39 +222,64 @@ def _target(tool_input) -> str | None:
     return None if value is None else str(value)[:200]
 
 
-def run_codex(repo: pathlib.Path, prompt: str, flags: list[str], scratch: pathlib.Path) -> dict:
-    started = time.time()
-    server = support.AppServer(flags)
-    out: dict = {"timed_out": False, "client_error": None}
-    rollout = None
+def _codex_turn(server, thread_id: str, prompt: str, out: dict, label: str) -> bool:
+    turn_id = server.start_turn(thread_id, prompt)
     try:
-        result = server.request("thread/start", {"cwd": str(repo), "model": CODEX_MODEL, "sandbox": "workspace-write",
-                                                 "config": {"bypass_hook_trust": True,
-                                                            "model_reasoning_effort": CODEX_EFFORT}})
+        turn = server.wait_turn(thread_id, turn_id, timeout=TRIAL_TIMEOUT)
+    except TimeoutError:
+        out["timed_out"] = True
+        return False
+    if turn.get("status") != "completed":
+        out["client_error"] = f"{label}: " + json.dumps(turn.get("error") or turn.get("status"))[:500]
+        return False
+    return True
+
+
+def run_codex(repo: pathlib.Path, prompts: tuple[str, str], flags: list[str], between) -> dict:
+    """Turn 1 in one app-server process; the change; turn 2 after `thread/resume` in a new process.
+
+    S02 measured `SessionStart(source=resume)` firing for a resumed thread in a
+    new process, which matches Claude's `--resume`, so both hosts see the same
+    session boundary between the turns.
+    """
+    started = time.time()
+    out: dict = {"timed_out": False, "client_error": None, "declined_approvals": 0}
+    thread_id, rollout = None, None
+    config = {"bypass_hook_trust": True, "model_reasoning_effort": CODEX_EFFORT}
+    server = support.AppServer(flags)
+    try:
+        result = server.request("thread/start", {"cwd": str(repo), "model": CODEX_MODEL,
+                                                 "sandbox": "workspace-write", "config": config})
         thread_id = result["thread"]["id"]
-        turn_id = server.start_turn(thread_id, prompt)
-        try:
-            turn = server.wait_turn(thread_id, turn_id, timeout=TRIAL_TIMEOUT)
-            if turn.get("status") != "completed":
-                out["client_error"] = json.dumps(turn.get("error") or turn.get("status"))[:500]
-        except TimeoutError:
-            out["timed_out"] = True
-        try:
-            rollout = server.rollout(thread_id)
-        except Exception:  # noqa: BLE001
-            rollout = None
-        out["declined_approvals"] = len(server.declined)
+        ok = _codex_turn(server, thread_id, prompts[0], out, "turn 1")
+        out["declined_approvals"] += len(server.declined)
     except Exception as exc:  # noqa: BLE001 - recorded as an unavailable client
-        out["client_error"] = f"{exc.__class__.__name__}: {str(exc)[:400]}"
+        out["client_error"], ok = f"turn 1: {exc.__class__.__name__}: {str(exc)[:400]}", False
     finally:
         server.close()
+    if ok:
+        between()
+        server = support.AppServer(flags)
+        try:
+            server.request("thread/resume", {"threadId": thread_id, "model": CODEX_MODEL, "config": config})
+            _codex_turn(server, thread_id, prompts[1], out, "turn 2")
+            out["declined_approvals"] += len(server.declined)
+            try:
+                rollout = server.rollout(thread_id)
+            except Exception:  # noqa: BLE001
+                rollout = None
+        except Exception as exc:  # noqa: BLE001
+            out["client_error"] = f"turn 2: {exc.__class__.__name__}: {str(exc)[:400]}"
+        finally:
+            server.close()
     out["wall_s"] = time.time() - started
-    usage, tools, model, correction_seen = None, [], None, 0
+    usage, tools, model, correction_seen, turn_number = None, [], None, 0, 0
     if rollout and pathlib.Path(rollout).exists():
         for record in support.rollout_records(pathlib.Path(rollout)):
             payload = record.get("payload") or {}
             if record.get("type") == "turn_context":
                 model = payload.get("model") or model
+                turn_number += 1
             if record.get("type") == "event_msg" and payload.get("type") == "token_count" and payload.get("info"):
                 total = payload["info"].get("total_token_usage") or {}
                 usage = {"input_tokens": total.get("input_tokens"), "output_tokens": total.get("output_tokens"),
@@ -235,9 +289,9 @@ def run_codex(repo: pathlib.Path, prompt: str, flags: list[str], scratch: pathli
                 correction_seen += 1
             if record.get("type") == "response_item" and payload.get("type") in ("function_call", "custom_tool_call"):
                 arguments = payload.get("arguments") or payload.get("input") or ""
-                tools.append({"tool": payload.get("name"), "target": str(arguments)[:200]})
+                tools.append({"turn": turn_number, "tool": payload.get("name"), "target": str(arguments)[:200]})
     out.update(model_reported=model, usage=usage, tool_sequence=tools, rollout_found=bool(rollout),
-               correction_text_seen=correction_seen)
+               correction_text_seen=correction_seen, thread_id=thread_id)
     return out
 
 
@@ -287,12 +341,24 @@ def run_trial(h: fixtures.History, arm: str, host: str, *, uri: str, trial_root:
                 from memex.integrations import codex
                 codex.register(repo, "owner", backend={"neo4j_uri": uri})
         arm_launcher, hooks = launchers(state / "bin", host, uri)
-        prompt = prompt_for(h)
+        prompts = prompts_for(h)
+
+        def between():
+            """The change, applied by the harness between the two turns, as another contributor would."""
+            at = time.time()
+            error, applied = None, []
+            try:
+                applied = fixtures.apply_change(repo, made["plan"], uri=uri)
+            except Exception as exc:  # noqa: BLE001 - recorded; the trial is then invalid
+                error = f"{exc.__class__.__name__}: {str(exc)[:300]}"
+            (state / "change.json").write_text(json.dumps({"at": at, "applied_at": time.time(),
+                                                           "after_tool": "turn 1", "applied": applied,
+                                                           "error": error}))
         if host == "claude":
             claude_settings(repo, arm, arm_launcher, hooks, state, uri)
-            client = run_claude(repo, prompt, state)
+            client = run_claude(repo, prompts, between)
         else:
-            client = run_codex(repo, prompt, codex_flags(arm, arm_launcher, hooks, state, uri), state)
+            client = run_codex(repo, prompts, codex_flags(arm, arm_launcher, hooks, state, uri), between)
         record["client"] = client
         record.update(score(h, repo, registration, state, probe, arm))
         record["status"] = classify(record)

@@ -128,6 +128,12 @@ def adapter_class(base, arm: str):
     """The adapter class for `arm`, derived from a host adapter class."""
 
     class ArmB(base):
+        async def on_session_start(self, payload):
+            if (payload.get("source") or "startup") != "startup" and self._binding(payload.get("session_id", "")):
+                # v0.9-style prefetch happens once, when the task starts.
+                return HookResponse(reason="memex arm B: initial prefetch only")
+            return await super().on_session_start(payload)
+
         async def on_pre_tool_use(self, payload):
             _record(self, self.session_identity(payload.get("session_id", "")), payload, "advisory",
                     "arm_b_no_action_check")
@@ -163,8 +169,10 @@ def adapter_class(base, arm: str):
 
     class ArmD(base):
         async def on_session_start(self, payload):
-            await super().on_session_start(payload)  # binds the task; its packet is replaced by notes
             native = payload.get("session_id", "")
+            previous = _get(self, native, "d_bound")
+            await super().on_session_start(payload)  # binds the task; its packet is replaced by notes
+            changed = sorted(p for p, digest in (previous or {}).items() if self._observed_digest(p) != digest)
             items = await fresh_items(self, self.session_identity(native))
             # A hash-bound note cites every source it was written from, not only
             # the support set that currently happens to verify it.
@@ -185,6 +193,12 @@ def adapter_class(base, arm: str):
             _put(self, native, "d_notes", notes)
             text = ("memex notes for this repository. Each note is bound to the exact source versions it "
                     "cites; you will be warned if a cited source changes.\n" + "\n".join(notes))
+            if changed:
+                # Resumed after a cited source changed: warn now; the notes above are rebound.
+                text = ("memex warning: source files cited by your earlier notes changed while this session was "
+                        "away: " + ", ".join(changed) + ". Re-read them and reconsider your plan before editing.\n"
+                        + text)
+                _record(self, self.session_identity(native), payload, "warned", "bound_source_changed_at_resume")
             # Notes replace the packet; they carry no delivery receipt.
             return HookResponse(additional_context=self._cap(text)[0])
 
@@ -272,6 +286,13 @@ class NoInvalidationEngine:
         if check.outcome in ("replan", "resync_required"):
             return check.model_copy(update={"outcome": "proceed", "delta": None, "reason": "invalidation_disabled"})
         return check
+
+    async def open_task(self, request):
+        """A new packet (at startup or resume) shows every claim as still supported."""
+        frame = await self._engine.open_task(request)
+        items = tuple(item.model_copy(update={"status": "supported", "reason": "sufficient_support"})
+                      for item in frame.items)
+        return frame.model_copy(update={"items": items})
 
 
 class TimedEngine:
