@@ -774,28 +774,52 @@ class HostAdapter:
                                     "never_emitted" if exhausted else "unconfirmed_in_transcript")
 
     def _confirm_delivery(self, row, session) -> None:
+        """Acknowledge one packet, exactly once, even under concurrent hooks.
+
+        S02 measured Codex running hooks concurrently, and a native run caught
+        two hook processes confirming the same correction: the core's receipt is
+        idempotent, so the cursor moved once, but the trace recorded two
+        confirmations. The `emitted -> confirmed` transition is therefore claimed
+        first, atomically; only the process that wins it acknowledges and
+        records, and a rejected receipt hands the claim back.
+        """
+        db = self._connect()
+        try:
+            with db:
+                won = db.execute("UPDATE live_adapter_deliveries SET state='confirmed' "
+                                 "WHERE task_id=? AND sequence=? AND state='emitted'",
+                                 (row["task_id"], row["sequence"])).rowcount == 1
+        finally:
+            db.close()
+        if not won:
+            return  # Another hook process already confirmed this packet.
         try:
             self.engine.ack_delivery(DeliveryReceipt(
                 session=session, task_id=row["task_id"], sequence=row["sequence"],
                 view_id=row["view_id"], adapter_version=self.adapter_version,
                 accepted_at=self.clock(), action_attempt_id=row["attempt_id"],
                 outcome="host_accepted"))
-        except ValueError as exc:
-            # A receipt that does not match the pending delivery is not evidence
-            # of anything; the packet stays pending rather than being written off.
-            self.trace.record(at=self.clock(), session=session, event="delivery",
-                              adapter_version=self.adapter_version, task_id=row["task_id"],
-                              sequence=row["sequence"], attempt_id=row["attempt_id"],
-                              checked_view_id=row["view_id"], insertion="failed",
-                              reason=f"receipt_rejected:{str(exc)[:120]}")
-            return
-        except PermissionError:
+        except (ValueError, PermissionError) as exc:
+            db = self._connect()
+            try:
+                with db:
+                    db.execute("UPDATE live_adapter_deliveries SET state='emitted' "
+                               "WHERE task_id=? AND sequence=? AND state='confirmed'",
+                               (row["task_id"], row["sequence"]))
+            finally:
+                db.close()
+            if isinstance(exc, ValueError):
+                # A receipt that does not match the pending delivery is not evidence
+                # of anything; the packet stays pending rather than being written off.
+                self.trace.record(at=self.clock(), session=session, event="delivery",
+                                  adapter_version=self.adapter_version, task_id=row["task_id"],
+                                  sequence=row["sequence"], attempt_id=row["attempt_id"],
+                                  checked_view_id=row["view_id"], insertion="failed",
+                                  reason=f"receipt_rejected:{str(exc)[:120]}")
             return
         db = self._connect()
         try:
             with db:
-                db.execute("UPDATE live_adapter_deliveries SET state='confirmed' "
-                           "WHERE task_id=? AND sequence=?", (row["task_id"], row["sequence"]))
                 db.execute("UPDATE live_adapter_sessions SET context_retained=1 "
                            "WHERE harness=? AND native_session_id=?",
                            (self.HARNESS, row["native_session_id"]))

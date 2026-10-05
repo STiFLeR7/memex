@@ -10,9 +10,9 @@ usage (as a hook command):
   phase4_fixture_hooks.py record <state-dir>
       Records each `apply_patch`/`Edit`/`Write` proposal as it is checked, so a
       test can reconstruct exactly what a denied attempt would have written.
-  phase4_fixture_hooks.py barrier <state-dir> <name> <wait-for> <timeout>
-      Holds a session after a completed read until marker <wait-for> exists,
-      after first publishing <name>. Lets a test keep two live sessions in
+  phase4_fixture_hooks.py barrier <state-dir> <name> <trigger-file> <timeout>
+      Holds a session after its first completed action on <trigger-file>, after
+      publishing <name>.ready, until go-<name> exists. Lets a test keep two live sessions in
       lockstep without either finishing early.
 
 Hosts filter or vary hook environments, so all configuration is in argv.
@@ -81,13 +81,14 @@ def main(argv) -> int:
         return 0
 
     if command == "barrier":
-        name, wait_for, timeout = argv[2], argv[3], float(argv[4])
-        mine = state / f"barrier-{name}.ready"
-        if mine.exists():
-            return 0  # Only the first completed read holds the session.
-        mine.write_text(json.dumps({"at": time.time(), "session": payload.get("session_id")}))
+        name, trigger, timeout = argv[2], argv[3], float(argv[4])
+        mine = state / f"{name}.ready"
+        if mine.exists() or not mentions(payload, trigger):
+            return 0  # Only the first completed action on the trigger file holds the session.
+        mine.write_text(json.dumps({"at": time.time(), "session": payload.get("session_id"),
+                                    "tool": payload.get("tool_name")}))
         deadline = time.time() + timeout
-        while time.time() < deadline and not (state / wait_for).exists():
+        while time.time() < deadline and not (state / f"go-{name}").exists():
             time.sleep(0.2)
         return 0
 

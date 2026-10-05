@@ -209,7 +209,9 @@ class AppServer:
     """A JSON-RPC client over the app-server's stdio transport."""
 
     def __init__(self, flags: list[str], *, env=None, log_path: pathlib.Path | None = None):
-        self.proc = subprocess.Popen([*codex_command(), "app-server", *flags],
+        # Fixture isolation: the user's installed plugins (their hooks, injected
+        # context and failing MCP connections) stay out of the fixture thread.
+        self.proc = subprocess.Popen([*codex_command(), "app-server", "--disable", "plugins", *flags],
                                      stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                                      text=True, encoding="utf-8", errors="replace", bufsize=1,
                                      env=env or dict(os.environ))
