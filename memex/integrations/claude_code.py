@@ -252,8 +252,10 @@ def hook_settings(*, timeout: int = 20, python_executable: str | None = None) ->
     entry = {"type": "command", "command": hook_command(python_executable), "timeout": timeout}
     return {
         "SessionStart": [{"hooks": [entry]}],
-        "PreToolUse": [{"matcher": "Edit|Write|MultiEdit|NotebookEdit|Bash", "hooks": [entry]}],
-        "PostToolUse": [{"matcher": "Edit|Write|MultiEdit|NotebookEdit", "hooks": [entry]}],
+        "PreToolUse": [{"matcher": "Edit|Write|MultiEdit|NotebookEdit|Bash|mcp__memex_guard__guard_write",
+                        "hooks": [entry]}],
+        "PostToolUse": [{"matcher": "Edit|Write|MultiEdit|NotebookEdit|mcp__memex_guard__guard_write",
+                         "hooks": [entry]}],
         "SessionEnd": [{"hooks": [entry]}],
     }
 

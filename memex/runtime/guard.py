@@ -383,6 +383,38 @@ class WriteGuard:
                               text=True).stdout.strip()
 
 
+def _mode_path(registration) -> Path:
+    return Path(registration.common_dir) / "memex" / "guard-mode.json"
+
+
+def guarded(registration) -> bool:
+    """Is guarded mode on for this worktree? Default mode is context coordination."""
+    try:
+        modes = json.loads(_mode_path(registration).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return False
+    return isinstance(modes, dict) and modes.get(registration.worktree_id) == "guarded"
+
+
+def set_mode(registration, mode: str) -> None:
+    """Switch one worktree between `context` (default) and opt-in `guarded` mode."""
+    if mode not in ("context", "guarded"):
+        raise ValueError("mode is 'context' or 'guarded'")
+    path = _mode_path(registration)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        modes = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        modes = {}
+    if mode == "guarded":
+        modes[registration.worktree_id] = "guarded"
+    else:
+        modes.pop(registration.worktree_id, None)
+    temporary = path.with_suffix(".tmp")
+    temporary.write_text(json.dumps(modes), encoding="utf-8")
+    os.replace(temporary, path)
+
+
 def classify_git(command: str) -> str | None:
     """Advisory classification of a shell Git mutation the guard does not perform."""
     words = command.replace("&&", " ").replace(";", " ").replace("|", " ").split()

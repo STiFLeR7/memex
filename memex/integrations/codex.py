@@ -253,8 +253,8 @@ class CodexAdapter(HostAdapter):
 #: Event -> matcher. Shell is matched so it can be recorded as opaque, never gated.
 CODEX_HOOK_EVENTS = {
     "SessionStart": None,
-    "PreToolUse": "apply_patch|Bash",
-    "PostToolUse": "apply_patch",
+    "PreToolUse": "apply_patch|Bash|mcp__memex_guard__guard_write",
+    "PostToolUse": "apply_patch|mcp__memex_guard__guard_write",
     "SessionEnd": None,
 }
 

@@ -436,7 +436,7 @@ def test_hook_configuration_is_wrapped_reversible_and_launcher_based(tmp_path):
     once = codex.install_hooks(hooks_json, launcher)
     twice = codex.install_hooks(hooks_json, launcher)
     assert once == twice and "hooks" in twice
-    assert twice["hooks"]["PreToolUse"][0]["matcher"] == "apply_patch|Bash"
+    assert twice["hooks"]["PreToolUse"][0]["matcher"] == "apply_patch|Bash|mcp__memex_guard__guard_write"
     assert twice["hooks"]["SessionEnd"][0]["hooks"][0]["timeout"] <= 3  # S02: SessionEnd caps at 3 s
     restored = codex.uninstall_hooks(hooks_json, launcher)
     assert restored == {"hooks": {"Stop": [{"hooks": [{"type": "command", "command": "keep-me"}]}]}}

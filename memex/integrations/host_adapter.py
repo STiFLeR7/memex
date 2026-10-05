@@ -38,6 +38,7 @@ import time
 from memex.context.live import (
     ActionRequest, DeliveryReceipt, OpenTaskRequest, PacketBudget, SessionIdentity,
 )
+from memex.runtime.guard import classify_git, guarded
 from memex.runtime.trace import TraceStore
 from memex.runtime.views import discover_repository, git_output
 
@@ -168,6 +169,24 @@ def _markers_in(value, found: set[str], depth: int = 0) -> None:
         for key in ("text", "content"):
             if key in value:
                 _markers_in(value[key], found, depth + 1)
+
+
+def guard_write_targets(tool_name: str, tool_input) -> tuple[str, ...] | None:
+    """Targets of a `guard_write` call, which both hosts name `mcp__<server>__guard_write`.
+
+    A guarded write is a declared-target action like any edit, so it gets the
+    same context check before the guard's own hash check runs.
+    """
+    if not tool_name.endswith("__guard_write") or not isinstance(tool_input, dict):
+        return None
+    changes = tool_input.get("changes")
+    if not isinstance(changes, list):
+        return ()
+    targets = []
+    for change in changes[:128]:
+        if isinstance(change, dict):
+            targets += [p for p in (change.get("path"), change.get("to")) if isinstance(p, str) and p]
+    return tuple(dict.fromkeys(targets))
 
 
 def normalize_target(root: Path, raw: str) -> str:
@@ -985,16 +1004,33 @@ class HostAdapter:
             return HookResponse(reason="memex: no task bound to this session")
         task_id = binding["task_id"]
 
-        raw_targets = self.declared_targets(tool_name, tool_input)
+        guard_call = guard_write_targets(tool_name, tool_input)
+        raw_targets = guard_call if guard_call is not None else self.declared_targets(tool_name, tool_input)
         if raw_targets is None:
             # Opaque action. Undeclared mutation coverage is not certified here.
+            command = tool_input.get("command") if isinstance(tool_input, dict) else None
+            git = classify_git(command) if isinstance(command, str) else None
             self.trace.record(at=self.clock(), session=session, event="action_check",
                               adapter_version=self.adapter_version, task_id=task_id,
                               attempt_id=attempt_id, tool_name=tool_name, tool_input=tool_input,
-                              scope_complete=False, gate="advisory", reason="opaque_action",
+                              scope_complete=False, gate="advisory", reason=git or "opaque_action",
                               insertion="none")
             return HookResponse(
-                reason="memex: opaque action; declared-target coverage not certified")
+                reason="memex: opaque action; declared-target coverage not certified"
+                + ("; Git mutation outside the write guard" if git else ""))
+
+        if guard_call is None and guarded(self.registration):
+            # Guarded mode: participating writers commit only through the guard,
+            # whose fenced commit rechecks hashes inside the protected write. A
+            # native edit would bypass it, so it is denied, never rewritten.
+            reason = ("memex: guarded mode is on for this worktree. Do not edit files directly: "
+                      "read with guard_read and write with guard_write, naming the sha256 you read "
+                      "as expected_sha256.")
+            self.trace.record(at=self.clock(), session=session, event="action_check",
+                              adapter_version=self.adapter_version, task_id=task_id,
+                              attempt_id=attempt_id, tool_name=tool_name, tool_input=tool_input,
+                              gate="prevented", reason="guarded_mode_requires_guard", insertion="none")
+            return HookResponse(decision="deny", reason=reason)
 
         try:
             targets = tuple(dict.fromkeys(normalize_target(self.root, raw) for raw in raw_targets))
@@ -1145,7 +1181,10 @@ class HostAdapter:
         session = self.session_identity(native)
         binding = self._binding(native)
         tool_name = payload.get("tool_name") or ""
-        raw_targets = self.declared_targets(tool_name, payload.get("tool_input") or {})
+        tool_input = payload.get("tool_input") or {}
+        raw_targets = guard_write_targets(tool_name, tool_input)
+        if raw_targets is None:
+            raw_targets = self.declared_targets(tool_name, tool_input)
         targets: tuple[str, ...] = ()
         if raw_targets:
             try:
