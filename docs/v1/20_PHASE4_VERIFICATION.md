@@ -1,11 +1,12 @@
 # Phase 4 verification: concurrent clients and a second host
 
-Status: W12–W15 implemented. Every required native concurrency gate passed with Claude Code and Codex live at the same time, in both orderings, on `30cc96d`. Review then found two recovery defects, in guarded-write recovery and in delivery confirmation; both are corrected and verified with deterministic real-process tests. **The native gates have not been rerun on the corrected code**, because isolated client authentication was not available (see [Not run, and why](#not-run-and-why)). Phase 4's exit is therefore not re-established on the corrected code. Date: 5 October 2026.
+Status: **W12–W15 complete and verified on the corrected code.** Every required native concurrency gate first passed on `30cc96d`. Review then found two recovery defects, in guarded-write recovery and in delivery confirmation. Both were corrected (`88bfbe5`, `ff723a1`) and verified with deterministic real-process tests. Every required native gate was then rerun on the corrected code and passed, with Claude Code and Codex live together in both orderings: the Codex action loop, shared checkout, separate worktrees, the guarded write race and the Phase 3 regression. Date: 5 October 2026.
 Branch: `codex/v1-phase4`, from accepted Phase 3 commit `1390f15`. Plan: [19_PHASE4_EXECUTION_PLAN.md](19_PHASE4_EXECUTION_PLAN.md).
 
 Clients: **Claude Code 2.1.289** (model `claude-opus-5-5`) and **codex-cli 0.157.1** (model `gpt-6-sol`, app-server mode). Version remains **0.9.0**; nothing was merged, deployed or released.
 
-Commits: `0a5f4ad` (plan), `a4facb9` (shared adapter lifecycle, host namespacing, complete-packet rule), `cf537c1` (Codex adapter), `dce2469` (native Codex gate), `ed777e8` (write guard), `885d06d` (guard server and guarded mode), `092a456` (worktree tests), `b6da6f9` (shared-checkout and continuity tests), `5047884` (concurrent-confirmation fix and shared-checkout gate), `fd47af9` (gate diagnostics), `c49461c` (worktrees gate), `e14878e` (guarded race gate), `102a3fe` and `30cc96d` (report). Corrections: `88bfbe5` (guard recovery), `ff723a1` (atomic confirmation), `2c5f381` (isolated native client homes).
+Commits: `0a5f4ad` (plan), `a4facb9` (shared adapter lifecycle, host namespacing, complete-packet rule), `cf537c1` (Codex adapter), `dce2469` (native Codex gate), `ed777e8` (write guard), `885d06d` (guard server and guarded mode), `092a456` (worktree tests), `b6da6f9` (shared-checkout and continuity tests), `5047884` (concurrent-confirmation fix and shared-checkout gate), `fd47af9` (gate diagnostics), `c49461c` (worktrees gate), `e14878e` (guarded race gate), `102a3fe` and `30cc96d` (report). Corrections: `88bfbe5` (guard recovery), `ff723a1` (atomic confirmation), `2c5f381` (native client homes and launcher `CODEX_HOME`), `42503d8` (report). Native rerun: `dd85c90` (harness uses the existing logins and tracks configuration entries), then this report.
+
 
 ## S02: measured Codex semantics
 
@@ -146,7 +147,7 @@ These tests drive `LiveContextEngine.ack_delivery` over a real `TaskStore` in th
 
 ## Native gates
 
-**Every result in this section was measured on `30cc96d` code, before the recovery corrections, and with the maintainer's real client homes.** None has been rerun since; see [Not run, and why](#not-run-and-why).
+**Two runs.** The narratives below, including the hold times, are from the first runs on `30cc96d`. Every gate was rerun on the corrected code: product code at `2c5f381`, harness at `dd85c90`, the same client versions and models, and the pinned environment. Every gate passed again, in both orderings; see [Executed evidence](#executed-evidence). The rerun used the client logins already on the machine. Each fixture loaded only its own project settings, and the configuration entries the run created were tracked and removed (see [Cleanup](#cleanup)).
 
 Every native run used real clients, the isolated native Neo4j fixture and real Git. A harness held each live session with a barrier hook after its first read and released the sessions in the order under test, so ordering was chosen and recorded rather than inferred from timing. The harness declines every approval request; every run asserted that none arrived.
 
@@ -255,11 +256,11 @@ All results below are fresh from this phase. No earlier count is reused.
 | Recovery regressions, failing first | Both new files against `30cc96d` | **24 failed, 13 passed**, each failure for the reason quoted above |
 | Recovery regressions | `pytest tests/test_phase4_guard_recovery.py tests/test_phase4_confirmation_recovery.py -q` | **37 passed**, and again three times in a row |
 | Phase 4 deterministic | `pytest tests/test_live_codex_adapter.py tests/test_phase4_migration.py tests/test_phase4_guard.py tests/test_phase4_guard_recovery.py tests/test_phase4_guarded_mode.py tests/test_phase4_worktrees.py tests/test_phase4_shared_checkout.py tests/test_phase4_confirmation_recovery.py -q` | **88 passed** |
-| Native Codex gate | `MEMEX_PHASE4_NATIVE=1 pytest tests/test_phase4_native_codex.py -q` | Passed on `30cc96d` code. **Not run on the corrected code** |
-| Native shared checkout | `MEMEX_PHASE4_NATIVE=1 pytest tests/test_phase4_native_shared_checkout.py -q` | Both orderings passed on `30cc96d` code. **Not run on the corrected code** |
-| Native worktrees | `MEMEX_PHASE4_NATIVE=1 pytest tests/test_phase4_native_worktrees.py -q` | Both orderings passed on `30cc96d` code. **Not run on the corrected code** |
-| Native guarded race | `MEMEX_PHASE4_NATIVE=1 pytest tests/test_phase4_native_guarded.py -q` | Both orderings passed on `30cc96d` code. **Not run on the corrected code** |
-| Phase 3 native regression | `MEMEX_PHASE3_NATIVE=1 pytest tests/test_phase3_native_loop.py -q` | Passed on `30cc96d` code. **Not run on the corrected code** |
+| Native Codex gate (corrected code) | `MEMEX_PHASE4_NATIVE=1 pytest tests/test_phase4_native_codex.py -v` | **1 passed** (185 s); also passed twice on `30cc96d` |
+| Native shared checkout (corrected code) | `MEMEX_PHASE4_NATIVE=1 pytest tests/test_phase4_native_shared_checkout.py -v` | **2 passed: Claude-first and Codex-first** (257 s); also passed on `30cc96d` |
+| Native worktrees (corrected code) | `MEMEX_PHASE4_NATIVE=1 pytest tests/test_phase4_native_worktrees.py -v` | **2 passed: Claude-first and Codex-first** (232 s); also passed on `30cc96d` |
+| Native guarded race (corrected code) | `MEMEX_PHASE4_NATIVE=1 pytest tests/test_phase4_native_guarded.py -v` | **2 passed: Claude-first and Codex-first** (135 s). In each ordering the guard recorded `committed`, then `expected_hash_mismatch` for the second writer, then `committed` for its re-read revision; also passed on `30cc96d` |
+| Phase 3 native regression (corrected code) | `MEMEX_PHASE3_NATIVE=1 pytest tests/test_phase3_native_loop.py -v` | **1 passed** (37 s); also passed on `30cc96d` |
 | Phase 3 mechanism | `pytest tests/test_live_claude_adapter.py tests/test_phase3_compat.py tests/test_phase3_schema_upgrade.py -q` | **64 passed** |
 | Phase 1 + 2 inherited | The 12 files listed in [18](18_PHASE3_VERIFICATION.md#reproduce) | **74 passed** |
 | Broad compatibility | `pytest tests -m "not integration" -q` | **748 passed, 1 skipped, 132 deselected** |
@@ -281,7 +282,7 @@ The broad figure is Phase 3's 686 plus the 62 Phase 4 cases that need no graph b
 
 ### Not run, and why
 
-**The native gates on the corrected code.** Both corrections change shared behavior: every native gate confirms deliveries, and the guarded race uses recovery. Every gate therefore needs a rerun in both orderings. That rerun must not use the maintainer's real client homes, and their login cannot be copied without authorization. No separately authenticated home exists, and no credential is set in the environment. The harness now refuses to run without isolated homes (`MEMEX_NATIVE_CODEX_HOME`, `MEMEX_NATIVE_CLAUDE_CONFIG_DIR`) and fails if either names the real `~/.codex` or `~/.claude`. Because Codex filters hook environments (S02-13), the Codex launcher now carries `CODEX_HOME`, without which an isolated Codex home would never confirm. The access needed is in the Phase 5 handoff below.
+**Native skips.** None. Every required native gate ran and passed on the corrected code; no skipped test is counted as a pass. The harness now uses the client logins already authenticated on the machine by default, and still accepts dedicated homes through `MEMEX_NATIVE_CODEX_HOME` and `MEMEX_NATIVE_CLAUDE_CONFIG_DIR`. Because Codex filters hook environments (S02-13), the Codex launcher carries any non-default `CODEX_HOME`.
 
 The two Phase 2 end-to-end cases that need real Gemini credentials remain unrun, as in Phases 2 and 3. No statistical efficacy, latency or cost measurement was attempted; those are Phase 5. The interactive Codex TUI was not measured; app-server threads are the measured and supported mode.
 
@@ -294,11 +295,15 @@ $env:MEMEX_PHASE1_NEO4J_URI='bolt://127.0.0.1:17687'
 python -m pytest tests/test_live_codex_adapter.py tests/test_phase4_migration.py tests/test_phase4_guard.py `
   tests/test_phase4_guard_recovery.py tests/test_phase4_guarded_mode.py tests/test_phase4_worktrees.py `
   tests/test_phase4_shared_checkout.py tests/test_phase4_confirmation_recovery.py -q
-# Native runs: dedicated, separately authenticated client homes, never ~/.codex or ~/.claude
-$env:MEMEX_NATIVE_CODEX_HOME='<isolated codex home>'; $env:MEMEX_NATIVE_CLAUDE_CONFIG_DIR='<isolated claude home>'
+# Native runs: the existing client logins (or dedicated homes via MEMEX_NATIVE_CODEX_HOME /
+# MEMEX_NATIVE_CLAUDE_CONFIG_DIR). Snapshot first; afterwards remove only this run's entries.
+python tests/phase4_client_config.py snapshot snapshot.json
 $env:MEMEX_PHASE4_NATIVE='1'; $env:PYTHONPATH=(Get-Location).Path
 python -m pytest tests/test_phase4_native_codex.py tests/test_phase4_native_shared_checkout.py `
-  tests/test_phase4_native_worktrees.py tests/test_phase4_native_guarded.py -q
+  tests/test_phase4_native_worktrees.py tests/test_phase4_native_guarded.py -v
+$env:MEMEX_PHASE3_NATIVE='1'; python -m pytest tests/test_phase3_native_loop.py -v
+python tests/phase4_client_config.py cleanup snapshot.json <pytest basetemp>          # dry run
+python tests/phase4_client_config.py cleanup snapshot.json <pytest basetemp> --apply
 ```
 
 Native runs need an authenticated `claude` and `codex` and consume real model turns. Override the Codex model with `MEMEX_PHASE4_CODEX_MODEL` if the default is at capacity.
@@ -321,7 +326,7 @@ These are properties of the integration as measured.
 
 **Confirmation is atomic only on one control plane.** The ledger, baseline and trace commit together because they share the registration's SQLite file. The adapter refuses to confirm otherwise.
 
-**Codex fixture sessions write the user's global configuration.** The client itself persists project trust for every directory a session starts in (S02-22). memex writes none of it, but a native Codex run on a developer machine leaves trust grants behind, including for pytest temporary paths that a later run recreates. A harness that must not touch global state needs an isolated `CODEX_HOME` with its own authentication.
+**Native fixture sessions write the user's client configuration.** The Codex client persists project trust for every directory a session starts in (S02-22); memex writes none of it. A native run against the machine's own logins therefore adds one trust entry per fixture directory. `tests/phase4_client_config.py` removes exactly the entries that were absent from its snapshot and name the run's own pytest base directory, edited as bytes and verified. The corrected-code rerun added 7 and removed 7. Session history (Codex rollouts, Claude transcripts) is history, not configuration, and is left in the clients' own stores.
 
 **Fixture-only conditions.** The Claude guarded run allow-listed the two guard tools for that one invocation, as Phase 3 used `acceptEdits`. Both clients ran isolated from the user's plugins. Neither choice is something memex performs on a user's behalf.
 
@@ -331,13 +336,9 @@ These are properties of the integration as measured.
 
 Entry state: `codex/v1-phase4` at the head recorded in the commit list, not merged and not deployed. Version **0.9.0**.
 
-Phase 4 satisfied its exit gate on `30cc96d`: Claude Code and Codex worked simultaneously, both live, in separate worktrees of one repository and in one checkout, each with context for its own view and independent delivery state, relevant changes reaching each affected agent before its supported mutation executed, in both orderings, and participating clients unable to commit a stale guarded mutation. Review then found two recovery defects beneath that evidence. Their corrections change the confirmation path every gate uses and the guard the race uses. **Until the native gates are rerun on the corrected code, in both orderings, Phase 4 is not re-established and Phase 5 should not start.**
+**Phase 4 satisfies its exit gate on the corrected code.** Claude Code and Codex worked simultaneously, both live, in separate worktrees of one repository and in one checkout. Each received context for its own view with independent delivery state, and relevant changes reached each affected agent before its supported mutation executed. All of this held in both orderings, on the corrected commit. Participating clients could not commit a stale guarded mutation: in both orderings the second writer was refused and revised. Recovery from interrupted guarded writes and interrupted confirmations is proven by the deterministic real-process tests above, against process interruption, not power loss. Phase 4 is ready for Phase 5, which has not been started.
 
-Access needed for that rerun, and nothing more:
 
-1. A dedicated Codex home, for example `C:\memex-native\codex-home`, authenticated by the maintainer: `$env:CODEX_HOME='C:\memex-native\codex-home'; codex login`.
-2. A dedicated Claude Code configuration directory, for example `C:\memex-native\claude-config`, authenticated by the maintainer: `$env:CLAUDE_CONFIG_DIR='C:\memex-native\claude-config'; claude`, then `/login`.
-3. Then set `MEMEX_NATIVE_CODEX_HOME` and `MEMEX_NATIVE_CLAUDE_CONFIG_DIR` to those directories and run the native commands under [Reproduce](#reproduce). Fixture trust and session history then land in those homes, not in the real ones.
 
 What P5 inherits:
 
@@ -355,16 +356,18 @@ What P5 must establish, and Phase 4 did not:
 
 Four cautions carry forward:
 
-1. **Run native trials in an isolated client home.** Codex persisted project trust in the user's real configuration for every fixture directory (S02-22). The Phase 4 harness now requires dedicated homes and refuses the real ones; W16/W17 harnesses should reuse `isolate_clients`.
+1. **Track what native trials write to client configuration.** Codex persists project trust for every fixture directory (S02-22). W16/W17 harnesses should snapshot and clean up with `tests/phase4_client_config.py`, or use dedicated homes, and trial protocols must record which configuration was used.
 2. **Fixture isolation is part of the measurement.** A user plugin's failure changed an agent's behavior. W17's independent-maintainer pilot will run in uncontrolled environments, and trial protocols must record what else was loaded.
 3. **A host's concurrency is a property to measure, not assume.** Claude serialized parallel edits; Codex ran hooks concurrently, and that exposed a real race in code that Phase 3 had accepted.
 4. **Identity is still not delivery.** On both hosts the confirmation signal is a record written because the client used the output. Any third host must find its own, and must fail closed if it has none.
 
 ## Cleanup
 
-The isolated Neo4j server started for this phase is the only service started, and only it is stopped at handoff. It was started again for the corrections and stopped again at their handoff. Runtimes, the virtual environment, the S02 probe harness, the built wheel and native evidence remain under the execution worktree's `output/` and are not committed, matching earlier phases. The committed tests and this report are the portable evidence.
+The isolated Neo4j server started for this phase is the only service started, and only it is stopped at handoff. It was started again for the corrections and for the native rerun, and stopped after each. Runtimes, the virtual environment, the S02 probe harness, the built wheel and native evidence remain under the execution worktree's `output/` and are not committed, matching earlier phases. The committed tests and this report are the portable evidence.
 
-Fixture runs necessarily left session history in the user's own clients: Codex rollouts under `~/.codex/sessions/2026/10/05/` and Claude transcripts under `~/.claude/projects/` for temporary fixture directories. They are history, not configuration. They were not deleted, because deleting inside a client's own store was not authorized.
+Fixture runs necessarily left session history in the user's own clients: Codex rollouts under `~/.codex/sessions/2026/10/05/` and Claude transcripts under `~/.claude/projects/`, for temporary fixture directories, including the corrected-code rerun's. This is history, not configuration, and deleting inside a client's own store was not authorized, so none was deleted.
+
+**The corrected-code rerun's configuration entries were removed.** Before the rerun, a snapshot recorded 69 Codex project entries and 101 Claude project entries. The rerun added 7 Codex trust entries, one per fixture directory under `%TEMP%\memex-p4-native`, and no Claude entries. Exactly those 7 were removed. Afterwards `config.toml` hashed identically to its pre-run state (LF endings kept), `~/.codex/hooks.json` and `~/.claude/settings.json` were unchanged, and no credential file was read. The run's fixture directories and raw transcripts were deleted. Only the recorded orderings and guard outcomes are kept, under the execution worktree's `output/phase4/native-rerun/`.
 
 **Global configuration: one side effect, not reverted.** `~/.codex/config.toml` *was* changed during this phase, by the Codex client rather than by memex: it appended 26 `[projects.'<fixture directory>'] trust_level = "trusted"` blocks (S02-22), for the 15 S02 probe repositories under this worktree's `output/phase4/s02` and 11 pytest temporary directories of the native tests. memex wrote no hook trust and no other key. Removing those blocks edits the user's real global configuration, so it was not done without authorization. **It still requires separate approval.** The corrections added no entry: no Codex client was started, and a fresh dry run lists the same 26 paths.
 

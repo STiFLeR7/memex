@@ -115,6 +115,6 @@ Two further findings were corrected after the hardening pass; [18_PHASE3_VERIFIC
 
 **A confirmation commits with the baseline it certifies.** Claiming `confirmed` and then acknowledging left a window where a stopped process stranded a confirmation the core never made. The ledger transition, the core's baseline update and the trace event now share one transaction on the shared control plane.
 
-**Native fixtures run only in isolated client homes.** Codex wrote trust for fixture directories into the maintainer's real configuration. Native harnesses now refuse to run without dedicated, separately authenticated homes.
+**Native fixtures track what they write to client configuration.** Codex writes trust for every fixture directory into the configuration it runs under. Native runs use the logins already on the machine (or dedicated homes), snapshot the client configuration first, and afterwards remove only the entries that are new and name the run's own fixture directories.
 
 **Fixture isolation is part of a native measurement.** A user's failing global plugin told an agent memex was offline and changed its first proposal. Native fixtures now load only their own project settings, per invocation.
