@@ -20,7 +20,7 @@ No raw transcript, hidden reasoning, credential or complete tool output is
 stored. Tool input is kept as a digest so attempts can be correlated without
 retaining ``old_string``/``new_string`` or a shell command body.
 """
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 import hashlib
 import json
 from pathlib import Path
@@ -90,14 +90,19 @@ class TraceStore:
                original_attempt_id=None, sequence=None, tool_name=None, targets=(),
                scope_complete=None, checked_view_id=None, coverage=None, delivered_hashes=None,
                observed_hashes=None, tool_input=None, outcome=None, reason=None, gate=None,
-               insertion=None, reconsidered=None, objective=None, objective_detail=None) -> int:
-        """Append one event and return its monotonic ordering index."""
+               insertion=None, reconsidered=None, objective=None, objective_detail=None, db=None) -> int:
+        """Append one event and return its monotonic ordering index.
+
+        With `db`, the event is written inside that caller's open transaction on
+        this control plane, so it commits or rolls back with the caller's state.
+        """
         coverage_digest = None
         if coverage is not None:
             canonical = json.dumps(sorted(dict(coverage).items()), separators=(",", ":"))
             coverage_digest = "sha256:" + hashlib.sha256(canonical.encode()).hexdigest()
-        with self.connection() as db:
-            db.execute("BEGIN IMMEDIATE")
+        with nullcontext(db) if db is not None else self.connection() as db:
+            if not db.in_transaction:
+                db.execute("BEGIN IMMEDIATE")
             if task_id is not None:
                 used = db.execute("SELECT count(*) FROM live_trace WHERE task_id=?", (task_id,)).fetchone()[0]
                 if used >= MAX_EVENTS_PER_TASK:

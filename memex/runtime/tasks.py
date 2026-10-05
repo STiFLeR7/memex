@@ -184,12 +184,17 @@ class TaskStore:
         db.execute("UPDATE live_tasks SET sequence=?,pending=? WHERE task_id=?",(frame.sequence,frame.model_dump_json(),state.task_id))
         return frame
 
-    def ack_delivery(self,receipt,*,now):
+    def ack_delivery(self,receipt,*,now,record=None):
+        """Accept a receipt. `record(db)`, if given, runs inside the same transaction
+        whenever the baseline is (or already was) this packet's, so a caller's own
+        delivery state commits with the baseline or not at all; if it raises, neither does."""
         self.authorize(receipt.session)
         with self.connection() as db:
             db.execute("BEGIN IMMEDIATE")
             state=self.state(self.lookup(db,receipt.task_id,receipt.session,now))
             if receipt.sequence==state.ack_sequence:
+                if record and receipt.outcome=="host_accepted":
+                    record(db)
                 return  # A duplicate successful receipt cannot advance another stream.
             frame=state.pending
             if not frame or receipt.sequence!=frame.sequence or receipt.view_id!=frame.view_id:
@@ -200,6 +205,8 @@ class TaskStore:
                 raise ValueError("incomplete overflow packet cannot establish a delivery baseline")
             db.execute("UPDATE live_tasks SET ack=?,baseline=?,pending=NULL WHERE task_id=?",(frame.sequence,
                 json.dumps([x.model_dump(mode="json") for x in frame.items]),state.task_id))
+            if record:
+                record(db)
 
     def close_task(self,task_id,session,*,now):
         self.authorize(session)

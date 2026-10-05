@@ -99,10 +99,10 @@ class LiveContextEngine:
                 db.execute("UPDATE live_tasks SET pending=? WHERE task_id=?",(frame.model_dump_json(),frame.task_id))
         return frame
 
-    def ack_delivery(self,receipt):
+    def ack_delivery(self,receipt,*,record=None):
         state=self.tasks.get(receipt.task_id,receipt.session,now=self.clock())
         self.authorize(receipt.session,state.view)
-        self.tasks.ack_delivery(receipt,now=self.clock())
+        self.tasks.ack_delivery(receipt,now=self.clock(),record=record)
 
     def close_task(self,task_id,session):
         state=self.tasks.get(task_id,session,now=self.clock())

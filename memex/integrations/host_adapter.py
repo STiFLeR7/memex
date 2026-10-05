@@ -60,6 +60,10 @@ MAX_EVIDENCE_RECORDS = 64
 MARKER_PATTERN = re.compile(re.escape(DELIVERY_MARKER) + r":[0-9a-f]{16}")
 
 
+class _AlreadyConfirmed(Exception):
+    """Another process confirmed this packet first; the confirming transaction rolls back."""
+
+
 # --------------------------------------------------------------------------- #
 # Trusted local registration
 # --------------------------------------------------------------------------- #
@@ -733,6 +737,7 @@ class HostAdapter:
         Nothing from it is retained: the only thing that survives this call is,
         per pending packet, whether a complete insertion was present.
         """
+        self._reopen_stranded(session.native_session_id)
         db = self._connect()
         try:
             rows = db.execute(
@@ -774,62 +779,80 @@ class HostAdapter:
                                     "never_emitted" if exhausted else "unconfirmed_in_transcript")
 
     def _confirm_delivery(self, row, session) -> None:
-        """Acknowledge one packet, exactly once, even under concurrent hooks.
+        """Acknowledge one packet: baseline, ledger and trace in one transaction.
 
-        S02 measured Codex running hooks concurrently, and a native run caught
-        two hook processes confirming the same correction: the core's receipt is
-        idempotent, so the cursor moved once, but the trace recorded two
-        confirmations. The `emitted -> confirmed` transition is therefore claimed
-        first, atomically; only the process that wins it acknowledges and
-        records, and a rejected receipt hands the claim back.
+        The core's acceptance of the packet's baseline, the ledger's `emitted ->
+        confirmed` transition, the session's retained-context flag and the
+        `confirmed` trace event are written inside the core's own `BEGIN
+        IMMEDIATE` acknowledgement on the shared control plane. A process that
+        stops at any point leaves either all of them or none of them, so a row
+        never reads `confirmed` over a baseline the core did not accept, and an
+        interrupted confirmation is simply retried by the next hook.
+
+        S02 measured Codex running hooks concurrently. Two processes confirming
+        one packet serialize on that transaction: the first accepts and records;
+        the second finds the row no longer `emitted`, raises inside the same
+        transaction, and writes nothing. A rejected receipt writes nothing either.
         """
-        db = self._connect()
-        try:
-            with db:
-                won = db.execute("UPDATE live_adapter_deliveries SET state='confirmed' "
+        if Path(self.engine.tasks.path).resolve() != self.state_path.resolve():
+            raise RuntimeError("the delivery ledger and the task store must share one control plane")
+        at = self.clock()
+
+        def record(db) -> None:
+            claimed = db.execute("UPDATE live_adapter_deliveries SET state='confirmed' "
                                  "WHERE task_id=? AND sequence=? AND state='emitted'",
-                                 (row["task_id"], row["sequence"])).rowcount == 1
-        finally:
-            db.close()
-        if not won:
-            return  # Another hook process already confirmed this packet.
+                                 (row["task_id"], row["sequence"])).rowcount
+            if claimed != 1:
+                raise _AlreadyConfirmed  # another process confirmed it; roll this back
+            db.execute("UPDATE live_adapter_sessions SET context_retained=1 "
+                       "WHERE harness=? AND native_session_id=?",
+                       (self.HARNESS, row["native_session_id"]))
+            self.trace.record(at=at, session=session, event="delivery",
+                              adapter_version=self.adapter_version, task_id=row["task_id"],
+                              sequence=row["sequence"], attempt_id=row["attempt_id"],
+                              checked_view_id=row["view_id"], insertion="confirmed",
+                              reason=row["kind"], db=db)
+
         try:
             self.engine.ack_delivery(DeliveryReceipt(
                 session=session, task_id=row["task_id"], sequence=row["sequence"],
                 view_id=row["view_id"], adapter_version=self.adapter_version,
-                accepted_at=self.clock(), action_attempt_id=row["attempt_id"],
-                outcome="host_accepted"))
-        except (ValueError, PermissionError) as exc:
-            db = self._connect()
-            try:
-                with db:
-                    db.execute("UPDATE live_adapter_deliveries SET state='emitted' "
-                               "WHERE task_id=? AND sequence=? AND state='confirmed'",
-                               (row["task_id"], row["sequence"]))
-            finally:
-                db.close()
-            if isinstance(exc, ValueError):
-                # A receipt that does not match the pending delivery is not evidence
-                # of anything; the packet stays pending rather than being written off.
-                self.trace.record(at=self.clock(), session=session, event="delivery",
-                                  adapter_version=self.adapter_version, task_id=row["task_id"],
-                                  sequence=row["sequence"], attempt_id=row["attempt_id"],
-                                  checked_view_id=row["view_id"], insertion="failed",
-                                  reason=f"receipt_rejected:{str(exc)[:120]}")
+                accepted_at=at, action_attempt_id=row["attempt_id"],
+                outcome="host_accepted"), record=record)
+        except _AlreadyConfirmed:
             return
+        except PermissionError:
+            return  # Revoked or expired: nothing is accepted, and the row stays emitted.
+        except ValueError as exc:
+            # A receipt that does not match the pending delivery is not evidence
+            # of anything; the packet stays pending rather than being written off.
+            self.trace.record(at=self.clock(), session=session, event="delivery",
+                              adapter_version=self.adapter_version, task_id=row["task_id"],
+                              sequence=row["sequence"], attempt_id=row["attempt_id"],
+                              checked_view_id=row["view_id"], insertion="failed",
+                              reason=f"receipt_rejected:{str(exc)[:120]}")
+
+    def _reopen_stranded(self, native_session_id: str) -> None:
+        """Upgrade path: reopen confirmations the previous version stranded.
+
+        Before confirmation was atomic, a process stopped between claiming
+        `confirmed` and the core's acknowledgement left a confirmed row over a
+        core that never accepted it. Atomic confirmation makes `confirmed`
+        imply that the core's acknowledged sequence has reached the row, so any
+        row breaking that is exactly such a stranded claim. It returns to
+        `emitted` and must be confirmed again from complete insertion evidence.
+        """
         db = self._connect()
         try:
             with db:
-                db.execute("UPDATE live_adapter_sessions SET context_retained=1 "
-                           "WHERE harness=? AND native_session_id=?",
-                           (self.HARNESS, row["native_session_id"]))
+                db.execute(
+                    "UPDATE live_adapter_deliveries SET state='emitted' "
+                    "WHERE harness=? AND native_session_id=? AND state='confirmed' AND EXISTS ("
+                    " SELECT 1 FROM live_tasks t WHERE t.task_id=live_adapter_deliveries.task_id"
+                    " AND t.ack < live_adapter_deliveries.sequence)",
+                    (self.HARNESS, native_session_id))
         finally:
             db.close()
-        self.trace.record(at=self.clock(), session=session, event="delivery",
-                          adapter_version=self.adapter_version, task_id=row["task_id"],
-                          sequence=row["sequence"], attempt_id=row["attempt_id"],
-                          checked_view_id=row["view_id"], insertion="confirmed",
-                          reason=row["kind"])
 
     def delivery_states(self, native_session_id: str) -> list[dict]:
         db = self._connect()
