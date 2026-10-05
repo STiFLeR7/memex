@@ -91,7 +91,10 @@ async def test_both_hosts_live_in_one_checkout_are_corrected_independently(check
         claude = harness.ClaudeRun(repo, harness.CLAUDE_PROMPT, tmp_path / "claude-stream.jsonl")
 
         def codex_alive():
-            return not any(m.get("method") == "turn/completed" for m in server.messages)
+            done = [m for m in server.messages if m.get("method") == "turn/completed"]
+            assert not done or done[0]["params"]["turn"].get("status") == "completed", \
+                f"codex turn failed before its barrier: {done[0]['params']['turn'].get('error')}"
+            return not done
 
         ready = harness.wait_ready(state, ["claude", "codex"],
                                    alive=[("claude", claude.alive), ("codex", codex_alive)])
