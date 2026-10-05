@@ -297,20 +297,24 @@ def hook_groups(launcher: Path, *, timeout: int = 30, session_end_timeout: int =
     return groups
 
 
-def session_flags(launcher: Path, *, timeout: int = 30) -> list[str]:
+def session_flags(launcher: Path, *, timeout: int = 30, extra: dict | None = None) -> list[str]:
     """The same hooks as per-invocation `-c` overrides, for fixtures.
 
     Nothing is persisted: these live only for the app-server process they are
-    passed to.
+    passed to. `extra` composes other hook groups into the same events, the way
+    an installed configuration would sit beside a user's own hooks.
     """
+    events = hook_groups(launcher, timeout=timeout)
+    for event, groups in (extra or {}).items():
+        events.setdefault(event, []).extend(groups)
     flags = []
-    for event, groups in hook_groups(launcher, timeout=timeout).items():
+    for event, groups in events.items():
         rendered = []
         for group in groups:
-            entry = group["hooks"][0]
-            body = (f"{{type=\"command\",command='{entry['command']}',timeout={entry['timeout']}}}")
+            bodies = ",".join(f"{{type=\"command\",command='{entry['command']}',timeout={entry['timeout']}}}"
+                              for entry in group["hooks"])
             matcher = f"matcher=\"{group['matcher']}\"," if "matcher" in group else ""
-            rendered.append(f"{{{matcher}hooks=[{body}]}}")
+            rendered.append(f"{{{matcher}hooks=[{bodies}]}}")
         flags += ["-c", f"hooks.{event}=[{','.join(rendered)}]"]
     return flags
 
