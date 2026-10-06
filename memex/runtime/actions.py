@@ -11,7 +11,7 @@ from memex.context.live import ActionCheck, PacketItem
 from memex.runtime.indexing import FileStructure
 from memex.runtime.parsing import parse_deadline, parse_sources
 from memex.runtime.verification import applicable, evaluate
-from memex.runtime.views import capture_sources
+from memex.runtime.views import capture_sources, unchanged_since
 
 
 class LiveContextEngine:
@@ -36,8 +36,9 @@ class LiveContextEngine:
             raise PermissionError("repository/worktree not authorized for this session")
 
     async def _project(self,session,selected):
-        result=await self.indexer.refresh()
-        capture=await asyncio.to_thread(capture_sources,self.indexer.registration)
+        # The final unchanged_since below covers refresh's window as well.
+        result=await self.indexer.refresh(verify_after=False)
+        capture=result.capture or await asyncio.to_thread(capture_sources,self.indexer.registration)
         if (capture.head_commit,capture.manifest_hash)!=(result.view.head_commit,result.view.manifest_hash):
             raise RuntimeError("source changed after index publication")
         if result.view.indexed_generation!=result.view.content_generation or result.reason not in ("","incomplete_coverage"):
@@ -74,8 +75,7 @@ class LiveContextEngine:
                 e=evidence[eid]
                 if e.path and self.authorize_source(session,e.path):
                     coverage[e.path]=files[e.path].coverage if e.path in files else "unavailable"
-        after=await asyncio.to_thread(capture_sources,self.indexer.registration)
-        if (after.head_commit,after.manifest_hash)!=(capture.head_commit,capture.manifest_hash):
+        if not await asyncio.to_thread(unchanged_since,self.indexer.registration,capture):
             raise RuntimeError("source changed during verification")
         return result.view,tuple(items),coverage,files,complete and len(items)<=128
 

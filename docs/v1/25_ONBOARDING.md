@@ -112,6 +112,8 @@ It runs the real v1 core (Git capture, journal, parsing, verification, task stor
 
 Graph reachability is reported separately, and never as a freshness result. Messages say what to do, for example *"index is 2 generations behind; current actions are checked as unknown until it catches up."*
 
+**Hook service.** Installed hooks run `memex/hook_client.py`. It hands each event to a local memex process that stays up between events, so a warm check skips interpreter start and graph connection. The first event after a quiet period starts that process and runs one-shot. The process listens on 127.0.0.1 only, answers only requests carrying the token in `~/.memex/hookd/`, and exits after 15 idle minutes (`MEMEX_HOOKD_IDLE_SECONDS`). Set `MEMEX_HOOKD=0` to run every event one-shot. Reinstalling the hooks replaces an earlier one-shot entry.
+
 ## Rollback
 
 ```powershell

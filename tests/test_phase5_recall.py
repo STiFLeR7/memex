@@ -146,3 +146,41 @@ def test_codex_rollout_insertions(tmp_path):
     found = transcripts.codex_insertions(path)
     assert [i["kind"] for i in found] == ["context", "tool_result"]
     assert fixtures.correct_correction(D01, found[1]["text"])
+
+
+# -- S05 precision: one confirmed correction event per trial, judged by the gold rule -- #
+
+def test_s05_precision_counts_the_first_post_change_correction_once_per_trial():
+    cosmetic = fixtures.History("H11", "geo", "cosmetic", "holdout")
+    flagged = ("memex engineering context (task t, view v, seq 1) [memex-delivery:a]\n"
+               "- [needs_revalidation/inferred] c-contract@r1: x\n    basis: source_hash_changed")
+    rows = [
+        record([(50.0, "context", E_PACKET), (120.0, "context", E_PACKET), (130.0, "context", E_PACKET)]),
+        record([(120.0, "context", flagged)], history=cosmetic, label="stable"),     # a false correction
+        record([(120.0, "context", GENERIC)], history=cosmetic, label="stable"),     # not a correction at all
+        record([(120.0, "tool_result", "memex: outcome=replan\nunrelated")]),        # a denial is an event
+        record([(120.0, "context", D_RESUME)], arm="D"),
+    ]
+    events = [analysis.correction_event(r) for r in rows]
+    assert [e and e["correct"] for e in events] == [True, False, None, False, True]
+    assert events[0]["at"] == 120.0                                                  # first after the change only
+    summary = analysis.summarize(rows, "E")
+    assert summary["precision_s05"] == {"n": 1, "d": 3, "rate": 1 / 3}
+
+
+def test_the_frozen_definition_chooses_which_precision_the_gate_reads():
+    rows = [record([(120.0, "context", E_PACKET)], boundaries=[(130.0, False)])]
+    frozen = json.loads(open("docs/v1/22_PHASE5_FROZEN.json", encoding="utf-8").read())
+    assert analysis.report(rows, frozen)["gates"]["pooled"]["precision"]["status"] == "not_established"
+    s05 = {**frozen, "precision_definition": "confirmed_insertions"}
+    assert analysis.report(rows, s05)["gates"]["pooled"]["precision"]["status"] == "passed"
+
+
+def test_s05_keeps_every_s04_threshold():
+    s04 = json.loads(open("docs/v1/22_PHASE5_FROZEN.json", encoding="utf-8").read())
+    s05 = json.loads(open("docs/v1/27_PHASE6_FROZEN.json", encoding="utf-8").read())
+    for key in ("resamples", "seed", "min_relative_reduction", "min_precision", "max_false_interruption",
+                "min_recall", "max_latency_p95_ms", "tail_deadline_ms", "max_resource_ratio",
+                "noninferiority_margin", "noninferiority_comparators", "arms", "hosts", "budget_trials"):
+        assert s05[key] == s04[key], key
+    assert s05["precision_definition"] == "confirmed_insertions" and "precision_definition" not in s04

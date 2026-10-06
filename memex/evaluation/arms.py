@@ -35,7 +35,7 @@ from memex.integrations.host_adapter import HookResponse
 
 ARMS = ("A", "B", "C", "D", "E", "E-noinval", "E-norecon", "E-full")
 HOOKED_ARMS = ARMS[1:]
-ARM_VERSION = "phase5-arms.v1"
+ARM_VERSION = "phase5-arms.v2-hook-service"
 
 
 def arm_path(registration) -> Path:
@@ -341,9 +341,9 @@ def _process_started() -> float | None:
     return created / 1e7 - 11644473600
 
 
-async def _run(host: str, payload: dict, stream) -> dict:
+async def _run(host: str, payload: dict, stream, *, stores=None, write=None) -> dict:
     from memex.integrations import claude_code, codex
-    from memex.integrations.host_adapter import build_engine
+    from memex.integrations.host_adapter import build_engine, emit_via
     from memex.runtime.views import discover_repository
 
     base, load = ((claude_code.ClaudeCodeAdapter, claude_code.load_capability) if host == "claude"
@@ -354,7 +354,7 @@ async def _run(host: str, payload: dict, stream) -> dict:
                      "tool": payload.get("tool_name"), "session": payload.get("session_id")}
     capability = load(registration)
     started = time.perf_counter()
-    engine, driver = await build_engine(registration, capability, base.HARNESS)
+    engine, driver = await build_engine(registration, capability, base.HARNESS, stores=stores)
     metrics["connect_ms"] = (time.perf_counter() - started) * 1000
     try:
         engine = TimedEngine(NoInvalidationEngine(engine) if arm == "E-noinval" else engine, metrics)
@@ -372,14 +372,57 @@ async def _run(host: str, payload: dict, stream) -> dict:
         response = await adapter.dispatch(payload)
         if getattr(adapter, "check_ms", None) is not None:
             metrics["check_ms"] = adapter.check_ms
-        emitted = adapter.emit(response, payload.get("hook_event_name") or "PreToolUse", stream)
+        event = payload.get("hook_event_name") or "PreToolUse"
+        emitted = (adapter.emit(response, event, stream) if write is None
+                   else await emit_via(adapter, response, event, write))
         metrics["decision"] = response.decision
         metrics["chars"] = len(response.additional_context) + (len(response.reason) if response.decision else 0)
         # What the hook emitted, kept so an unconfirmed correction is visible as one.
         metrics["text"] = (response.reason if response.decision else "") + (response.additional_context or "")
         return {"metrics": metrics, "registration": registration, "emitted": emitted}
     finally:
-        await driver.close()
+        if driver is not None:
+            await driver.close()
+
+
+def _failed(host: str, payload: dict, exc: Exception) -> dict:
+    return {"metrics": {"host": host, "event": payload.get("hook_event_name"),
+                        "error": f"{exc.__class__.__name__}: {str(exc)[:200]}"}}
+
+
+def record_timings(result: dict, payload: dict, began: float, ended: float, created: float | None) -> None:
+    """Append one hook's metrics; `total_ms` runs from the hook process's creation."""
+    metrics = result["metrics"]
+    metrics.update(at=ended, handler_ms=(ended - began) * 1000,
+                   total_ms=None if created is None else (ended - created) * 1000)
+    try:
+        from memex.runtime.views import discover_repository
+        registration = result.get("registration") or discover_repository(payload.get("cwd") or ".")
+        path = timings_path(registration)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with open(path, "a", encoding="utf-8") as out:
+            out.write(json.dumps(metrics) + "\n")
+    except Exception:  # noqa: BLE001 - measurement must never break the hook
+        pass
+
+
+async def serve(args: list[str], payload: dict, write, stores, created: float | None) -> None:
+    """The arm hook inside the hook service. `created` is the client process's creation time."""
+    from memex.integrations.host_adapter import unavailable
+    host = args[0] if args else "claude"
+    began, printed = time.time(), []
+
+    async def confirmed_write(line: str):
+        printed.append(await write(line))
+
+    try:
+        result = await _run(host, payload, None, stores=stores, write=confirmed_write)
+    except Exception as exc:  # noqa: BLE001 - fail open, and say so, like the product hook
+        result = _failed(host, payload, exc)
+        if not printed:
+            await confirmed_write(json.dumps(unavailable(exc).to_payload(
+                payload.get("hook_event_name") or "PreToolUse")) + "\n")
+    record_timings(result, payload, began, printed[0] if printed and printed[0] else time.time(), created)
 
 
 def main(argv=None) -> int:
@@ -392,34 +435,19 @@ def main(argv=None) -> int:
         print(json.dumps({"systemMessage": "memex: unparsable hook payload"}))
         return 0
     try:
-        created = _process_started()
+        # Run one-shot by the hook client, whose own start is part of the latency.
+        created = (float(os.environ["MEMEX_HOOK_CREATED"]) if os.environ.get("MEMEX_HOOK_CREATED")
+                   else _process_started())
     except Exception:  # noqa: BLE001 - measurement must never break the hook
         created = None
     began = time.time()
-    result = None
     try:
         result = asyncio.run(_run(host, payload, sys.stdout))
     except Exception as exc:  # noqa: BLE001 - fail open, and say so, like the product hook
-        print(json.dumps(HookResponse(reason=f"memex: unavailable ({exc.__class__.__name__})",
-                                      system_message="memex is unavailable; context freshness is unverified.")
-                         .to_payload(payload.get("hook_event_name") or "PreToolUse")))
-        result = {"metrics": {"host": host, "event": payload.get("hook_event_name"),
-                              "error": f"{exc.__class__.__name__}: {str(exc)[:200]}"}}
-    finally:
-        ended = time.time()
-        if result is not None:
-            metrics = result["metrics"]
-            metrics.update(at=ended, handler_ms=(ended - began) * 1000,
-                           total_ms=None if created is None else (ended - created) * 1000)
-            try:
-                from memex.runtime.views import discover_repository
-                registration = result.get("registration") or discover_repository(payload.get("cwd") or ".")
-                path = timings_path(registration)
-                path.parent.mkdir(parents=True, exist_ok=True)
-                with open(path, "a", encoding="utf-8") as out:
-                    out.write(json.dumps(metrics) + "\n")
-            except Exception:  # noqa: BLE001 - measurement must never break the hook
-                pass
+        from memex.integrations.host_adapter import unavailable
+        print(json.dumps(unavailable(exc).to_payload(payload.get("hook_event_name") or "PreToolUse")))
+        result = _failed(host, payload, exc)
+    record_timings(result, payload, began, time.time(), created)
     return 0
 
 

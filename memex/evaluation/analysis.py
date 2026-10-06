@@ -1,6 +1,7 @@
 """Phase 5 analysis: metrics, paired cluster-bootstrap intervals and gate decisions.
 
-Every definition here is the one written in docs/v1/22_PHASE5_PROTOCOL.md.
+Every definition here is the one written in docs/v1/22_PHASE5_PROTOCOL.md, plus
+S05's precision definition in docs/v1/27_PHASE6_PROTOCOL.md.
 The functions only read trial records; they never re-run, filter or relabel a
 trial. A trial that did not complete stays in the counts it belongs to and is
 reported by status.
@@ -14,6 +15,7 @@ from collections import Counter, defaultdict
 from pathlib import Path
 
 PRIMARY = "E"
+PRECISION = {"boundary_denials": "precision", "confirmed_insertions": "precision_s05"}
 BASELINES = ("C", "D")
 COMPLETED = "completed"
 
@@ -124,6 +126,28 @@ def timely_correction(record: dict) -> bool:
     return False
 
 
+def correction_event(record: dict) -> dict | None:
+    """S05 precision: this trial's first confirmed correction after the change, if any.
+
+    An insertion is a correction when it is a denial (a tool result in place
+    of the action), or presents itself as one (`fixtures.correction_like`), or
+    satisfies the gold rule. One event per trial, so a re-delivered correction
+    is not counted twice. Same rule for every arm and every history.
+    """
+    change = record.get("change") or {}
+    if change.get("applied_at") is None:
+        return None
+    from memex.evaluation.fixtures import correct_correction, correction_like
+    h = _history(record)
+    for insertion in sorted(record.get("insertions") or [], key=lambda i: i["at"]):
+        if insertion["at"] <= change["applied_at"]:
+            continue
+        correct = correct_correction(h, insertion["text"])
+        if insertion["kind"] == "tool_result" or correction_like(insertion["text"]) or correct:
+            return {**insertion, "correct": correct}
+    return None
+
+
 def retries(record: dict) -> int:
     """Mutation attempts after the first denial in the trial."""
     seen = False
@@ -173,6 +197,7 @@ def summarize(records: list[dict], arm: str, host: str | None = None) -> dict:
     affected = [r for r in done if r["label"] == "affected"]
     stable = [r for r in done if r["label"] == "stable"]
     events = [b for r in done for b in corrections(r)]
+    insertion_events = [e for e in (correction_event(r) for r in done) if e is not None]
     unaffected = [b for r in done for b in unaffected_boundaries(r)]
     opportunities = [r for r in affected if necessary_opportunity(r)]
     gold = [r for r in rows if opportunity(r)]
@@ -190,6 +215,7 @@ def summarize(records: list[dict], arm: str, host: str | None = None) -> dict:
         "overall_success": rate(sum(r["success"] for r in done), len(done)),
         "functional_failure": rate(sum(bool(r.get("functional_failure")) for r in done), len(done)),
         "precision": rate(sum(material(b) for b in events), len(events)),
+        "precision_s05": rate(sum(e["correct"] for e in insertion_events), len(insertion_events)),
         "recall": rate(sum(timely_correction(r) for r in gold), len(gold)),
         "interception": rate(sum(intercepted(r) for r in opportunities), len(opportunities)),
         "transcripts_found": f"{sum(1 for r in gold if r.get('transcript'))}/{len(gold)}",
@@ -439,7 +465,10 @@ def report(records: list[dict], frozen: dict | None = None) -> dict:
             efficacy = efficacy_gate(rows, frozen)
             gates[scope] = {
                 "efficacy": efficacy,
-                "precision": threshold_gate("precision", e["precision"], minimum=frozen["min_precision"]),
+                # S04 counted denials at boundaries; S05 counts confirmed insertions (27, P1).
+                "precision": threshold_gate("precision", e[PRECISION.get(frozen.get("precision_definition"),
+                                                                         "precision")],
+                                            minimum=frozen["min_precision"]),
                 "false_interruption": threshold_gate("false_interruption", e["false_interruption"],
                                                      maximum=frozen["max_false_interruption"]),
                 "recall": threshold_gate("recall", e["recall"], minimum=frozen["min_recall"]),
@@ -454,14 +483,14 @@ def report(records: list[dict], frozen: dict | None = None) -> dict:
 
 
 def markdown(result: dict) -> str:
-    lines = ["| Arm | Host | Trials | Stale failure (affected) | Stable completion | Precision | Recall (A4) | "
+    lines = ["| Arm | Host | Trials | Stale failure (affected) | Stable completion | Precision (S05) | Recall (A4) | "
              "Interception | False interruption | Warm check p95 ms | Output tokens (mean) | Cost known |",
              "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |"]
     for s in result["summaries"].values():
         p95 = s["latency_warm_unchanged_ms"]["p95"]
         tokens = s["output_tokens_mean"]
         lines.append(f"| {s['arm']} | {s['host']} | {s['trials']} | {_fmt(s['stale_failure'])} | "
-                     f"{_fmt(s['stable_completion'])} | {_fmt(s['precision'])} | {_fmt(s['recall'])} | "
+                     f"{_fmt(s['stable_completion'])} | {_fmt(s['precision_s05'])} | {_fmt(s['recall'])} | "
                      f"{_fmt(s['interception'])} | "
                      f"{_fmt(s['false_interruption'])} | {'n/a' if p95 is None else round(p95)} | "
                      f"{'n/a' if tokens is None else round(tokens)} | {s['cost_known']} |")

@@ -36,12 +36,13 @@ import sys
 import time
 
 from memex.context.live import (
-    ActionRequest, DeliveryReceipt, OpenTaskRequest, PacketBudget, SessionIdentity,
+    ActionRequest, DeliveryReceipt, OpenTaskRequest, PacketBudget, PacketItem, SessionIdentity,
 )
 from memex.runtime.modes import read_mode
 from memex.runtime.guard import classify_git, guarded
 from memex.runtime.trace import TraceStore
-from memex.runtime.views import discover_repository, git_output
+from memex.runtime import views
+from memex.runtime.views import discover_repository
 
 #: Every delivery carries an unforgeable marker of its own identity. A marker
 #: identifies a packet; it does not prove the packet was delivered.
@@ -326,6 +327,11 @@ class HostAdapter:
                         packet_sha256 TEXT, packet_chars INTEGER, marker_offset INTEGER,
                         PRIMARY KEY(task_id, sequence)
                     );
+                    CREATE TABLE IF NOT EXISTS live_adapter_told (
+                        harness TEXT NOT NULL, native_session_id TEXT NOT NULL,
+                        baseline TEXT NOT NULL, saved_at REAL NOT NULL,
+                        PRIMARY KEY(harness, native_session_id)
+                    );
                 """)
                 self._migrate(db)
         finally:
@@ -424,7 +430,7 @@ class HostAdapter:
         if not cwd:
             raise PermissionError("host payload carries no working directory")
         try:
-            toplevel = Path(git_output(cwd, "rev-parse", "--show-toplevel")).resolve()
+            toplevel = views.toplevel(cwd)
         except Exception as exc:
             raise PermissionError("host working directory is not a Git repository") from exc
         if toplevel != self.root:
@@ -448,6 +454,22 @@ class HostAdapter:
                               (self.HARNESS, native_session_id)).fetchone()
         finally:
             db.close()
+
+    def _told(self, native_session_id: str, session) -> tuple:
+        """The baseline this session acknowledged last: its live task's, else the one kept at SessionEnd."""
+        binding = self._binding(native_session_id)
+        if binding is not None:
+            try:
+                return self.engine.tasks.get(binding["task_id"], session, now=self.clock()).baseline
+            except (PermissionError, ValueError):
+                pass
+        db = self._connect()
+        try:
+            row = db.execute("SELECT baseline FROM live_adapter_told WHERE harness=? AND native_session_id=?",
+                             (self.HARNESS, native_session_id)).fetchone()
+        finally:
+            db.close()
+        return tuple(PacketItem.model_validate_json(json.dumps(item)) for item in json.loads(row["baseline"])) if row else ()
 
     def _bind(self, native_session_id, session, task_id, token) -> None:
         db = self._connect()
@@ -912,11 +934,45 @@ class HostAdapter:
         marker = "\n[memex: truncated at the host context limit; request a resynchronization]"
         return text[: self.CONTEXT_LIMIT - len(marker)] + marker, True
 
-    def render_packet(self, frame, marker: str | None = None) -> tuple[str, bool]:
+    def changes_since(self, told, frame, session) -> tuple[list[str], list[str]]:
+        """What moved since this session was last told: claim lines and changed files.
+
+        `told` is the baseline the session acknowledged before. A fresh packet
+        alone shows only the new state, and an agent resuming a plan reads a
+        flipped status as background; S04 C15/C39 resumed and edited on the
+        stale reading. So the difference is stated, with the files to re-read.
+        """
+        now = {item.claim_id: item for item in frame.items}
+        claims, files = [], {}
+        for before in told:
+            after = now.get(before.claim_id)
+            subject = f"{before.claim_id}@{before.revision_id} ({before.assertion})"
+            if after is None:
+                claims.append(f"{subject} no longer applies")
+            elif after.status != before.status or after.revision_id != before.revision_id:
+                claims.append(f"{subject} was {before.status}, now {after.status} as "
+                              f"{after.claim_id}@{after.revision_id}" + (f" ({after.reason})" if after.reason else ""))
+            else:
+                continue  # A claim that still stands sends nobody to re-read anything.
+            for entry in before.verification.support_hashes if before.verification else ():
+                path, _, digest = entry.partition("=")
+                if path and self.authorize_source(session, path) and self._observed_digest(path) != digest:
+                    files[path] = True
+        return claims, sorted(files)
+
+    def render_packet(self, frame, marker: str | None = None, changes=None) -> tuple[str, bool]:
         # The marker goes on the first line, which capping never reaches, so a
         # truncated packet is still confirmable.
         head = f"memex engineering context (task {frame.task_id}, view {frame.view_id}, seq {frame.sequence})"
         lines = [head if marker is None else f"{head} [{marker}]"]
+        claims, files = changes or ([], [])
+        if claims or files:
+            lines.append("memex: since this session was last given context, its evidence changed.")
+            lines += [f"- changed: {claim}" for claim in claims[:32]]
+            if files:
+                lines.append(f"Files changed since you received them: {', '.join(files[:32])}. Re-read them "
+                             "before continuing. Your earlier reading of them, and any plan built on it, "
+                             "is stale; do not reuse it.")
         if frame.resync_required:
             lines.append(f"status: resynchronization required ({frame.reason})")
             return self._cap("\n".join(lines))
@@ -1005,6 +1061,7 @@ class HostAdapter:
         # Every SessionStart, including `compact` and `resume`, opens a task whose
         # first packet is a full replacement. Retention is never assumed: the
         # working set is redelivered rather than inferred to have survived.
+        told = self._told(native, session)
         result = await self.engine.indexer.refresh()
         frame = await self.engine.open_task(OpenTaskRequest(
             session=session, view=result.view,
@@ -1017,7 +1074,7 @@ class HostAdapter:
         insertion = "resync_required" if frame.resync_required else "prepared"
         if not frame.resync_required:
             marker = self.delivery_marker(frame.task_id, frame.sequence, frame.view_id)
-        text, truncated = self.render_packet(frame, marker)
+        text, truncated = self.render_packet(frame, marker, self.changes_since(told, frame, session))
         if marker is not None:
             # Intent to deliver, not delivery. The baseline advances only when a
             # host record shows this whole packet inserted into this session.
@@ -1253,6 +1310,7 @@ class HostAdapter:
         session = self.session_identity(native)
         binding = self._binding(native)
         if binding is not None:
+            told = self._told(native, session)
             try:
                 self.engine.close_task(binding["task_id"], session)
             except (PermissionError, ValueError):
@@ -1262,6 +1320,10 @@ class HostAdapter:
                 with db:
                     db.execute("DELETE FROM live_adapter_sessions WHERE harness=? AND native_session_id=?",
                                (self.HARNESS, native))
+                    # Kept so a resumed session is told what changed while it was away.
+                    db.execute("INSERT OR REPLACE INTO live_adapter_told VALUES(?,?,?,?)",
+                               (self.HARNESS, native, json.dumps([i.model_dump(mode="json") for i in told]),
+                                self.clock()))
             finally:
                 db.close()
             self.trace.record(at=self.clock(), session=session, event="session_end",
@@ -1310,7 +1372,7 @@ class HostAdapter:
 # Entry point shared by host hooks
 # --------------------------------------------------------------------------- #
 
-async def build_engine(registration, capability: AdapterCapability, harness: str):
+async def build_engine(registration, capability: AdapterCapability, harness: str, *, stores=None):
     """Compose the P2 core against the configured graph backend.
 
     Hosts differ in what reaches a hook process: S02 measured Codex filtering
@@ -1334,17 +1396,56 @@ async def build_engine(registration, capability: AdapterCapability, harness: str
         uri = get_config().neo4j_uri
     user = os.getenv("NEO4J_USER") or backend.get("neo4j_user") or None
     password = os.getenv("NEO4J_PASSWORD") or None
-    driver = await asyncio.to_thread(Neo4jDriver, uri, user, password)
-    indexer = RepositoryIndexer(registration, StructuralGraphStore(driver))
+    if stores is None:
+        driver = await asyncio.to_thread(Neo4jDriver, uri, user, password)
+        graph, claims = StructuralGraphStore(driver), ClaimStore(driver)
+    else:
+        # The hook service shares one connection and its schema state; it owns
+        # their lifetime, so the caller is handed no driver to close.
+        driver = None
+        graph, claims = await stores(uri, user, password)
+    indexer = RepositoryIndexer(registration, graph)
     tasks = TaskStore(registration.runtime_path,
                       authenticate=lambda s: s.principal_id == capability.principal_id
                       and s.harness == harness)
     engine = LiveContextEngine(
-        indexer, ClaimStore(driver), tasks,
+        indexer, claims, tasks,
         authorize_view=lambda s, r: (r.repo_id, r.worktree_id) == (registration.repo_id, registration.worktree_id),
         authorize_source=lambda s, p: p not in capability.denied_paths,
     )
     return engine, driver
+
+
+def unavailable(exc: Exception) -> HookResponse:
+    """Fail open and say so. A denial here would block real work on our bug."""
+    return HookResponse(decision=None, reason=f"memex: unavailable ({exc.__class__.__name__})",
+                        system_message="memex is unavailable; context freshness is unverified.")
+
+
+async def emit_via(adapter: HostAdapter, response: HookResponse, event: str, write) -> dict:
+    """`HostAdapter.emit` for the hook service, whose client prints on its behalf.
+
+    `write` sends the line and returns only once the client has printed it, so a
+    delivery is marked emitted at the same point as a one-shot hook would.
+    """
+    payload = response.to_payload(event)
+    try:
+        await write(json.dumps(payload) + "\n")
+    except (OSError, ValueError, asyncio.TimeoutError) as exc:
+        adapter.mark_delivery_failed(response.delivery_key, f"output_failed:{exc.__class__.__name__}")
+        raise
+    adapter.mark_emitted(response.delivery_key)
+    return payload
+
+
+async def serve_hook(adapter_cls, load, payload: dict, write, stores) -> dict:
+    """One hook event inside the hook service (`memex.hookd`)."""
+    registration = discover_repository(payload.get("cwd") or ".")
+    capability = load(registration)
+    engine, _ = await build_engine(registration, capability, adapter_cls.HARNESS, stores=stores)
+    adapter = adapter_cls(engine, capability)
+    response = await adapter.dispatch(payload)
+    return await emit_via(adapter, response, payload.get("hook_event_name") or "PreToolUse", write)
 
 
 async def run_hook(adapter_cls, load, payload: dict, stream=None) -> dict:
@@ -1377,12 +1478,6 @@ def hook_main(adapter_cls, load) -> int:
     try:
         asyncio.run(run_hook(adapter_cls, load, payload))
     except Exception as exc:  # noqa: BLE001 - a memex fault must not gate the host
-        # Fail open and say so. A denial here would block real work on our bug.
         # Any delivery involved stays unacknowledged, so its packet is re-offered.
-        response = HookResponse(
-            decision=None,
-            reason=f"memex: unavailable ({exc.__class__.__name__})",
-            system_message="memex is unavailable; context freshness is unverified.",
-        )
-        print(json.dumps(response.to_payload(event)))
+        print(json.dumps(unavailable(exc).to_payload(event)))
     return 0

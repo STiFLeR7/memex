@@ -36,7 +36,7 @@ from memex.integrations.host_adapter import (
 )
 from memex.runtime.views import discover_repository
 
-ADAPTER_VERSION = "codex.v1"
+ADAPTER_VERSION = "codex.v2"
 HARNESS = "codex"
 
 #: Codex spills `additionalContext` above a token threshold (2,500 by default)
@@ -259,6 +259,10 @@ CODEX_HOOK_EVENTS = {
 }
 
 
+#: The launcher runs the hook client, which hands events to the hook service (`memex.hookd`).
+HOOK_CLIENT = Path(__file__).resolve().parent.parent / "hook_client.py"
+
+
 def write_launcher(registration, *, python_executable: str | None = None,
                    pythonpath: str | None = None, codex_home: str | None = None) -> Path:
     """Write the hook launcher beside the capability file and return its path.
@@ -279,7 +283,7 @@ def write_launcher(registration, *, python_executable: str | None = None,
             lines.append(f'set "PYTHONPATH={pythonpath}"')
         if codex_home:
             lines.append(f'set "CODEX_HOME={codex_home}"')
-        lines.append(f'"{executable}" -m memex.integrations.codex')
+        lines.append(f'"{executable}" -I -S "{HOOK_CLIENT}" memex.integrations.codex')
         target.write_text("\r\n".join(lines) + "\r\n", encoding="utf-8")
     else:
         target = directory / "codex-hook.sh"
@@ -288,7 +292,7 @@ def write_launcher(registration, *, python_executable: str | None = None,
             lines.append(f"export PYTHONPATH='{pythonpath}'")
         if codex_home:
             lines.append(f"export CODEX_HOME='{codex_home}'")
-        lines.append(f"exec '{executable}' -m memex.integrations.codex")
+        lines.append(f"exec '{executable}' -I -S '{HOOK_CLIENT}' memex.integrations.codex")
         target.write_text("\n".join(lines) + "\n", encoding="utf-8")
         target.chmod(0o700)
     return target

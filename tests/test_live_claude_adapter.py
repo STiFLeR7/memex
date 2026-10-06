@@ -651,6 +651,41 @@ async def test_compaction_redelivers_a_full_working_set(host):
 
 
 @pytest.mark.asyncio
+async def test_a_resumed_session_is_told_what_changed_and_what_to_reread(host):
+    adapter, repo, _ = host
+    await started_session(adapter, repo)
+    await adapter.dispatch(payload("SessionEnd", repo))
+    (repo / "api.py").write_text("def send(payload):\n    return dict(payload)\n")
+    resumed = await adapter.dispatch(payload("SessionStart", repo, source="resume"))
+    text = resumed.additional_context
+    assert "since this session was last given context, its evidence changed" in text
+    assert "- changed: c-send@r1 (send() returns its payload unchanged) was supported, now needs_revalidation" in text
+    assert "Files changed since you received them: api.py. Re-read them" in text
+    # The item line itself is unchanged, so the gold rule reads it the same way.
+    assert "- [needs_revalidation/inferred] c-send@r1: send() returns its payload unchanged" in text
+
+
+@pytest.mark.asyncio
+async def test_a_resumed_session_with_nothing_changed_gets_no_change_notice(host):
+    adapter, repo, _ = host
+    await started_session(adapter, repo)
+    await adapter.dispatch(payload("SessionEnd", repo))
+    (repo / "other.py").write_text("def other():\n    return 2\n")   # not evidence for any claim
+    resumed = await adapter.dispatch(payload("SessionStart", repo, source="resume"))
+    assert "evidence changed" not in resumed.additional_context
+    assert "- [supported/inferred] c-send@r1" in resumed.additional_context
+
+
+@pytest.mark.asyncio
+async def test_compaction_compares_against_the_live_task_without_a_session_end(host):
+    adapter, repo, _ = host
+    await started_session(adapter, repo)
+    (repo / "api.py").write_text("def send(payload):\n    return None\n")
+    compacted = await adapter.dispatch(payload("SessionStart", repo, source="compact"))
+    assert "Files changed since you received them: api.py." in compacted.additional_context
+
+
+@pytest.mark.asyncio
 async def test_bounded_reconsideration_stops_retrying_the_same_mutation(host):
     adapter, repo, _ = host
     await started_session(adapter, repo)
@@ -732,7 +767,7 @@ async def test_trace_separates_exposure_compliance_and_execution(host):
     confirmed = [e for e in events if e["event"] == "delivery" and e["insertion"] == "confirmed"]
     assert confirmed and confirmed[0]["sequence"] == start["sequence"]
     assert executed["gate"] == "executed"
-    assert check["adapter_version"] == "claude-code.v1"
+    assert check["adapter_version"] == "claude-code.v2"
     assert check["checked_view_id"].startswith("view:")
 
     # No source text, transcript or tool argument body anywhere in the trace.

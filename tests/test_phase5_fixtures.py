@@ -8,11 +8,18 @@ import pathlib
 import pytest
 
 from memex.evaluation import fixtures
-from memex.evaluation.fixtures import (CONFIRMATORY_TEMPLATES, DEV_HISTORIES, DEV_TEMPLATES, MECHANISMS, admit,
-                                       after_files, apply_change, before_files, confirmatory_histories, gold,
-                                       materialize, run_checks, stale)
+from memex.evaluation.fixtures import (CONFIRMATORY_TEMPLATES, DEV_HISTORIES, DEV_TEMPLATES, HOLDOUT_TEMPLATES,
+                                       MECHANISMS, admit, after_files, apply_change, before_files,
+                                       confirmatory_histories, gold, holdout_histories, materialize, run_checks,
+                                       stale)
 
-ALL = DEV_HISTORIES + confirmatory_histories(tuple(MECHANISMS))
+ALL = DEV_HISTORIES + confirmatory_histories(tuple(MECHANISMS)) + holdout_histories(tuple(MECHANISMS))
+
+
+def test_the_s05_holdout_set_shares_no_template_with_earlier_sets():
+    assert not set(HOLDOUT_TEMPLATES) & (set(DEV_TEMPLATES) | set(CONFIRMATORY_TEMPLATES))
+    held = holdout_histories(tuple(MECHANISMS))
+    assert len(held) == 48 and {h.split for h in held} == {"holdout"} and held[0].history_id == "H01"
 
 
 def test_development_and_confirmatory_sets_are_disjoint_and_cover_every_mechanism():

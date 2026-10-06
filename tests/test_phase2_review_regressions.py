@@ -43,7 +43,7 @@ async def test_review_parser_respects_deadline_and_yields_event_loop(tmp_path,mo
     import memex.runtime.actions as actions
     data=b"x=1\n"*100000
     capture=SourceCapture(None,view().manifest_hash,{"api.py":data})
-    async def refresh():return IndexResult(view(),{"api.py":"complete"},True)
+    async def refresh(**_):return IndexResult(view(),{"api.py":"complete"},True)
     async def load(*a,**k):return {},{},True
     registration=SimpleNamespace(root=str(tmp_path),repo_id="repo",worktree_id="wt")
     indexer=SimpleNamespace(registration=registration,refresh=refresh,journal=SimpleNamespace(observe=lambda r,c:view()))

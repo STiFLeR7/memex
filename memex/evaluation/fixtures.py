@@ -25,7 +25,7 @@ from dataclasses import dataclass, field
 from hashlib import sha256
 from pathlib import Path
 
-FIXTURE_VERSION = "phase5-fixtures.v1"
+FIXTURE_VERSION = "phase5-fixtures.v2-holdout"
 
 
 # --------------------------------------------------------------------------- #
@@ -787,9 +787,414 @@ def check_unknown():
 ''',
 )
 
+# --------------------------------------------------------------------------- #
+# Held-out templates (S05). Written after S04's results, before any S05 trial,
+# and never used in development: the S05 product changes were shaped by S04's
+# confirmatory failures on the templates above.
+# --------------------------------------------------------------------------- #
+
+TEMPLATES["geo"] = _t(
+    name="geo", target="labels.py", dep="countries.py", symbol="country_name", renamed="name_for",
+    helper="registry.py",
+    target_stub='''
+from countries import country_name
+
+
+def label(code):
+    raise NotImplementedError("label is not implemented yet")
+''',
+    dep_old='''
+NAMES = {"FR": "France", "JP": "Japan"}
+
+
+def country_name(code):
+    """Return the country's name, or "?" when the code is unknown."""
+    return NAMES.get(code, "?")
+''',
+    dep_new='''
+NAMES = {"FR": "France", "JP": "Japan"}
+
+
+def country_name(code):
+    """Return the country's name; raise KeyError when the code is unknown."""
+    return NAMES[code]
+''',
+    dep_via_helper='''
+from registry import lookup_country
+
+
+def country_name(code):
+    """Look up a country's name (see registry.lookup_country)."""
+    return lookup_country(code)
+''',
+    helper_old='''
+NAMES = {"FR": "France", "JP": "Japan"}
+
+
+def lookup_country(code):
+    """Return the country's name, or "?" when the code is unknown."""
+    return NAMES.get(code, "?")
+''',
+    helper_new='''
+NAMES = {"FR": "France", "JP": "Japan"}
+
+
+def lookup_country(code):
+    """Return the country's name; raise KeyError when the code is unknown."""
+    return NAMES[code]
+''',
+    dep_renamed='''
+NAMES = {"FR": "France", "JP": "Japan"}
+
+
+def name_for(code):
+    """Return the country's name, or "?" when the code is unknown."""
+    return NAMES.get(code, "?")
+''',
+    prompt=("Implement label(code) in labels.py. Return the country's name for a known code and 'Unknown' "
+            "for an unknown one. It must never raise. Look the name up with the function in countries.py."),
+    assertion='country_name(code) in countries.py returns "?" for an unknown code and never raises.',
+    new_assertion="country_name(code) in countries.py raises KeyError for an unknown code.",
+    rule="label() never raises; an unknown code is labeled Unknown.",
+    gold_old='''
+from countries import country_name
+
+
+def label(code):
+    name = country_name(code)
+    return "Unknown" if name == "?" else name
+''',
+    gold_new='''
+from countries import country_name
+
+
+def label(code):
+    try:
+        return country_name(code)
+    except KeyError:
+        return "Unknown"
+''',
+    gold_renamed='''
+from countries import name_for
+
+
+def label(code):
+    name = name_for(code)
+    return "Unknown" if name == "?" else name
+''',
+    checks='''
+from labels import label
+
+
+def check_known():
+    assert label("FR") == "France"
+
+
+def check_unknown():
+    assert label("XX") == "Unknown"
+''',
+)
+
+TEMPLATES["temps"] = _t(
+    name="temps", target="display.py", dep="sensors.py", symbol="reading", renamed="temperature",
+    helper="probes.py",
+    target_stub='''
+from sensors import reading
+
+
+def fmt(sensor):
+    raise NotImplementedError("fmt is not implemented yet")
+''',
+    dep_old='''
+TENTHS = {"kitchen": 215, "attic": 302}
+
+
+def reading(sensor):
+    """Return the temperature in tenths of a degree Celsius, as an int (215 means 21.5 C)."""
+    return TENTHS[sensor]
+''',
+    dep_new='''
+DEGREES = {"kitchen": 21.5, "attic": 30.2}
+
+
+def reading(sensor):
+    """Return the temperature in degrees Celsius, as a float."""
+    return DEGREES[sensor]
+''',
+    dep_via_helper='''
+from probes import raw_reading
+
+
+def reading(sensor):
+    """Read a sensor (see probes.raw_reading)."""
+    return raw_reading(sensor)
+''',
+    helper_old='''
+TENTHS = {"kitchen": 215, "attic": 302}
+
+
+def raw_reading(sensor):
+    """Return the temperature in tenths of a degree Celsius, as an int (215 means 21.5 C)."""
+    return TENTHS[sensor]
+''',
+    helper_new='''
+DEGREES = {"kitchen": 21.5, "attic": 30.2}
+
+
+def raw_reading(sensor):
+    """Return the temperature in degrees Celsius, as a float."""
+    return DEGREES[sensor]
+''',
+    dep_renamed='''
+TENTHS = {"kitchen": 215, "attic": 302}
+
+
+def temperature(sensor):
+    """Return the temperature in tenths of a degree Celsius, as an int (215 means 21.5 C)."""
+    return TENTHS[sensor]
+''',
+    prompt=("Implement fmt(sensor) in display.py. Return the sensor's temperature in degrees Celsius with one "
+            "decimal place, followed by ' C' (for example '21.5 C'). Read it with the function in sensors.py."),
+    assertion="reading(sensor) in sensors.py returns tenths of a degree Celsius as an int: 215 means 21.5 C.",
+    new_assertion="reading(sensor) in sensors.py returns degrees Celsius as a float: 21.5 means 21.5 C.",
+    rule="fmt() shows one decimal place followed by ' C'.",
+    gold_old='''
+from sensors import reading
+
+
+def fmt(sensor):
+    return f"{reading(sensor) / 10:.1f} C"
+''',
+    gold_new='''
+from sensors import reading
+
+
+def fmt(sensor):
+    return f"{reading(sensor):.1f} C"
+''',
+    gold_renamed='''
+from sensors import temperature
+
+
+def fmt(sensor):
+    return f"{temperature(sensor) / 10:.1f} C"
+''',
+    checks='''
+from display import fmt
+
+
+def check_kitchen():
+    assert fmt("kitchen") == "21.5 C"
+
+
+def check_attic():
+    assert fmt("attic") == "30.2 C"
+''',
+)
+
+TEMPLATES["access"] = _t(
+    name="access", target="guard.py", dep="roles.py", symbol="roles_of", renamed="user_roles",
+    helper="accounts.py",
+    target_stub='''
+from roles import roles_of
+
+
+def can_edit(user):
+    raise NotImplementedError("can_edit is not implemented yet")
+''',
+    dep_old='''
+ROLES = {"ana": "admin,editor", "bo": "viewer"}
+
+
+def roles_of(user):
+    """Return the user's roles as one comma-separated string ("" when the user has none)."""
+    return ROLES.get(user, "")
+''',
+    dep_new='''
+ROLES = {"ana": ["admin", "editor"], "bo": ["viewer"]}
+
+
+def roles_of(user):
+    """Return the user's roles as a list of strings ([] when the user has none)."""
+    return list(ROLES.get(user, []))
+''',
+    dep_via_helper='''
+from accounts import fetch_roles
+
+
+def roles_of(user):
+    """Look up a user's roles (see accounts.fetch_roles)."""
+    return fetch_roles(user)
+''',
+    helper_old='''
+ROLES = {"ana": "admin,editor", "bo": "viewer"}
+
+
+def fetch_roles(user):
+    """Return the user's roles as one comma-separated string ("" when the user has none)."""
+    return ROLES.get(user, "")
+''',
+    helper_new='''
+ROLES = {"ana": ["admin", "editor"], "bo": ["viewer"]}
+
+
+def fetch_roles(user):
+    """Return the user's roles as a list of strings ([] when the user has none)."""
+    return list(ROLES.get(user, []))
+''',
+    dep_renamed='''
+ROLES = {"ana": "admin,editor", "bo": "viewer"}
+
+
+def user_roles(user):
+    """Return the user's roles as one comma-separated string ("" when the user has none)."""
+    return ROLES.get(user, "")
+''',
+    prompt=("Implement can_edit(user) in guard.py. Return True only when the user has the 'editor' role, "
+            "otherwise False. Get the user's roles with the function in roles.py."),
+    assertion="roles_of(user) in roles.py returns the user's roles as one comma-separated string.",
+    new_assertion="roles_of(user) in roles.py returns the user's roles as a list of strings.",
+    rule="can_edit() grants editing only to users with the editor role.",
+    gold_old='''
+from roles import roles_of
+
+
+def can_edit(user):
+    return "editor" in roles_of(user).split(",")
+''',
+    gold_new='''
+from roles import roles_of
+
+
+def can_edit(user):
+    return "editor" in roles_of(user)
+''',
+    gold_renamed='''
+from roles import user_roles
+
+
+def can_edit(user):
+    return "editor" in user_roles(user).split(",")
+''',
+    checks='''
+from guard import can_edit
+
+
+def check_editor():
+    assert can_edit("ana") is True
+
+
+def check_viewer():
+    assert can_edit("bo") is False
+
+
+def check_unknown():
+    assert can_edit("zed") is False
+''',
+)
+
+TEMPLATES["retries"] = _t(
+    name="retries", target="jobs.py", dep="policy.py", symbol="max_retries", renamed="retry_limit",
+    helper="settings.py",
+    target_stub='''
+from policy import max_retries
+
+
+def attempts_allowed(job):
+    raise NotImplementedError("attempts_allowed is not implemented yet")
+''',
+    dep_old='''
+RETRIES = {"sync": 2, "report": 0}
+
+
+def max_retries(job):
+    """Return how many times the job may be retried after its first attempt."""
+    return RETRIES[job]
+''',
+    dep_new='''
+ATTEMPTS = {"sync": 3, "report": 1}
+
+
+def max_retries(job):
+    """Return the job's total number of attempts, including the first one."""
+    return ATTEMPTS[job]
+''',
+    dep_via_helper='''
+from settings import retries_for
+
+
+def max_retries(job):
+    """Look up a job's retry setting (see settings.retries_for)."""
+    return retries_for(job)
+''',
+    helper_old='''
+RETRIES = {"sync": 2, "report": 0}
+
+
+def retries_for(job):
+    """Return how many times the job may be retried after its first attempt."""
+    return RETRIES[job]
+''',
+    helper_new='''
+ATTEMPTS = {"sync": 3, "report": 1}
+
+
+def retries_for(job):
+    """Return the job's total number of attempts, including the first one."""
+    return ATTEMPTS[job]
+''',
+    dep_renamed='''
+RETRIES = {"sync": 2, "report": 0}
+
+
+def retry_limit(job):
+    """Return how many times the job may be retried after its first attempt."""
+    return RETRIES[job]
+''',
+    prompt=("Implement attempts_allowed(job) in jobs.py. Return the total number of times the job may run, "
+            "counting its first attempt. Use the function in policy.py."),
+    assertion="max_retries(job) in policy.py returns the retries after the first attempt; it excludes the first.",
+    new_assertion="max_retries(job) in policy.py returns the total number of attempts, including the first.",
+    rule="attempts_allowed() counts the first attempt.",
+    gold_old='''
+from policy import max_retries
+
+
+def attempts_allowed(job):
+    return max_retries(job) + 1
+''',
+    gold_new='''
+from policy import max_retries
+
+
+def attempts_allowed(job):
+    return max_retries(job)
+''',
+    gold_renamed='''
+from policy import retry_limit
+
+
+def attempts_allowed(job):
+    return retry_limit(job) + 1
+''',
+    checks='''
+from jobs import attempts_allowed
+
+
+def check_sync():
+    assert attempts_allowed("sync") == 3
+
+
+def check_report():
+    assert attempts_allowed("report") == 1
+''',
+)
+
 #: Development templates. The confirmatory set is drawn only from the others.
 DEV_TEMPLATES = ("payments", "inventory", "textkit")
 CONFIRMATORY_TEMPLATES = ("scheduler", "pricing", "config", "users")
+#: S05's held-out set: used only for S05's confirmatory trials.
+HOLDOUT_TEMPLATES = ("geo", "temps", "access", "retries")
 
 
 # --------------------------------------------------------------------------- #
@@ -820,7 +1225,7 @@ class History:
     history_id: str
     template: str
     mechanism: str
-    split: str             # "development" | "confirmatory"
+    split: str             # "development" | "confirmatory" | "holdout"
 
     @property
     def spec(self) -> Template:
@@ -853,6 +1258,13 @@ def confirmatory_histories(per_template: tuple[str, ...]) -> tuple[History, ...]
     return tuple(History(f"C{i + 1:02d}", template, mechanism, "confirmatory")
                  for i, (template, mechanism) in enumerate(
                      (t, m) for t in CONFIRMATORY_TEMPLATES for m in per_template))
+
+
+def holdout_histories(per_template: tuple[str, ...]) -> tuple[History, ...]:
+    """S05: every held-out template crossed with the given mechanisms, in a fixed order."""
+    return tuple(History(f"H{i + 1:02d}", template, mechanism, "holdout")
+                 for i, (template, mechanism) in enumerate(
+                     (t, m) for t in HOLDOUT_TEMPLATES for m in per_template))
 
 
 # --------------------------------------------------------------------------- #
@@ -987,6 +1399,18 @@ def correct_correction(h: History, text: str) -> bool:
         reported |= {p.strip() for p in listed.split(",")}
     reported |= set(CHANGED_DEPENDENCY.findall(text)) | set(CHANGED_TARGET.findall(text))
     return bool(reported & changed_evidence(h)) and names_claim(text)
+
+
+def correction_like(text: str) -> bool:
+    """S05 precision: does `text` present itself as a correction, whatever the history?
+
+    The same vocabulary as `correct_correction`, without asking whether it is
+    right: some claim marked not current or changed, or some evidence reported
+    changed. Whether it was right is the gold rule's question.
+    """
+    return bool(any(NOT_CURRENT.search(line) or DELTA.search(line) for line in text.splitlines())
+                or CHANGED_LIST.search(text) or CHANGED_DEPENDENCY.search(text) or CHANGED_TARGET.search(text)
+                or "its evidence changed" in text)
 
 
 # --------------------------------------------------------------------------- #

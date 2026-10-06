@@ -38,7 +38,9 @@ from memex.integrations.host_adapter import (  # noqa: F401 - stable public surf
 )
 from memex.runtime.views import discover_repository
 
-ADAPTER_VERSION = "claude-code.v1"
+HOOK_CLIENT = Path(__file__).resolve().parent.parent / "hook_client.py"
+
+ADAPTER_VERSION = "claude-code.v2"
 HARNESS = "claude_code"
 
 #: Tools that declare the files they mutate. Everything else is opaque.
@@ -243,6 +245,13 @@ class ClaudeCodeAdapter(HostAdapter):
 # --------------------------------------------------------------------------- #
 
 def hook_command(python_executable: str | None = None) -> str:
+    """The hook client, which hands events to the long-lived hook service (`memex.hookd`)."""
+    executable = python_executable or sys.executable
+    return f'"{executable}" -I -S "{HOOK_CLIENT}" memex.integrations.claude_code'
+
+
+def legacy_hook_command(python_executable: str | None = None) -> str:
+    """The one-shot command installed before the hook service existed."""
     executable = python_executable or sys.executable
     return f'"{executable}" -m memex.integrations.claude_code'
 
@@ -260,17 +269,33 @@ def hook_settings(*, timeout: int = 20, python_executable: str | None = None) ->
     }
 
 
+def _without(hooks: dict, commands: set[str]) -> None:
+    """Drop entries running any of `commands`, and groups or events left empty."""
+    for event in list(hooks):
+        groups = []
+        for group in hooks[event]:
+            remaining = [h for h in group.get("hooks", []) if h.get("command") not in commands]
+            if remaining:
+                groups.append({**group, "hooks": remaining})
+        if groups:
+            hooks[event] = groups
+        else:
+            del hooks[event]
+
+
 def install_hooks(settings_path, *, timeout: int = 20, python_executable: str | None = None) -> dict:
     """Compose memex hooks into a settings file, preserving everything else.
 
     Permission policy is never touched, existing hook entries are kept, and a
-    repeated install does not duplicate memex entries.
+    repeated install does not duplicate memex entries. An earlier one-shot
+    memex entry is replaced, so the two never both run.
     """
     path = Path(settings_path)
     settings = {}
     if path.exists():
         settings = json.loads(path.read_text(encoding="utf-8") or "{}")
     hooks = settings.setdefault("hooks", {})
+    _without(hooks, {legacy_hook_command(python_executable)})
     command = hook_command(python_executable)
     for event, groups in hook_settings(timeout=timeout, python_executable=python_executable).items():
         existing = hooks.setdefault(event, [])
@@ -288,18 +313,8 @@ def uninstall_hooks(settings_path, *, python_executable: str | None = None) -> d
     if not path.exists():
         return {}
     settings = json.loads(path.read_text(encoding="utf-8") or "{}")
-    command = hook_command(python_executable)
     hooks = settings.get("hooks", {})
-    for event in list(hooks):
-        groups = []
-        for group in hooks[event]:
-            remaining = [h for h in group.get("hooks", []) if h.get("command") != command]
-            if remaining:
-                groups.append({**group, "hooks": remaining})
-        if groups:
-            hooks[event] = groups
-        else:
-            del hooks[event]
+    _without(hooks, {hook_command(python_executable), legacy_hook_command(python_executable)})
     if not hooks:
         settings.pop("hooks", None)
     path.write_text(json.dumps(settings, indent=2), encoding="utf-8")

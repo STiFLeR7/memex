@@ -2,6 +2,7 @@
 import asyncio
 from concurrent.futures import ProcessPoolExecutor
 from contextvars import ContextVar
+import hashlib
 import multiprocessing
 import threading
 import time
@@ -13,6 +14,10 @@ parse_deadline = ContextVar("memex_parse_deadline", default=None)
 _pool = None
 _pool_lock = threading.Lock()
 _slots = weakref.WeakKeyDictionary()
+# Parsing is a pure function of (path, bytes), so unchanged files are never
+# re-parsed. ponytail: cleared wholesale at the bound, an LRU if it ever thrashes.
+_parsed: dict = {}
+_PARSED_LIMIT = 20_000
 
 
 def _extract_batch(files, deadline):
@@ -25,6 +30,18 @@ def _extract_batch(files, deadline):
 
 
 async def parse_sources(files):
+    """Structures for `files`, in order, parsing only what has not been seen."""
+    keys = {path: (path, hashlib.sha256(content).digest()) for path, content in files.items()}
+    missing = {path: content for path, content in files.items() if keys[path] not in _parsed}
+    if missing:
+        if len(_parsed) + len(missing) > _PARSED_LIMIT:
+            _parsed.clear()
+        for structure in await _parse_in_pool(missing):
+            _parsed[keys[structure.path]] = structure
+    return [_parsed[keys[path]] for path in files]
+
+
+async def _parse_in_pool(files):
     """At most two submitted jobs; cancellation never frees a still-running slot.
 
     A running parser may finish its current file after the caller times out, but

@@ -50,7 +50,7 @@ from tests.phase5_trial_hooks import encode_plan  # noqa: E402
 HERE = pathlib.Path(__file__).resolve().parent
 CHECKOUT = HERE.parent
 TRIAL_HOOKS = HERE / "phase5_trial_hooks.py"
-HARNESS_VERSION = "phase5-trials.v3-confirmed-insertions"
+HARNESS_VERSION = "phase5-trials.v4-hook-service"
 CLAUDE_MODEL = os.getenv("MEMEX_P5_CLAUDE_MODEL", "claude-sonnet-5-5")
 CODEX_MODEL = os.getenv("MEMEX_P5_CODEX_MODEL", "gpt-6-sol")
 CODEX_EFFORT = os.getenv("MEMEX_P5_CODEX_EFFORT", "medium")
@@ -91,7 +91,8 @@ def _launcher(directory: pathlib.Path, name: str, body: str, uri: str) -> pathli
 
 def launchers(bin_dir: pathlib.Path, host: str, uri: str) -> tuple[pathlib.Path, pathlib.Path]:
     python = sys.executable
-    arm = _launcher(bin_dir, f"arm-{host}", f'"{python}" -m memex.evaluation.arms {host}', uri)
+    client = CHECKOUT / "memex" / "hook_client.py"
+    arm = _launcher(bin_dir, f"arm-{host}", f'"{python}" -I -S "{client}" memex.evaluation.arms {host}', uri)
     hooks = _launcher(bin_dir, "trial-hooks", f'"{python}" "{TRIAL_HOOKS}"', uri)
     return arm, hooks
 
@@ -533,7 +534,7 @@ def main(argv=None) -> int:
     parser = argparse.ArgumentParser()
     sub = parser.add_subparsers(dest="command", required=True)
     run = sub.add_parser("run")
-    run.add_argument("--split", choices=("development", "confirmatory"), required=True)
+    run.add_argument("--split", choices=("development", "confirmatory", "holdout"), required=True)
     run.add_argument("--mechanisms", default=",".join(fixtures.MECHANISMS))
     run.add_argument("--histories", default="")
     run.add_argument("--hosts", default="claude,codex")
@@ -555,7 +556,8 @@ def main(argv=None) -> int:
         return backfill(pathlib.Path(args.directory))
     uri = os.getenv("MEMEX_PHASE1_NEO4J_URI") or "bolt://127.0.0.1:17687"
     if args.command == "one":
-        pool = fixtures.DEV_HISTORIES + fixtures.confirmatory_histories(tuple(fixtures.MECHANISMS))
+        pool = (fixtures.DEV_HISTORIES + fixtures.confirmatory_histories(tuple(fixtures.MECHANISMS))
+                + fixtures.holdout_histories(tuple(fixtures.MECHANISMS)))
         h = fixtures.history_by_id(args.history, pool)
         trial_root = pathlib.Path(os.environ.get("TEMP", "/tmp")) / "memex-p5"
         record = run_trial(h, args.arm, args.host, uri=uri, trial_root=trial_root,
@@ -565,6 +567,8 @@ def main(argv=None) -> int:
         return 0
     if args.split == "development":
         histories = fixtures.DEV_HISTORIES
+    elif args.split == "holdout":
+        histories = fixtures.holdout_histories(tuple(args.mechanisms.split(",")))
     else:
         histories = fixtures.confirmatory_histories(tuple(args.mechanisms.split(",")))
     if args.histories:

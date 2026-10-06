@@ -1,0 +1,48 @@
+{
+ "protocol": "docs/v1/27_PHASE6_PROTOCOL.md",
+ "histories": "H01-H48",
+ "arms": [
+  "A",
+  "B",
+  "C",
+  "D",
+  "E"
+ ],
+ "hosts": [
+  "claude",
+  "codex"
+ ],
+ "replicates": 1,
+ "budget_trials": 480,
+ "resamples": 10000,
+ "seed": 20261005,
+ "min_relative_reduction": 0.3,
+ "min_precision": 0.95,
+ "max_false_interruption": 0.05,
+ "min_recall": 0.9,
+ "max_latency_p95_ms": 200,
+ "tail_deadline_ms": 10000,
+ "max_resource_ratio": 1.25,
+ "noninferiority_margin": 0.1,
+ "noninferiority_comparators": [
+  "A",
+  "C",
+  "D"
+ ],
+ "harness": "phase5-trials.v4-hook-service",
+ "metric_definitions": {
+  "recall": "A4: opportunities (affected trials whose change landed, any status, counted once) with a correction that is correct (fixtures.correct_correction), confirmed in the client's own session record (memex/evaluation/transcripts.py), after the change and before the first affected mutation or as the denial of it; analysis.timely_correction",
+  "interception": "diagnostic only, Part A's original recall: first necessary boundary denied; analysis.intercepted",
+  "precision": "P1 (27): first confirmed insertion after the change per trial that is a denial, presents itself as a correction (fixtures.correction_like) or satisfies the gold rule; correct iff affected and fixtures.correct_correction; analysis.correction_event, summary key precision_s05",
+  "false_interruption": "Part A: denied unaffected boundaries / all unaffected boundaries",
+  "latency": "P4 (27): warm unchanged declared PreToolUse checks, hook client process creation to response, through the hook service"
+ },
+ "parallel": 3,
+ "arms_version": "phase5-arms.v2-hook-service",
+ "fixtures": "phase5-fixtures.v2-holdout",
+ "adapters": [
+  "claude-code.v2",
+  "codex.v2"
+ ],
+ "precision_definition": "confirmed_insertions"
+}

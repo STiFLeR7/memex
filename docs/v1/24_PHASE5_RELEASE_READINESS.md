@@ -52,6 +52,8 @@ Confirmatory figures are for arm E on 56 affected and 40 stable paired units, po
 
 ## Evidence still needed for any release
 
+**Update, 6 October 2026:** the persistent hook process, faster source capture, the resume change notice and the precision definition are implemented, and S05 is frozen in [27](27_PHASE6_PROTOCOL.md) before any of its trials. Item 1 is in progress; the gates above are S04's and stand until S05 reports.
+
 1. **A new, preregistered evaluation after product changes.** It must not be a rerun of this one until it passes. The candidate changes are:
    - a persistent hook process, for latency and the tail deadline;
    - correction wording that names the files to re-read;
