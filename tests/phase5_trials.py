@@ -8,15 +8,18 @@ usage:
 A trial:
 1. materializes the history in a fresh temporary repository (new repository and
    worktree identity, new graph namespace) and seeds its evidence and claims;
-2. installs the arm's hooks plus the fixture hooks that apply the change after
-   the agent's first completed tool call and record every mutation attempt;
+2. installs the arm's hooks plus the fixture hooks that record every mutation
+   attempt; the change lands between the plan turn and the resumed
+   implementation turn (amendment A1);
 3. runs the real client (Claude Code headless, or Codex through its app-server)
    with the same prompt, model, turn limit and tools in every arm;
 4. scores the final state with hidden checks run outside the repository, in the
    worlds before and after the change;
 5. joins the change time, every mutation attempt, every arm decision and every
    hook's latency into one record, and keeps derived trace metadata only (no
-   raw transcript).
+   raw transcript);
+6. reads the client's own session record and keeps only the memex texts it
+   confirms were inserted, with their times (amendment A4).
 
 The record is written whatever happens: a failed, timed-out or unavailable
 trial is a result, not a gap.
@@ -39,7 +42,7 @@ import uuid
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 
-from memex.evaluation import fixtures  # noqa: E402
+from memex.evaluation import fixtures, transcripts  # noqa: E402
 from memex.evaluation.arms import ARM_VERSION, ARMS, HOOKED_ARMS, set_arm, timings_path  # noqa: E402
 from tests import phase4_support as support  # noqa: E402
 from tests.phase5_trial_hooks import encode_plan  # noqa: E402
@@ -47,7 +50,7 @@ from tests.phase5_trial_hooks import encode_plan  # noqa: E402
 HERE = pathlib.Path(__file__).resolve().parent
 CHECKOUT = HERE.parent
 TRIAL_HOOKS = HERE / "phase5_trial_hooks.py"
-HARNESS_VERSION = "phase5-trials.v2-two-turn"
+HARNESS_VERSION = "phase5-trials.v3-confirmed-insertions"
 CLAUDE_MODEL = os.getenv("MEMEX_P5_CLAUDE_MODEL", "claude-sonnet-5-5")
 CODEX_MODEL = os.getenv("MEMEX_P5_CODEX_MODEL", "gpt-6-sol")
 CODEX_EFFORT = os.getenv("MEMEX_P5_CODEX_EFFORT", "medium")
@@ -183,6 +186,7 @@ def run_claude(repo: pathlib.Path, prompts: tuple[str, str], between) -> dict:
         if not second["timed_out"] and (second["code"] != 0 or second["result"].get("is_error")):
             out["client_error"] = "turn 2: " + (second["stderr"][-400:] or str(second["result"].get("subtype")))
         out["resumed_same_session"] = second["session_id"] == first["session_id"]
+    out["session_id"] = first["session_id"]
     records = [r for t in turns for r in t["records"]]
     tools = []
     for turn_number, turn in enumerate(turns, 1):
@@ -361,6 +365,7 @@ def run_trial(h: fixtures.History, arm: str, host: str, *, uri: str, trial_root:
             client = run_codex(repo, prompts, codex_flags(arm, arm_launcher, hooks, state, uri), between)
         record["client"] = client
         record.update(score(h, repo, registration, state, probe, arm))
+        record.update(transcripts.insertions(host, session_of(record)))
         record["status"] = classify(record)
     except Exception as exc:  # noqa: BLE001 - an infrastructure failure is recorded, not hidden
         record["status"] = "invalid_infrastructure"
@@ -428,6 +433,33 @@ def score(h: fixtures.History, repo: pathlib.Path, registration, state: pathlib.
         "refreshes": sum(t.get("refreshes") or 0 for t in timings),
         "refresh_ms": sum(t.get("refresh_ms") or 0.0 for t in timings),
     }
+
+
+def session_of(record: dict) -> str | None:
+    """The native session the agent ran in: Claude's session id, or Codex's thread id."""
+    client = record.get("client") or {}
+    hooked = next((h["session"] for h in record.get("hooks") or [] if h.get("session")), None)
+    return client.get("session_id") or client.get("thread_id") or hooked
+
+
+def backfill(directory: pathlib.Path) -> int:
+    """Write each recorded trial's confirmed insertions beside it, leaving the record unchanged.
+
+    For trials recorded before the harness kept insertions (protocol A4). The
+    sidecar `<directory>/insertions/<trial>.json` is read by the analysis.
+    """
+    out = directory / "insertions"
+    out.mkdir(exist_ok=True)
+    missing = 0
+    for path in sorted((directory / "trials").glob("*.json")):
+        if ".attempt" in path.name:
+            continue
+        record = json.loads(path.read_text(encoding="utf-8"))
+        found = transcripts.insertions(record["host"], session_of(record))
+        missing += found["transcript"] is None
+        (out / path.name).write_text(json.dumps(found, indent=1), encoding="utf-8")
+    print(f"{directory}: {missing} trials without a client transcript")
+    return 0
 
 
 def classify(record: dict) -> str:
@@ -510,6 +542,8 @@ def main(argv=None) -> int:
     run.add_argument("--parallel", type=int, default=3)
     run.add_argument("--replicates", type=int, default=1)
     run.add_argument("--budget", type=int)
+    fill = sub.add_parser("backfill")
+    fill.add_argument("directory")
     one = sub.add_parser("one")
     one.add_argument("history")
     one.add_argument("arm")
@@ -517,6 +551,8 @@ def main(argv=None) -> int:
     one.add_argument("--out", required=True)
     one.add_argument("--keep", action="store_true")
     args = parser.parse_args(argv)
+    if args.command == "backfill":
+        return backfill(pathlib.Path(args.directory))
     uri = os.getenv("MEMEX_PHASE1_NEO4J_URI") or "bolt://127.0.0.1:17687"
     if args.command == "one":
         pool = fixtures.DEV_HISTORIES + fixtures.confirmatory_histories(tuple(fixtures.MECHANISMS))

@@ -66,7 +66,7 @@ Ablations, as variants of E:
 
 ### Controlled timing and leakage
 
-- **Change timing:** the change lands immediately after the agent's first completed tool call of any kind, through a separate fixture process. The rule doesn't depend on the arm. If the agent's first call is the edit itself, the change still follows it, and the history is scored as usual.
+- **Change timing:** amended by A1 in [22](22_PHASE5_PROTOCOL.md). The agent plans in turn 1, the harness applies the change with the client stopped, and turn 2 resumes the same session to implement. The rule doesn't depend on the arm. (The original rule, landing the change after the agent's first tool call, did not discriminate in pilot v1.)
 - **Fresh state per trial:**
   - every trial gets a new temporary repository, so a new repository and worktree identity;
   - a new graph namespace, keyed by that identity;

@@ -25,7 +25,7 @@ def test_correction_metrics_follow_the_written_definitions():
     ]
     summary = analysis.summarize(records, "E")
     assert summary["precision"] == {"n": 2, "d": 3, "rate": 2 / 3}
-    assert summary["recall"] == {"n": 2, "d": 2, "rate": 1.0}  # H2's first necessary boundary was denied
+    assert summary["interception"] == {"n": 2, "d": 2, "rate": 1.0}  # H2's first necessary boundary was denied
     assert summary["false_interruption"] == {"n": 1, "d": 4, "rate": 0.25}
     assert summary["retries"] == 1
 
@@ -98,3 +98,28 @@ def test_stable_noninferiority_is_paired_by_history():
                     trial(f"S{i}", "A", label="stable", success=True, necessary=[False])]
     result = analysis.stable_noninferiority(records, "E", "A", resamples=1000)
     assert result["difference"] == pytest.approx(-0.1) and result["difference_ci95"][1] <= 0
+
+
+def test_noninferiority_tail_and_resource_gates():
+    frozen = {"resamples": 1000, "noninferiority_margin": 0.10}
+    records = []
+    for i in range(10):
+        records += [trial(f"S{i}", "E", label="stable", necessary=[False]),
+                    trial(f"S{i}", "A", label="stable", success=i != 0, necessary=[False])]
+    assert analysis.noninferiority_gate(records, "A", frozen)["status"] == "passed"
+    worse = [dict(r, success=False) if r["arm"] == "E" and r["history"] in ("S1", "S2", "S3") else r
+             for r in records]
+    assert analysis.noninferiority_gate(worse, "A", frozen)["status"] == "failed"
+
+    slow = {"event": "PreToolUse", "tool": "Edit", "decision": "deny", "total_ms": 12000}
+    fast = {"event": "PreToolUse", "tool": "Edit", "decision": None, "total_ms": 900}
+    assert analysis.tail_gate([trial("H1", "E", hooks=[fast])], 10000)["status"] == "passed"
+    assert analysis.tail_gate([trial("H1", "E", hooks=[fast, slow])], 10000)["status"] == "failed"
+
+    e, d = trial("H1", "E"), trial("H1", "D")
+    assert analysis.resource_gate([e, d], "D", 1.25)["status"] == "passed"
+    e["client"]["wall_s"] = 20
+    assert analysis.resource_gate([e, d], "D", 1.25)["status"] == "failed"
+    e["client"] = {"wall_s": None, "usage": None}
+    decision = analysis.resource_gate([e, d], "D", 1.25)
+    assert decision["status"] == "not_established" and "0/1" not in decision["detail"]

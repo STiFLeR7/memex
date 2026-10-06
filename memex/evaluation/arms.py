@@ -375,6 +375,8 @@ async def _run(host: str, payload: dict, stream) -> dict:
         emitted = adapter.emit(response, payload.get("hook_event_name") or "PreToolUse", stream)
         metrics["decision"] = response.decision
         metrics["chars"] = len(response.additional_context) + (len(response.reason) if response.decision else 0)
+        # What the hook emitted, kept so an unconfirmed correction is visible as one.
+        metrics["text"] = (response.reason if response.decision else "") + (response.additional_context or "")
         return {"metrics": metrics, "registration": registration, "emitted": emitted}
     finally:
         await driver.close()

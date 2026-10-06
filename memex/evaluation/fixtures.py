@@ -16,6 +16,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -932,6 +933,60 @@ def gold(h: History) -> str:
 def stale(h: History) -> str:
     """What an agent writes from the original contract."""
     return h.spec.gold_old
+
+
+# --------------------------------------------------------------------------- #
+# Gold corrections (protocol amendment A4)
+# --------------------------------------------------------------------------- #
+
+AFFECTED_CLAIM = "c-contract"
+NOT_CURRENT = re.compile(r"\[(needs_revalidation|unsupported|unknown|conflicted)[/,]")
+DELTA = re.compile(r"^\s*- (retract|replace|uncertain|conflict): ")
+CHANGED_LIST = re.compile(r"changed (?:while this session was away|since you received them): (.+?)\. Re-read")
+CHANGED_DEPENDENCY = re.compile(r"changed dependency (\S+?): delivered")
+CHANGED_TARGET = re.compile(r"^(\S+): delivered \S+, now", re.MULTILINE)
+
+
+def changed_evidence(h: History) -> set[str]:
+    """The files whose change makes the prior claim wrong. Empty for a stable history."""
+    if not h.affected:
+        return set()
+    t = h.spec
+    return {"helper": {t.helper}, "superseded": {t.dep, "DECISIONS.md"}}.get(h.mechanism, {t.dep})
+
+
+def correct_correction(h: History, text: str) -> bool:
+    """Whether `text` correctly corrects this history's affected prior claim from the changed evidence.
+
+    One rule for every arm. A text counts when it names the affected claim (by
+    id or by its original assertion) and does one of:
+    * marks it not current: a needs_revalidation, unsupported, unknown or
+      conflicted status, or a retract/replace/uncertain/conflict delta;
+    * replaces it: for `superseded`, the newly approved assertion, with the old
+      revision no longer shown as supported;
+    * states that evidence it cites changed, naming one of this history's
+      changed files.
+    Generic fresh context, a claim still shown as supported, or a correction
+    of some other claim does not count.
+    """
+    if not h.affected or not text:
+        return False
+    t = h.spec
+
+    def names_claim(line: str) -> bool:
+        return f"{AFFECTED_CLAIM}@" in line or t.assertion.strip() in line
+
+    for line in text.splitlines():
+        if names_claim(line) and (NOT_CURRENT.search(line) or DELTA.search(line)):
+            return True
+    if h.mechanism == "superseded" and t.new_assertion.strip() in text \
+            and not re.search(rf"\[supported[/,][^\]]*\] {AFFECTED_CLAIM}@r1\b", text):
+        return True
+    reported: set[str] = set()
+    for listed in CHANGED_LIST.findall(text):
+        reported |= {p.strip() for p in listed.split(",")}
+    reported |= set(CHANGED_DEPENDENCY.findall(text)) | set(CHANGED_TARGET.findall(text))
+    return bool(reported & changed_evidence(h)) and names_claim(text)
 
 
 # --------------------------------------------------------------------------- #

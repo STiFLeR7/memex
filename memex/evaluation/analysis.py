@@ -19,13 +19,22 @@ COMPLETED = "completed"
 
 
 def load(directory: str | Path) -> list[dict]:
-    """Every final trial record in `directory`/trials. Retry attempts are kept separately."""
+    """Every final trial record in `directory`/trials. Retry attempts are kept separately.
+
+    Records written before the harness kept confirmed insertions get them from
+    the `insertions/` sidecar that `phase5_trials.py backfill` writes; the
+    record files themselves are never modified.
+    """
     trials = Path(directory) / "trials"
+    sidecar = Path(directory) / "insertions"
     records = []
     for path in sorted(trials.glob("*.json")):
         if ".attempt" in path.name:
             continue
-        records.append(json.loads(path.read_text(encoding="utf-8")))
+        record = json.loads(path.read_text(encoding="utf-8"))
+        if "insertions" not in record and (sidecar / path.name).exists():
+            record.update(json.loads((sidecar / path.name).read_text(encoding="utf-8")))
+        records.append(record)
     return records
 
 
@@ -65,10 +74,54 @@ def necessary_opportunity(record: dict) -> bool:
     return any(b["necessary"] for b in boundaries(record))
 
 
-def timely(record: dict) -> bool:
-    """The first post-change mutation attempt was held for reconsideration."""
+def intercepted(record: dict) -> bool:
+    """Diagnostic (Part A's original recall): the first post-change mutation attempt was denied."""
     first = next((b for b in boundaries(record) if b["necessary"]), None)
     return bool(first and first.get("denied"))
+
+
+def opportunity(record: dict) -> bool:
+    """A gold-labeled necessary correction opportunity: an affected history whose change landed.
+
+    Whether the agent ever attempted an edit does not matter, and each trial
+    is one opportunity however many corrections it received.
+    """
+    change = record.get("change")
+    return (record.get("label") == "affected" and bool(change) and not change.get("error")
+            and change.get("applied_at") is not None)
+
+
+def _history(record: dict):
+    from memex.evaluation import fixtures
+    return fixtures.History(record["history"], record["template"], record["mechanism"], record["split"])
+
+
+def timely_correction(record: dict) -> bool:
+    """Amendment A4: necessary-correction recall, one rule for every arm.
+
+    True when some confirmed insertion in the agent's own session (read from
+    the client's record, never from the hook) correctly corrects the affected
+    claim from the changed evidence, arrives after the change, and arrives
+    before the first affected mutation: either earlier in the session, or as
+    the denial returned for that first mutation attempt. A late, wrong,
+    missing or unconfirmed correction is a miss.
+    """
+    if not opportunity(record):
+        return False
+    h = _history(record)
+    from memex.evaluation.fixtures import correct_correction
+    changed_at = record["change"]["applied_at"]
+    first = next((b for b in boundaries(record) if b["necessary"]), None)
+    for insertion in record.get("insertions") or []:
+        if insertion["at"] <= changed_at or not correct_correction(h, insertion["text"]):
+            continue
+        if first is None or insertion["at"] < first["at"]:
+            return True
+        if first.get("denied") and insertion["kind"] == "tool_result":
+            later = [b["at"] for b in boundaries(record) if b["at"] > first["at"]]
+            if not later or insertion["at"] < min(later):
+                return True
+    return False
 
 
 def retries(record: dict) -> int:
@@ -122,6 +175,7 @@ def summarize(records: list[dict], arm: str, host: str | None = None) -> dict:
     events = [b for r in done for b in corrections(r)]
     unaffected = [b for r in done for b in unaffected_boundaries(r)]
     opportunities = [r for r in affected if necessary_opportunity(r)]
+    gold = [r for r in rows if opportunity(r)]
     warm = [x for r in done for x in warm_unchanged_latencies(r)]
     core = [x for r in done for x in check_latencies(r)]
     usage = [r.get("client", {}).get("usage") for r in done]
@@ -136,7 +190,9 @@ def summarize(records: list[dict], arm: str, host: str | None = None) -> dict:
         "overall_success": rate(sum(r["success"] for r in done), len(done)),
         "functional_failure": rate(sum(bool(r.get("functional_failure")) for r in done), len(done)),
         "precision": rate(sum(material(b) for b in events), len(events)),
-        "recall": rate(sum(timely(r) for r in opportunities), len(opportunities)),
+        "recall": rate(sum(timely_correction(r) for r in gold), len(gold)),
+        "interception": rate(sum(intercepted(r) for r in opportunities), len(opportunities)),
+        "transcripts_found": f"{sum(1 for r in gold if r.get('transcript'))}/{len(gold)}",
         "false_interruption": rate(sum(bool(b.get("denied")) for b in unaffected), len(unaffected)),
         "retries": sum(retries(r) for r in done),
         "latency_warm_unchanged_ms": {"n": len(warm), "p50": percentile(warm, 50), "p95": percentile(warm, 95),
@@ -242,6 +298,17 @@ def stable_noninferiority(records: list[dict], primary: str, comparator: str, *,
             "difference_ci95": (diffs[int(0.025 * resamples)], diffs[int(0.975 * resamples) - 1])}
 
 
+def noninferiority_gate(records: list[dict], comparator: str, frozen: dict) -> dict:
+    result = stable_noninferiority(records, PRIMARY, comparator, resamples=frozen["resamples"])
+    if not result["units"]:
+        return gate(f"stable_vs_{comparator}", "not_established", "no complete paired stable units")
+    low = result["difference_ci95"][0]
+    margin = frozen["noninferiority_margin"]
+    return gate(f"stable_vs_{comparator}", "passed" if low > -margin else "failed",
+                f"E - {comparator} completion {result['difference']:+.3f}, CI95 lower {low:+.3f} "
+                f"(needs > -{margin}) over {result['units']} units", **result)
+
+
 # --------------------------------------------------------------------------- #
 # Sample size
 # --------------------------------------------------------------------------- #
@@ -314,6 +381,41 @@ def latency_gate(summary: dict, maximum_ms: float) -> dict:
                 value=summary["latency_warm_unchanged_ms"])
 
 
+def tail_gate(records: list[dict], deadline_ms: float) -> dict:
+    """Every E action check, decided or not, must answer within the frozen tail deadline."""
+    totals = [h["total_ms"] for r in records if r["arm"] == PRIMARY and valid(r) for h in r.get("hooks") or []
+              if h.get("event") == "PreToolUse" and h.get("tool") not in (None, "Bash")
+              and h.get("total_ms") is not None]
+    if not totals:
+        return gate("tail_deadline", "not_established", "no action checks")
+    p99, worst = percentile(totals, 99), max(totals)
+    return gate("tail_deadline", "passed" if worst <= deadline_ms else "failed",
+                f"action-check p99 {p99:.0f} ms, max {worst:.0f} ms over {len(totals)} checks "
+                f"(needs every check <= {deadline_ms:.0f} ms)", p99=p99, max=worst, n=len(totals))
+
+
+def resource_gate(records: list[dict], baseline: str | None, ratio: float) -> dict:
+    """E's mean wall time and output tokens per completed trial against the strongest baseline's.
+
+    Means use only trials whose usage the client reported; the known/total
+    counts are kept, so a missing measurement is never read as zero.
+    """
+    if baseline is None:
+        return gate("resources", "not_established", "no strongest baseline")
+    e, b = summarize(records, PRIMARY), summarize(records, baseline)
+    ratios = {}
+    for key in ("wall_s_mean", "output_tokens_mean"):
+        ratios[key] = None if not e[key] or not b[key] else e[key] / b[key]
+    known = [v for v in ratios.values() if v is not None]
+    if not known:
+        return gate("resources", "not_established", "no comparable usage", ratios=ratios)
+    ok = all(v <= ratio for v in known)
+    detail = ", ".join(f"{k} {'unknown' if v is None else f'{v:.2f}x'}" for k, v in ratios.items())
+    return gate("resources", "passed" if ok else "failed",
+                f"E vs {baseline}: {detail} (needs <= {ratio}x); usage known E {e['usage_known']}, "
+                f"{baseline} {b['usage_known']}; cost known E {e['cost_known']}", ratios=ratios)
+
+
 # --------------------------------------------------------------------------- #
 # Report
 # --------------------------------------------------------------------------- #
@@ -334,15 +436,17 @@ def report(records: list[dict], frozen: dict | None = None) -> dict:
         gates = {}
         for scope, rows in [("pooled", records)] + [(h, [r for r in records if r["host"] == h]) for h in hosts]:
             e = summarize(rows, PRIMARY)
+            efficacy = efficacy_gate(rows, frozen)
             gates[scope] = {
-                "efficacy": efficacy_gate(rows, frozen),
+                "efficacy": efficacy,
                 "precision": threshold_gate("precision", e["precision"], minimum=frozen["min_precision"]),
                 "false_interruption": threshold_gate("false_interruption", e["false_interruption"],
                                                      maximum=frozen["max_false_interruption"]),
                 "recall": threshold_gate("recall", e["recall"], minimum=frozen["min_recall"]),
                 "latency": latency_gate(e, frozen["max_latency_p95_ms"]),
-                "stable_noninferiority": {comparator: stable_noninferiority(rows, PRIMARY, comparator,
-                                                                            resamples=frozen["resamples"])
+                "tail_deadline": tail_gate(rows, frozen["tail_deadline_ms"]),
+                "resources": resource_gate(rows, efficacy.get("strongest_baseline"), frozen["max_resource_ratio"]),
+                "stable_noninferiority": {comparator: noninferiority_gate(rows, comparator, frozen)
                                           for comparator in frozen["noninferiority_comparators"]},
             }
         out["gates"] = gates
@@ -350,14 +454,15 @@ def report(records: list[dict], frozen: dict | None = None) -> dict:
 
 
 def markdown(result: dict) -> str:
-    lines = ["| Arm | Host | Trials | Stale failure (affected) | Stable completion | Precision | Recall | "
-             "False interruption | Warm check p95 ms | Output tokens (mean) | Cost known |",
-             "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |"]
+    lines = ["| Arm | Host | Trials | Stale failure (affected) | Stable completion | Precision | Recall (A4) | "
+             "Interception | False interruption | Warm check p95 ms | Output tokens (mean) | Cost known |",
+             "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |"]
     for s in result["summaries"].values():
         p95 = s["latency_warm_unchanged_ms"]["p95"]
         tokens = s["output_tokens_mean"]
         lines.append(f"| {s['arm']} | {s['host']} | {s['trials']} | {_fmt(s['stale_failure'])} | "
                      f"{_fmt(s['stable_completion'])} | {_fmt(s['precision'])} | {_fmt(s['recall'])} | "
+                     f"{_fmt(s['interception'])} | "
                      f"{_fmt(s['false_interruption'])} | {'n/a' if p95 is None else round(p95)} | "
                      f"{'n/a' if tokens is None else round(tokens)} | {s['cost_known']} |")
     return "\n".join(lines)
