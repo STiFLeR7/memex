@@ -29,6 +29,25 @@ def add_parser(subparsers, parent_parser) -> None:
     doctor.add_argument("--json", action="store_true")
     sub.add_parser("legacy", help="List legacy_unverified knowledge (historical retrieval only)",
                    parents=[parent_parser])
+    pilot = sub.add_parser("pilot", help="Agent-native field pilot: automatic live/shadow crossover and report",
+                           parents=[parent_parser])
+    psub = pilot.add_subparsers(dest="pilot_command", required=True)
+    pstart = psub.add_parser("start", help="Start the weekly live/shadow schedule", parents=[parent_parser])
+    pstart.add_argument("--participant", required=True, help="A pseudonym such as P1; never your name")
+    pstart.add_argument("--weeks", type=int, default=4)
+    pstart.add_argument("--seed", type=int, help="Schedule seed (default: random, recorded in the pilot file)")
+    psub.add_parser("status", help="This week's mode and the schedule", parents=[parent_parser])
+    psub.add_parser("corrections", help="List corrections so you can label them (shown locally only)",
+                    parents=[parent_parser])
+    plabel = psub.add_parser("label", help="Label one correction useful or false", parents=[parent_parser])
+    plabel.add_argument("attempt_id")
+    plabel.add_argument("verdict", choices=("useful", "false"))
+    pcheck = psub.add_parser("checkin", help="Record whether you are still using memex", parents=[parent_parser])
+    pcheck.add_argument("still_using", choices=("yes", "no"))
+    preport = psub.add_parser("report", help="Write the counts-only report to send", parents=[parent_parser])
+    preport.add_argument("--out", default="memex-pilot-report.json")
+    psub.add_parser("stop", help="End the pilot early; the mode returns to your own setting",
+                    parents=[parent_parser])
     for name, text in (("install", "Register a host for this worktree and install its project hooks"),
                        ("uninstall", "Remove memex's project hooks for a host, leaving other hooks intact")):
         host = sub.add_parser(name, help=text, parents=[parent_parser])
@@ -87,8 +106,55 @@ def run(args) -> int:
         return asyncio.run(_legacy(args))
     if command in ("install", "uninstall"):
         return _install(args, command == "install")
+    if command == "pilot":
+        return _pilot(args)
     print(f"unknown v1 command {command}", file=sys.stderr)
     return 2
+
+
+def _pilot(args) -> int:
+    import time
+
+    from memex.runtime import pilot
+    from memex.runtime.modes import pilot_week, read_mode, read_pilot
+    registration = _registration(args.repo)
+    action = args.pilot_command
+    try:
+        if action == "start":
+            state = pilot.start(registration, args.participant, weeks=args.weeks, seed=args.seed)
+            print(f"Pilot started for {state['participant']}: {' -> '.join(state['schedule'])} (one mode per week).")
+            print("Keep working with your agents as usual. At the end run `memex v1 pilot report`.")
+        elif action == "status":
+            state = read_pilot(registration)
+            if state is None:
+                print("no pilot in this repository")
+            else:
+                week = pilot_week(state, time.time())
+                print(f"participant {state['participant']}; schedule {state['schedule']}; "
+                      f"week {week or '-'}; mode now {read_mode(registration)}"
+                      + ("; stopped" if state.get("stopped_at") else ""))
+        elif action == "corrections":
+            for c in pilot.corrections(registration):
+                print(f"{c['attempt_id']}  week {c['week']} {c['mode']:6} {c['tool'] or '-':10} "
+                      f"[{c['label'] or 'unlabeled'}] {c['reason']}")
+        elif action == "label":
+            pilot.label(registration, args.attempt_id, args.verdict)
+            print(f"labeled {args.attempt_id} {args.verdict}")
+        elif action == "checkin":
+            pilot.checkin(registration, args.still_using == "yes")
+            print("check-in recorded")
+        elif action == "report":
+            report = pilot.report(registration)
+            Path(args.out).write_text(json.dumps(report, indent=1), encoding="utf-8")
+            print(f"wrote {args.out}: counts only, {report['weeks_observed']} complete weeks, "
+                  f"{report['sessions']} sessions. Review it, then send it.")
+        elif action == "stop":
+            pilot.stop(registration)
+            print("pilot stopped; this worktree's own mode applies again")
+    except ValueError as exc:
+        print(f"memex pilot: {exc}", file=sys.stderr)
+        return 1
+    return 0
 
 
 async def _doctor(args) -> int:

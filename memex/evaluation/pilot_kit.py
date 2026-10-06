@@ -1,8 +1,9 @@
 """Independent-maintainer pilot: observation-log schema, validation and summary.
 
 usage:
-  python -m memex.evaluation.pilot_kit template > my-log.jsonl   # one example record per kind
-  python -m memex.evaluation.pilot_kit summarize logs/*.jsonl     # aggregate several participants
+  python -m memex.evaluation.pilot_kit reports reports/*.json     # aggregate `memex v1 pilot report` files
+  python -m memex.evaluation.pilot_kit template > my-log.jsonl   # manual log (superseded by reports)
+  python -m memex.evaluation.pilot_kit summarize logs/*.jsonl     # aggregate manual logs
 
 Each participant keeps one JSONL file. The schema records outcomes and
 counts only: no source code, no prompts, no transcripts and no credentials
@@ -105,6 +106,41 @@ def summarize(records: list[dict]) -> dict:
     }
 
 
+#: Amended adoption gate (07): an independent installation counts once it has at least
+#: 4 complete weeks or at least 50 agent sessions; the evidence needs at least 3 of them.
+MIN_WEEKS, MIN_SESSIONS, MIN_PARTICIPANTS = 4, 50, 3
+REPORT_FIELDS = {"kind", "version", "participant", "weeks_planned", "weeks_observed", "sessions", "stopped",
+                 "checkins", "weeks"}
+
+
+def summarize_reports(reports: list[dict]) -> dict:
+    """Aggregate `memex v1 pilot report` files from several participants, live weeks against shadow weeks."""
+    for r in reports:
+        extra = set(r) - REPORT_FIELDS
+        if r.get("kind") != "pilot-report" or extra:
+            raise ValueError(f"not a counts-only pilot report (unexpected fields {sorted(extra)})")
+    qualifying = [r["participant"] for r in reports
+                  if r["weeks_observed"] >= MIN_WEEKS or r["sessions"] >= MIN_SESSIONS]
+
+    def by_mode(mode):
+        weeks = [w for r in reports for w in r["weeks"] if w["mode"] == mode]
+        total = {k: sum(w[k] for w in weeks) for k in ("sessions", "action_checks", "unverified_checks",
+                                                       "corrections", "reconsidered", "labeled_useful",
+                                                       "labeled_false", "unlabeled")}
+        for k in ("commits", "reverts"):
+            known = [w[k] for w in weeks if w[k] is not None]
+            total[k] = sum(known) if known else None
+            total[f"{k}_known"] = f"{len(known)}/{len(weeks)}"
+        total["weeks"] = len(weeks)
+        return total
+
+    last = [r["checkins"][-1]["still_using"] for r in reports if r["checkins"]]
+    return {"participants": len(reports), "qualifying": len(qualifying),
+            "still_using_at_last_checkin": f"{sum(last)}/{len(reports)}",
+            "live": by_mode("live"), "shadow": by_mode("shadow"),
+            "evidence_status": "reported" if len(qualifying) >= MIN_PARTICIPANTS else "pending"}
+
+
 TEMPLATE = [
     {"kind": "install", "participant": "P1", "date": "2026-10-20", "host": "claude", "succeeded": True,
      "minutes": 25, "problems": "none"},
@@ -122,6 +158,10 @@ def main(argv=None) -> int:
     if not argv or argv[0] == "template":
         for record in TEMPLATE:
             print(json.dumps(record))
+        return 0
+    if argv[0] == "reports":
+        print(json.dumps(summarize_reports([json.loads(Path(p).read_text(encoding="utf-8")) for p in argv[1:]]),
+                         indent=1))
         return 0
     if argv[0] == "summarize":
         records, problems = load(argv[1:])

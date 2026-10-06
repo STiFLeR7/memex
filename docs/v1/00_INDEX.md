@@ -35,7 +35,7 @@ Memex v1 maintains an agent's engineering working context against changing evide
 | [23_PHASE5_VERIFICATION.md](23_PHASE5_VERIFICATION.md) | Pilot and confirmatory results, migration evidence, final validation and limitations |
 | [24_PHASE5_RELEASE_READINESS.md](24_PHASE5_RELEASE_READINESS.md) | Gate-by-gate release decision: not releasable as v1.0.0 |
 | [25_ONBOARDING.md](25_ONBOARDING.md) | Existing-Neo4j setup, host recipes, demos, diagnostics and rollback |
-| [26_MAINTAINER_PILOT_KIT.md](26_MAINTAINER_PILOT_KIT.md) | Independent-maintainer pilot kit (participants pending) |
+| [26_MAINTAINER_PILOT_KIT.md](26_MAINTAINER_PILOT_KIT.md) | Agent-native field pilot: automatic live/shadow crossover and counts-only report (participants pending) |
 
 ## Execution rules
 

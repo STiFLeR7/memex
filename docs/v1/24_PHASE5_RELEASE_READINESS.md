@@ -26,7 +26,7 @@ Confirmatory figures are for arm E on 56 affected and 40 stable paired units, po
 | Migration resumable; rollback returns intact legacy projections | `pytest tests/test_phase5_migration.py` | 13 tests (15 with parametrization) | all passed on the live graph | **passed** |
 | Onboarding: existing-Neo4j recipe, per-host recipes, demos | [25](25_ONBOARDING.md); core demo test | — | written; core demo passes; native demo is the E trial | **passed (Windows)** |
 | Platforms | — | — | Windows validated; Linux and macOS not validated | Linux **not run** |
-| Independent maintainers (3–5) | [26](26_MAINTAINER_PILOT_KIT.md) | 0 participants | no participant recruited | **pending** |
+| Independent installations (amended 6 Oct: ≥3, each ≥4 weeks or ≥50 agent sessions, automatic counts-only evidence) | `memex v1 pilot` and `pilot_kit reports`, [26](26_MAINTAINER_PILOT_KIT.md) | 0 installations | no participant recruited | **pending** |
 | External container benchmarks | — | — | not run in this phase; no official score claimed | **not run** |
 | Public report with failures, costs, confidence limits | 23 and this file | — | written | **passed** |
 
@@ -56,7 +56,7 @@ Confirmatory figures are for arm E on 56 affected and 40 stable paired units, po
    - a persistent hook process, for latency and the tail deadline;
    - correction wording that names the files to re-read;
    - a decided precision definition for corrections delivered at resume, amended before any trial.
-2. **Independent installations reporting real use.** See 26, and the proposal to make that evidence agent-native and collected automatically.
+2. **Independent installations reporting real use.** The amended, agent-native pilot in 26 is ready; it needs participants.
 3. **Real-repository tasks and the external benchmark:**
    - SWE-Milestone, with an official baseline reproduced first;
    - labeled extensions second.
