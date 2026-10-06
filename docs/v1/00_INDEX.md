@@ -37,6 +37,7 @@ Memex v1 maintains an agent's engineering working context against changing evide
 | [25_ONBOARDING.md](25_ONBOARDING.md) | Existing-Neo4j setup, host recipes, demos, diagnostics and rollback |
 | [26_MAINTAINER_PILOT_KIT.md](26_MAINTAINER_PILOT_KIT.md) | Agent-native field pilot: automatic live/shadow crossover and counts-only report (participants pending) |
 | [27_PHASE6_PROTOCOL.md](27_PHASE6_PROTOCOL.md) | S05 preregistered evaluation after the latency and correction-wording changes: held-out histories, precision definition P1, frozen values ([27_PHASE6_FROZEN.json](27_PHASE6_FROZEN.json)) |
+| [28_PHASE6_RESULTS.md](28_PHASE6_RESULTS.md) | S05 results: 480 trials analyzed once; five gates pass, efficacy, precision and latency fail |
 
 ## Execution rules
 
