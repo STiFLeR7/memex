@@ -127,7 +127,7 @@ Releases are tag-driven: pushing a `v*` tag runs the publish workflow
 (`.github/workflows/publish.yml`), which publishes **PyPI + npm + MCP Registry**.
 Version bumps must update `pyproject.toml`, `npm/package.json`, `server.json`,
 the lockfile, and the team Docker image tag; they must agree. The current
-release line is `1.0.0-rc.1`. Maintainers cut releases; contributors don't need to
+release line is `1.0.0`. Maintainers cut releases; contributors don't need to
 bump versions in their PRs.
 
 The three publish jobs are **idempotent** — a version already on PyPI/npm is

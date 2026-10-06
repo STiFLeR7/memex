@@ -2,11 +2,10 @@
 
 All notable changes to memex are documented here.
 
-## [1.0.0-rc.1] — 2026-10-06
+## [1.0.0] — 2026-10-06
 
-Release candidate for memex v1: live engineering context for coding agents,
-kept current as the code changes. Published as `1.0.0rc1` on PyPI and as
-`1.0.0-rc.1` under the `next` tag on npm.
+memex v1: live engineering context for coding agents, kept current as the
+code changes.
 
 ### Added
 

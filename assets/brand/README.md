@@ -1,4 +1,4 @@
-# memex brand kit (v1.0.0-rc.1)
+# memex brand kit (v1.0.0)
 
 The full board is `memex-brand-board.jpg`.
 

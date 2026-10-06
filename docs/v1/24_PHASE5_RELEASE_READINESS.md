@@ -52,7 +52,7 @@ Confirmatory figures are for arm E on 56 affected and 40 stable paired units, po
 
 ## Evidence still needed for any release
 
-**Update, 6 October 2026:** the persistent hook process, faster source capture, the resume change notice and the precision definition are implemented, and S05 is frozen in [27](27_PHASE6_PROTOCOL.md) before any of its trials. S05 has reported ([28](28_PHASE6_RESULTS.md)): recall, false interruption, tail deadline, resources and stable non-inferiority pass; efficacy, precision and latency fail. Item 1 is therefore not met. The maintainer chose to publish a release candidate with this evidence in the repository, with further evaluation and the field pilot to follow.
+**Update, 6 October 2026:** the persistent hook process, faster source capture, the resume change notice and the precision definition are implemented, and S05 is frozen in [27](27_PHASE6_PROTOCOL.md) before any of its trials. S05 has reported ([28](28_PHASE6_RESULTS.md)): recall, false interruption, tail deadline, resources and stable non-inferiority pass; efficacy, precision and latency fail. Item 1 is therefore not met. The maintainer chose to release v1.0.0 with this evidence in the repository, with further evaluation and the field pilot to follow.
 
 1. **A new, preregistered evaluation after product changes.** It must not be a rerun of this one until it passes. The candidate changes are:
    - a persistent hook process, for latency and the tail deadline;

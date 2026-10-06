@@ -1,6 +1,6 @@
 # v1 onboarding: setup, host recipes, demos and rollback
 
-Status: written for the v1 release candidate, `1.0.0-rc.1`. Validated on Windows 11, with memex's test suites also validated on Linux (see [Platforms](#platforms)). Measured costs and limits are in [23_PHASE5_VERIFICATION.md](23_PHASE5_VERIFICATION.md).
+Status: written for memex v1.0.0. Validated on Windows 11, with memex's test suites also validated on Linux (see [Platforms](#platforms)). Measured costs and limits are in [23_PHASE5_VERIFICATION.md](23_PHASE5_VERIFICATION.md).
 
 ## What v1 gives each host
 
@@ -24,7 +24,7 @@ Status: written for the v1 release candidate, `1.0.0-rc.1`. Validated on Windows
 
 ```powershell
 git clone https://github.com/STiFLeR7/memex; cd memex
-git checkout v1.0.0-rc.1             # the v1 release candidate
+git checkout v1.0.0                  # the v1 release
 uv sync --python 3.12
 $env:NEO4J_URI='bolt://your-neo4j:7687'; $env:NEO4J_USER='neo4j'; $env:NEO4J_PASSWORD='...'
 ```

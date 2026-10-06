@@ -1,6 +1,6 @@
 {
   "name": "stifler-memex-mcp",
-  "version": "1.0.0-rc.1",
+  "version": "1.0.0",
   "mcpName": "io.github.STiFLeR7/memex",
   "description": "Trusted engineering context for agentic software engineering via Hermes MemoryProvider and MCP.",
   "bin": {

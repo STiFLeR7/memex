@@ -15,9 +15,9 @@ task, with freshness and provenance preserved, without making memex a source of
 personal memory or raw session state.
 
 [![Website](https://img.shields.io/badge/website-memex.stifler.in-2D6AFF)](https://memex.stifler.in)
-[![PyPI](https://img.shields.io/pypi/v/memex-mcp?v=1.0.0-rc.1)](https://pypi.org/project/memex-mcp/)
+[![PyPI](https://img.shields.io/pypi/v/memex-mcp?v=1.0.0)](https://pypi.org/project/memex-mcp/)
 [![PyPI downloads](https://img.shields.io/pypi/dm/memex-mcp)](https://pypistats.org/packages/memex-mcp)
-[![npm](https://img.shields.io/npm/v/stifler-memex-mcp?v=1.0.0-rc.1)](https://www.npmjs.com/package/stifler-memex-mcp)
+[![npm](https://img.shields.io/npm/v/stifler-memex-mcp?v=1.0.0)](https://www.npmjs.com/package/stifler-memex-mcp)
 [![npm downloads](https://img.shields.io/npm/dm/stifler-memex-mcp)](https://www.npmjs.com/package/stifler-memex-mcp)
 [![Claude Code marketplace](https://img.shields.io/badge/Claude%20Code-marketplace-7c3aed)](https://github.com/STiFLeR7/claude-plugins)
 [![memex MCP server](https://glama.ai/mcp/servers/STiFLeR7/memex/badges/score.svg)](https://glama.ai/mcp/servers/STiFLeR7/memex)
@@ -45,7 +45,7 @@ Evaluation record in [BENCHMARK.md](BENCHMARK.md), release history in
 [CHANGELOG.md](CHANGELOG.md), reporting process in [SECURITY.md](SECURITY.md),
 and how to work on it in [CONTRIBUTING.md](CONTRIBUTING.md).
 
-[![Watch memex v1 in 60 seconds: how memex keeps Claude Code and Codex sessions current as the code changes](https://raw.githubusercontent.com/STiFLeR7/memex/master/assets/memex-v1-video.jpg?v=1.0.0-rc.1)](https://raw.githubusercontent.com/STiFLeR7/memex/master/assets/memex-v1.mp4)
+[![Watch memex v1 in 60 seconds: how memex keeps Claude Code and Codex sessions current as the code changes](https://raw.githubusercontent.com/STiFLeR7/memex/master/assets/memex-v1-video.jpg?v=1.0.0)](https://raw.githubusercontent.com/STiFLeR7/memex/master/assets/memex-v1.mp4)
 
 ▶ **[Watch memex v1 in 60 seconds](https://raw.githubusercontent.com/STiFLeR7/memex/master/assets/memex-v1.mp4)**
 
