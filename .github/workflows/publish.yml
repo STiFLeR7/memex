@@ -140,7 +140,8 @@ jobs:
           if npm view "$NAME@$VER" version >/dev/null 2>&1; then
             echo "$NAME@$VER already published — skipping"
           else
-            npm publish --access public
+            # A pre-release (1.0.0-rc.1) goes to the `next` dist-tag so `latest` stays on the last stable release.
+            if [[ "$VER" == *-* ]]; then npm publish --access public --tag next; else npm publish --access public; fi
           fi
 
   # Lists the server on the official MCP Registry
