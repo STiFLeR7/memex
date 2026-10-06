@@ -45,8 +45,6 @@ Evaluation record in [BENCHMARK.md](BENCHMARK.md), release history in
 [CHANGELOG.md](CHANGELOG.md), reporting process in [SECURITY.md](SECURITY.md),
 and how to work on it in [CONTRIBUTING.md](CONTRIBUTING.md).
 
-![memex v1.0.0-rc.1: trusted engineering context for AI coding agents. Keeps your agent's engineering context current as the code changes.](https://raw.githubusercontent.com/STiFLeR7/memex/master/assets/memex.png?v=1.0.0-rc.1)
-
 [![Watch memex v1 in 60 seconds: how memex keeps Claude Code and Codex sessions current as the code changes](https://raw.githubusercontent.com/STiFLeR7/memex/master/assets/memex-v1-video.jpg?v=1.0.0-rc.1)](https://raw.githubusercontent.com/STiFLeR7/memex/master/assets/memex-v1.mp4)
 
 ▶ **[Watch memex v1 in 60 seconds](https://raw.githubusercontent.com/STiFLeR7/memex/master/assets/memex-v1.mp4)**
