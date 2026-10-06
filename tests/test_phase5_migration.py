@@ -84,11 +84,19 @@ async def graph(tmp_path):
     from graphiti_core.driver.neo4j_driver import Neo4jDriver
     driver = await asyncio.to_thread(Neo4jDriver, uri, None, None)
     tag = f"t{uuid.uuid4().hex[:8]}"
-    repo = make_repo(tmp_path / "repo")
+    # Legacy data is keyed by repo_path, and pytest reuses temporary paths in a
+    # fresh environment (Linux containers restart at pytest-0); a unique path and
+    # a cleanup keep one run's legacy nodes out of another's migration.
+    repo = make_repo(tmp_path / f"repo-{tag}")
     path = canonical_repo_path(str(repo))
     await seed_legacy(driver, path, tag)
     yield driver, repo, path, tag
-    await driver.close()
+    try:
+        await driver.execute_query("MATCH (n) WHERE n.group_id = $tag OR n.repo_path = $path OR n.repo_id = $rid "
+                                   "DETACH DELETE n",
+                                   params={"tag": tag, "path": path, "rid": discover_repository(repo).repo_id})
+    finally:
+        await driver.close()
 
 
 async def legacy_count(driver, repo_id):

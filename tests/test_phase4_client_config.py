@@ -20,6 +20,10 @@ import pytest
 
 from tests import phase4_client_config as cfg
 
+# The cleanup writes only under Windows mandatory file exclusion; elsewhere it
+# refuses and reports "pending" (see test_without_mandatory_exclusion_nothing_is_written).
+WINDOWS_ONLY = pytest.mark.skipif(os.name != "nt", reason="cleanup writes only under Windows mandatory file exclusion")
+
 PENDING = 3
 
 
@@ -153,6 +157,7 @@ def json_loads_hook(monkeypatch, call, client):
 
 # --------------------------------------------------------------------------- #
 
+@WINDOWS_ONLY
 @pytest.mark.parametrize("call", [1, 2], ids=["before-exclusive-access", "during-exclusive-access"])
 def test_a_concurrent_codex_setting_change_survives_cleanup(world, monkeypatch, call):
     world.run_adds_entries()
@@ -171,6 +176,7 @@ def test_a_concurrent_codex_setting_change_survives_cleanup(world, monkeypatch, 
         assert client.blocked, "while cleanup held the file, the other writer had to wait"
 
 
+@WINDOWS_ONLY
 @pytest.mark.parametrize("call", [1, 2], ids=["before-exclusive-access", "during-exclusive-access"])
 def test_a_concurrent_claude_setting_change_survives_cleanup(world, monkeypatch, call):
     world.run_adds_entries()
@@ -185,6 +191,7 @@ def test_a_concurrent_claude_setting_change_survives_cleanup(world, monkeypatch,
     assert {"C:/existing/one", "C:/elsewhere/new"} <= set(data["projects"])
 
 
+@WINDOWS_ONLY
 @pytest.mark.parametrize("newline", [b"\n", b"\r\n"], ids=["lf", "crlf"])
 def test_only_this_runs_new_entries_go_and_every_other_byte_stays(tmp_path, monkeypatch, newline):
     w = World(tmp_path, newline)
@@ -199,6 +206,7 @@ def test_only_this_runs_new_entries_go_and_every_other_byte_stays(tmp_path, monk
     assert json.loads(w.claude.read_bytes())["theme"] == "old"
 
 
+@WINDOWS_ONLY
 def test_repeated_cleanup_changes_nothing_more(world):
     world.run_adds_entries()
     world.cleanup()
@@ -208,6 +216,14 @@ def test_repeated_cleanup_changes_nothing_more(world):
         assert world.cleanup() in (0, None)
     assert (world.codex.read_bytes(), world.claude.read_bytes()) == (codex, claude)
     assert (world.codex.stat().st_mtime_ns, world.claude.stat().st_mtime_ns) == stamps, "nothing was rewritten"
+
+
+@pytest.mark.skipif(os.name == "nt", reason="Windows has mandatory exclusion; covered by the tests above")
+def test_without_mandatory_exclusion_nothing_is_written(world):
+    world.run_adds_entries()
+    codex, claude = world.codex.read_bytes(), world.claude.read_bytes()
+    assert world.cleanup() == PENDING
+    assert (world.codex.read_bytes(), world.claude.read_bytes()) == (codex, claude)
 
 
 def test_unsupported_formatting_and_unexpected_contents_are_left_alone(world):
@@ -232,6 +248,7 @@ def test_a_file_another_process_holds_is_left_unchanged_and_pending(world, monke
     assert world.codex.read_bytes() == codex
 
 
+@WINDOWS_ONLY
 @pytest.mark.parametrize("stop", ["before-write", "after-write"])
 def test_an_interrupted_cleanup_leaves_a_valid_file(world, stop):
     world.run_adds_entries(foreign=False)
