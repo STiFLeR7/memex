@@ -2,6 +2,14 @@
 
 All notable changes to memex are documented here.
 
+## [1.0.1] — 2026-10-06
+
+### Fixed
+
+- `npx stifler-memex-mcp` now runs the matching `memex-mcp` version from PyPI.
+  Previously uv could reuse a cached older `memex-mcp`, so the v1 commands
+  were missing for anyone who had run an earlier release.
+
 ## [1.0.0] — 2026-10-06
 
 memex v1: live engineering context for coding agents, kept current as the

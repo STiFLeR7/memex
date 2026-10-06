@@ -23,8 +23,11 @@ if (!isCommand('uv')) {
 const args = process.argv.slice(2);
 
 // We use '--from memex-mcp' because the package name is memex-mcp on PyPI,
-// but it provides the 'memex' executable.
-const child = spawn('uv', ['tool', 'run', '--from', 'memex-mcp', 'memex', ...args], {
+// but it provides the 'memex' executable. It is pinned to this package's own
+// version (the release workflow keeps npm and PyPI versions equal), so uv
+// never reuses a cached older memex-mcp.
+const { version } = require('../package.json');
+const child = spawn('uv', ['tool', 'run', '--from', `memex-mcp==${version}`, 'memex', ...args], {
   stdio: 'inherit',
   shell: process.platform === 'win32',
 });

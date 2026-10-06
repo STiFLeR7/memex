@@ -1,6 +1,6 @@
 [project]
 name = "memex-mcp"
-version = "1.0.0"
+version = "1.0.1"
 description = "Trusted engineering context for agentic software engineering — a temporal knowledge graph served through Hermes MemoryProvider and MCP."
 readme = "README.md"
 license = { text = "MIT" }
