@@ -1,6 +1,6 @@
 # Dependency-ordered v1 roadmap
 
-Status: P1/P2 complete and verified 4 October 2026; P3 complete, verified and twice hardened 5 October 2026 on one host; P4 complete and verified 5 October 2026 on the corrected code, with both hosts live; P5 remains planned. No calendar or staffing estimate is asserted. Phase exits require evidence. Detailed first-wave tasks are in [09_FIRST_WAVE_IMPLEMENTATION_PLAN.md](09_FIRST_WAVE_IMPLEMENTATION_PLAN.md).
+Status: P1/P2 complete and verified 4 October 2026; P3 complete, verified and twice hardened 5 October 2026 on one host; P4 complete and verified 5 October 2026 on the corrected code, with both hosts live; P5 executed 6 October 2026 with a negative efficacy result and failed latency gates, so v1 is not released ([24](24_PHASE5_RELEASE_READINESS.md)). No calendar or staffing estimate is asserted. Phase exits require evidence. Detailed first-wave tasks are in [09_FIRST_WAVE_IMPLEMENTATION_PLAN.md](09_FIRST_WAVE_IMPLEMENTATION_PLAN.md).
 
 ## Dependency sequence
 

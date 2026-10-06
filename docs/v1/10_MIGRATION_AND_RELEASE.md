@@ -51,13 +51,13 @@ Provide a deterministic core demo using temporary Git repos and test doubles for
 ## Release checklist
 
 - [ ] P1–P4 mandatory correctness, authority, isolation and native delivery gates have evidence.
-- [ ] P5 preregistration, comparable-resource trials and stable-workload safeguard are recorded.
+- [x] P5 preregistration, comparable-resource trials and stable-workload safeguard are recorded ([22](22_PHASE5_PROTOCOL.md), [23](23_PHASE5_VERIFICATION.md)). The efficacy gate itself failed ([24](24_PHASE5_RELEASE_READINESS.md)).
 - [ ] Two simultaneous host clients pass the worktree/shared-checkout matrix.
-- [ ] Migration is resumable; rollback returns to intact legacy projections.
+- [x] Migration is resumable; rollback returns to intact legacy projections ([23](23_PHASE5_VERIFICATION.md)).
 - [ ] Existing provider, MCP and write-governance behavior is covered.
 - [ ] Capability tables distinguish prefetch, advisory delivery, reconsideration and guarded writes.
-- [ ] Independent maintainers can install, reproduce a useful correction and report continued use.
-- [ ] Public report includes failures, costs, confidence limits and external benchmarks not run.
+- [ ] Independent maintainers can install, reproduce a useful correction and report continued use. **Pending:** kit ready ([26](26_MAINTAINER_PILOT_KIT.md)), no participants yet.
+- [x] Public report includes failures, costs, confidence limits and external benchmarks not run ([23](23_PHASE5_VERIFICATION.md), [24](24_PHASE5_RELEASE_READINESS.md)).
 - [ ] Version/package/changelog/README are updated only after release evidence exists.
 - [ ] The v1 claim is limited to maintained engineering evidence in supported scopes/hosts.
 
