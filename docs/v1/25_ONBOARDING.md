@@ -1,6 +1,6 @@
 # v1 onboarding: setup, host recipes, demos and rollback
 
-Status: written for the unreleased v1 runtime on `codex/v1-phase5`. Version is still 0.9.0. Validated on Windows 11 only (see [Platforms](#platforms)). Measured costs and limits are in [23_PHASE5_VERIFICATION.md](23_PHASE5_VERIFICATION.md).
+Status: written for the unreleased v1 runtime on `codex/v1-phase5`. Version is still 0.9.0. Validated on Windows 11, with memex's test suites also validated on Linux (see [Platforms](#platforms)). Measured costs and limits are in [23_PHASE5_VERIFICATION.md](23_PHASE5_VERIFICATION.md).
 
 ## What v1 gives each host
 
@@ -126,7 +126,7 @@ Rollback keeps the journal, the repository mapping, evidence, migration records,
 | Platform | Status |
 | --- | --- |
 | Windows 11 (Python 3.12.13, Git for Windows) | Validated: all Phase 1–5 suites and native host runs |
-| Linux | **Not validated in this phase.** No non-Docker Linux environment was available, and the code paths that differ (process creation time, file-lock semantics, launcher scripts) are untested there |
+| Linux | **Test suites validated** in Docker: Debian (python:3.12-slim) under Docker's WSL2 kernel, Python 3.12.15, Neo4j 5.26.31, commit `8c56d0c` with the Windows lockfile: broad suite 915 passed (11 platform skips), Phase 5 205 passed, mechanism 16/16 with isolation and authority passed, core demo as expected; the migration suite passed again in a fresh container. Claude Code and Codex were not run natively on Linux. The native host-client integration (hooks fired by a real client on Linux) is **not yet validated**. The client-config cleanup helper for trial machines writes only on Windows and reports `pending` elsewhere |
 | macOS | Not validated |
 
 ## Known limitations

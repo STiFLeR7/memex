@@ -1,6 +1,6 @@
 # Phase 5 release readiness (W19)
 
-Decision: **not releasable as v1.0.0.** Mandatory gates failed (efficacy, latency, tail deadline), one could not be established (precision), and required evidence is still pending (independent maintainers) or not run (external benchmarks, Linux). Version, changelog, package metadata and README stay at 0.9.0. Nothing was merged, tagged, published or deployed.
+Decision: **not releasable as v1.0.0.** Mandatory gates failed (efficacy, latency, tail deadline), one could not be established (precision), and required evidence is still pending (independent maintainers) or not run (external benchmarks; native host clients on Linux). Version, changelog, package metadata and README stay at 0.9.0. Nothing was merged, tagged, published or deployed.
 
 Evidence: [23_PHASE5_VERIFICATION.md](23_PHASE5_VERIFICATION.md). Frozen protocol: [22_PHASE5_PROTOCOL.md](22_PHASE5_PROTOCOL.md) and [22_PHASE5_FROZEN.json](22_PHASE5_FROZEN.json). Gates: [07](07_EVALUATION.md) and the release checklist in [10](10_MIGRATION_AND_RELEASE.md).
 
@@ -25,9 +25,9 @@ Confirmatory figures are for arm E on 56 affected and 40 stable paired units, po
 | Compatibility | `pytest tests -m "not integration" -q` | full suite | 919 passed, 1 skipped, 172 deselected | **passed** |
 | Migration resumable; rollback returns intact legacy projections | `pytest tests/test_phase5_migration.py` | 13 tests (15 with parametrization) | all passed on the live graph | **passed** |
 | Onboarding: existing-Neo4j recipe, per-host recipes, demos | [25](25_ONBOARDING.md); core demo test | — | written; core demo passes; native demo is the E trial | **passed (Windows)** |
-| Platforms | — | — | Windows validated; Linux and macOS not validated | Linux **not run** |
+| Platforms | Docker `python:3.12-slim` + `neo4j:5.26`, commit `8c56d0c` | full suites | Windows validated; Linux test suites pass (915 broad, 205 Phase 5, mechanism 16/16, isolation passed); native clients on Linux and macOS not validated | Linux suites **passed**; Linux native clients and macOS **not run** |
 | Independent installations (amended 6 Oct: ≥3, each ≥4 weeks or ≥50 agent sessions, automatic counts-only evidence) | `memex v1 pilot` and `pilot_kit reports`, [26](26_MAINTAINER_PILOT_KIT.md) | 0 installations | no participant recruited | **pending** |
-| External container benchmarks | — | — | not run in this phase; no official score claimed | **not run** |
+| External container benchmarks | — | — | SWE-Milestone not run by maintainer decision (≈115 images; agents inside containers need API keys); evaluation stays local; no official score claimed | **not run** |
 | Public report with failures, costs, confidence limits | 23 and this file | — | written | **passed** |
 
 ## Resources and failures
@@ -58,8 +58,8 @@ Confirmatory figures are for arm E on 56 affected and 40 stable paired units, po
    - a decided precision definition for corrections delivered at resume, amended before any trial.
 2. **Independent installations reporting real use.** The amended, agent-native pilot in 26 is ready; it needs participants.
 3. **Real-repository tasks and the external benchmark:**
-   - SWE-Milestone, with an official baseline reproduced first;
+   - SWE-Milestone, only if the maintainer later accepts its download size and in-container API keys;
    - labeled extensions second.
 
    Docker is now available for this work.
-4. **Linux validation.**
+4. **Native host clients on Linux.** The test suites already pass there.

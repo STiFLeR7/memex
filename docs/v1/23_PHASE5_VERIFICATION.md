@@ -120,7 +120,9 @@ The kit is ready: schema, validator, summary, consent and data minimization ([26
 | Deterministic contributor demo | `python -m memex.evaluation.core_demo`; `test_core_demo_holds_the_stale_edit_and_nothing_else` | passed |
 | Mutation-before-edit demo, native | `tests/phase5_trials.py one D01 E claude` (25) | ran in every E trial; see the native tier |
 
-Onboarding, host recipes and demos are in [25](25_ONBOARDING.md). Windows is validated. **Linux and macOS are not validated.**
+Onboarding, host recipes and demos are in [25](25_ONBOARDING.md). Windows is validated.
+
+**Linux (added 6 October 2026, Docker):** Debian (python:3.12-slim) under Docker's WSL2 kernel, Python 3.12.15, Neo4j 5.26.31, commit `8c56d0c` with the Windows lockfile: broad suite 915 passed (11 platform skips), Phase 5 205 passed, mechanism 16/16 with isolation and authority passed, core demo as expected; the migration suite passed again in a fresh container. Claude Code and Codex were not run natively on Linux. The run found two test-portability defects, both fixed in `8c56d0c` with no product change: the migration fixture reused temporary paths across fresh containers and left its legacy nodes behind, which doubled counts on a second run; and the Windows-only client-config cleanup tests ran on Linux, where the tool deliberately writes nothing. **macOS is not validated.**
 
 ## Final validation
 
@@ -144,4 +146,4 @@ The trial records, analyses, insertion sidecars, logs and the run's restart log 
 - **Recall amendment (A4):** A4 was adopted after inspecting development data. It was disclosed and frozen before the confirmatory trials.
 - **Arm B also re-delivers at resume:** its session is unbound at the end of each turn, so B is a stronger baseline than a pure one-time prefetch.
 - **Confirmed insertion depends on undocumented formats:** confirmation relies on the clients' undocumented transcript and rollout formats.
-- **Container benchmarks not run:** the external benchmarks (SWE-Milestone) were not run in this phase. No official benchmark score is claimed.
+- **Container benchmarks not run:** SWE-Milestone was not run, by maintainer decision, because its harness needs about 115 Docker images and runs agents inside its containers with API keys. Evaluation stays local. No official benchmark score is claimed.
