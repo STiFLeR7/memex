@@ -45,7 +45,7 @@ Evaluation record in [BENCHMARK.md](BENCHMARK.md), release history in
 [CHANGELOG.md](CHANGELOG.md), reporting process in [SECURITY.md](SECURITY.md),
 and how to work on it in [CONTRIBUTING.md](CONTRIBUTING.md).
 
-![memex: temporal knowledge graph MCP server for AI coding agents, built on Graphiti and Neo4j](https://raw.githubusercontent.com/STiFLeR7/memex/master/assets/memex.png)
+![memex v1.0.0-rc.1: trusted engineering context for AI coding agents. Keeps your agent's engineering context current as the code changes.](https://raw.githubusercontent.com/STiFLeR7/memex/master/assets/memex.png)
 
 ```mermaid
 flowchart LR
