@@ -39,6 +39,9 @@ def world(tmp_path):
     repo = tmp_path / "repo"
     repo.mkdir()
     subprocess.run(["git", "init", "-q", str(repo)], check=True)
+    # The guard's own commits use the repository's identity; CI runners have no global one.
+    subprocess.run(["git", "-C", str(repo), "config", "user.email", "t@t"], check=True)
+    subprocess.run(["git", "-C", str(repo), "config", "user.name", "t"], check=True)
     for name, text in (("api.py", "def send(payload):\n    return payload\n"), ("other.py", "x = 1\n"),
                        ("a.txt", "a-old\n"), ("b.txt", "b-old\n")):
         (repo / name).write_text(text, newline="\n")
