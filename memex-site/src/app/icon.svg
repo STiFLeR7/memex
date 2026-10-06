@@ -1,7 +1,26 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32">
-  <rect width="32" height="32" rx="6" fill="#05080F"/>
-  <g transform="translate(4 4) scale(1)">
-    <rect x="2.9" y="12.1" width="9.6" height="9.6" fill="none" stroke="#8FC3FF" stroke-width="1.8" opacity="0.6"/>
-    <rect x="12.5" y="2.5" width="9.6" height="9.6" fill="#C8E0FF"/>
-  </g>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="mt" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#7FDDE0"/><stop offset="0.7" stop-color="#00B3B5"/><stop offset="1" stop-color="#00A5A8"/>
+    </linearGradient>
+    <linearGradient id="ml" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#E6F8C8"/><stop offset="0.75" stop-color="#8EDC5A"/><stop offset="1" stop-color="#7FD24C"/>
+    </linearGradient>
+    <linearGradient id="mo" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#FFFFFF"/><stop offset="1" stop-color="#D8F5EE"/>
+    </linearGradient>
+    <linearGradient id="mh" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#fff" stop-opacity="0"/><stop offset="0.5" stop-color="#fff" stop-opacity="0.95"/><stop offset="1" stop-color="#fff" stop-opacity="0"/>
+    </linearGradient>
+    <clipPath id="mc"><rect x="196" y="76" width="260" height="260" rx="78"/></clipPath>
+  </defs>
+  <!-- told: what the agent was given -->
+  <rect x="56" y="176" width="260" height="260" rx="78" fill="url(#mt)"/>
+  <!-- now: what the code says -->
+  <rect x="196" y="76" width="260" height="260" rx="78" fill="url(#ml)"/>
+  <!-- current context: where they still agree -->
+  <rect x="56" y="176" width="260" height="260" rx="78" fill="url(#mo)" clip-path="url(#mc)"/>
+  <rect x="56" y="176" width="260" height="260" rx="78" fill="none" stroke="#fff" stroke-width="6" stroke-opacity="0.9" clip-path="url(#mc)"/>
+  <rect x="96" y="180" width="180" height="4" rx="2" fill="url(#mh)"/>
+  <rect x="236" y="80" width="180" height="4" rx="2" fill="url(#mh)"/>
 </svg>
