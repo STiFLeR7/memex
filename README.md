@@ -47,9 +47,9 @@ Evaluation record in [BENCHMARK.md](BENCHMARK.md), release history in
 [CHANGELOG.md](CHANGELOG.md), reporting process in [SECURITY.md](SECURITY.md),
 and how to work on it in [CONTRIBUTING.md](CONTRIBUTING.md).
 
-[![Watch memex v1 in 60 seconds: how memex keeps Claude Code and Codex sessions current as the code changes](https://raw.githubusercontent.com/STiFLeR7/memex/master/assets/memex-v1-video.jpg?v=1.0.2)](https://raw.githubusercontent.com/STiFLeR7/memex/master/assets/memex-v1.mp4)
+https://github.com/user-attachments/assets/b14e3185-ea36-4ae5-bd18-2d34e6bf7be4
 
-▶ **[Watch memex v1 in 60 seconds](https://raw.githubusercontent.com/STiFLeR7/memex/master/assets/memex-v1.mp4)**
+*memex v1 in 60 seconds. If the player does not load, [download the video](https://raw.githubusercontent.com/STiFLeR7/memex/master/assets/memex-v1.mp4).*
 
 ## Live context (v1)
 
