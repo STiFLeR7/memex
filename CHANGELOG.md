@@ -2,6 +2,20 @@
 
 All notable changes to memex are documented here.
 
+## [1.0.2] — 2026-10-08
+
+### Fixed
+
+- The MCP server answers the client's handshake at once, even when Neo4j is
+  not running. It used to wait about 50 seconds on Neo4j retries and then exit,
+  so clients showed only a connection timeout. Tool calls now say that Neo4j is
+  unreachable and how to fix it, and work as soon as Neo4j answers, without a
+  restart. `MEMEX_NEO4J_CHECK_SECONDS` sets the check's time limit (default 5).
+
+### Documentation
+
+- README: v1 live context, quick start and architecture.
+
 ## [1.0.1] — 2026-10-06
 
 ### Fixed

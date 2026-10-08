@@ -41,11 +41,36 @@ async def test_server_startup_validates_config():
             await create_server("/fake/repo")
 
 @pytest.mark.asyncio
-async def test_server_startup_checks_neo4j():
-    with patch("memex.mcp_server.server.get_graph_client", side_effect=Exception("Conn failed")):
-        with patch("memex.mcp_server.server.get_config"):
-            with pytest.raises(MemexStartupError):
-                await create_server("/fake/repo")
+async def test_unreachable_neo4j_still_serves_and_tools_explain_until_it_answers():
+    # A client gives up on the handshake after ~30 s and shows only a timeout,
+    # so an unreachable Neo4j must not stop the server or delay it past the bound.
+    with patch("memex.mcp_server.server.get_config") as cfg:
+        cfg.return_value.neo4j_uri = "bolt://localhost:7687"
+        with patch("memex.mcp_server.server.get_graph_client", side_effect=Exception("Conn failed")):
+            await create_server("/fake/repo")
+            out = await handle_call_tool("get_project_context", {})
+        assert "cannot reach Neo4j at bolt://localhost:7687" in out[0].text
+        assert "Conn failed" in out[0].text
+
+        with patch("memex.mcp_server.server.get_graph_client", return_value=AsyncMock()), \
+             patch("memex.mcp_server.server.get_project_context", return_value="ctx"):
+            out = await handle_call_tool("get_project_context", {})
+        assert out[0].text == "ctx"
+        assert server._backend_error is None
+
+
+@pytest.mark.asyncio
+async def test_neo4j_check_is_bounded(monkeypatch):
+    import asyncio
+
+    async def hangs():
+        await asyncio.sleep(60)
+
+    monkeypatch.setattr(server, "NEO4J_CHECK_SECONDS", 0.05)
+    with patch("memex.mcp_server.server.get_config"), \
+         patch("memex.mcp_server.server.get_graph_client", side_effect=hangs):
+        message = await asyncio.wait_for(server._check_neo4j(), 2)
+    assert "cannot reach Neo4j" in message and "TimeoutError" in message
 
 
 @pytest.mark.asyncio

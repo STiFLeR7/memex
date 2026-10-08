@@ -2,22 +2,24 @@
 
 <!-- mcp-name: io.github.STiFLeR7/memex -->
 
-> A protocol-neutral engineering-context layer for AI coding agents. memex
-> builds a bitemporal knowledge graph of your repository (modules, symbols,
-> decisions, problems, evidence, and code evolution) and exposes bounded,
-> provenance-aware context through Hermes MemoryProvider or MCP.
+> Keeps your AI coding agents' engineering context current as the code changes.
+> memex builds a bitemporal knowledge graph of your repository (modules,
+> symbols, decisions, problems, evidence, and code evolution). In v1 it also
+> hooks into Claude Code and Codex: each session starts with the right context,
+> each edit is checked against the current code, and the agent is told exactly
+> what changed.
 
 **[memex.stifler.in](https://memex.stifler.in)**
 
-A daemon and MCP server that turns commits and file changes into structured
-engineering knowledge. Agents can receive relevant repository context before a
-task, with freshness and provenance preserved, without making memex a source of
-personal memory or raw session state.
+A daemon, hook service and MCP server that turn commits and file changes into
+structured engineering knowledge and deliver it to agents with freshness and
+provenance preserved, without making memex a source of personal memory or raw
+session state.
 
 [![Website](https://img.shields.io/badge/website-memex.stifler.in-2D6AFF)](https://memex.stifler.in)
-[![PyPI](https://img.shields.io/pypi/v/memex-mcp?v=1.0.1)](https://pypi.org/project/memex-mcp/)
+[![PyPI](https://img.shields.io/pypi/v/memex-mcp?v=1.0.2)](https://pypi.org/project/memex-mcp/)
 [![PyPI downloads](https://img.shields.io/pypi/dm/memex-mcp)](https://pypistats.org/packages/memex-mcp)
-[![npm](https://img.shields.io/npm/v/stifler-memex-mcp?v=1.0.1)](https://www.npmjs.com/package/stifler-memex-mcp)
+[![npm](https://img.shields.io/npm/v/stifler-memex-mcp?v=1.0.2)](https://www.npmjs.com/package/stifler-memex-mcp)
 [![npm downloads](https://img.shields.io/npm/dm/stifler-memex-mcp)](https://www.npmjs.com/package/stifler-memex-mcp)
 [![Claude Code marketplace](https://img.shields.io/badge/Claude%20Code-marketplace-7c3aed)](https://github.com/STiFLeR7/claude-plugins)
 [![memex MCP server](https://glama.ai/mcp/servers/STiFLeR7/memex/badges/score.svg)](https://glama.ai/mcp/servers/STiFLeR7/memex)
@@ -45,23 +47,52 @@ Evaluation record in [BENCHMARK.md](BENCHMARK.md), release history in
 [CHANGELOG.md](CHANGELOG.md), reporting process in [SECURITY.md](SECURITY.md),
 and how to work on it in [CONTRIBUTING.md](CONTRIBUTING.md).
 
-[![Watch memex v1 in 60 seconds: how memex keeps Claude Code and Codex sessions current as the code changes](https://raw.githubusercontent.com/STiFLeR7/memex/master/assets/memex-v1-video.jpg?v=1.0.1)](https://raw.githubusercontent.com/STiFLeR7/memex/master/assets/memex-v1.mp4)
+[![Watch memex v1 in 60 seconds: how memex keeps Claude Code and Codex sessions current as the code changes](https://raw.githubusercontent.com/STiFLeR7/memex/master/assets/memex-v1-video.jpg?v=1.0.2)](https://raw.githubusercontent.com/STiFLeR7/memex/master/assets/memex-v1.mp4)
 
 ▶ **[Watch memex v1 in 60 seconds](https://raw.githubusercontent.com/STiFLeR7/memex/master/assets/memex-v1.mp4)**
+
+## Live context (v1)
+
+Coding agents work from a snapshot of the code. A teammate pushes, another
+agent edits a file, a branch moves, and the agent keeps acting on what it read
+earlier. v1 keeps that snapshot current, inside Claude Code and Codex:
+
+| When | What memex does |
+|---|---|
+| **Session start** | Delivers a bounded working set for the task, and confirms delivery from the client's own session record |
+| **Before each edit** | Checks whether the context the edit rests on still holds. If not, the edit is held, the agent gets a scoped correction, and it revises |
+| **On resume** | If the code changed while the session was away, names the files to re-read |
+| **Parallel agents** | Gives each linked worktree its own view, so agents side by side each see their own code |
+| **Trying it out** | `memex v1 mode shadow` records what would be corrected without changing anything; hooks fail open; `memex v1 rollback` stops memex at once |
+
+```bash
+uv tool install memex-mcp          # installs the `memex` command
+cd your-repo
+memex v1 doctor                    # what is set up, what is missing, what to do next
+memex v1 install claude            # hooks in .claude/settings.json; global settings untouched
+memex v1 install codex --neo4j-uri bolt://localhost:7687   # optional, for Codex
+```
+
+memex needs a Neo4j 5 server you already run (Docker is not required). Hooks go
+only into the checkout's own project configuration, and memex never asks for or
+stores your client credentials. Full guide, host recipes and rollback:
+[docs/v1/25_ONBOARDING.md](docs/v1/25_ONBOARDING.md).
 
 ```mermaid
 flowchart LR
     A[Your repository<br/>files + git] --> B[memex watcher<br/>tree-sitter + Gemini]
     B --> C[Neo4j graph<br/>bitemporal facts]
     C --> D[memex core<br/>ContextPacket selection]
+    D --> H[Hook service<br/>session start · edit checks · resume notice]
     D --> E[Hermes MemoryProvider<br/>automatic read-only prefetch]
-    D --> F[MCP fallback<br/>explicit lookup]
-    E --> G[AI coding agent]
+    D --> F[MCP tools<br/>explicit lookup]
+    H --> G[Claude Code / Codex]
+    E --> G
     F --> G
 
     style B fill:#cfe8ff,stroke:#0066cc,color:#000
     style C fill:#fff4cf,stroke:#cc9900,color:#000
-    style E fill:#d4f5d4,stroke:#2d8f2d,color:#000
+    style H fill:#d4f5d4,stroke:#2d8f2d,color:#000
 ```
 
 ## Install
@@ -92,7 +123,7 @@ npx stifler-memex-mcp serve --repo .
 
 ### Hermes integration
 
-The v0.9 Hermes integration is read-only. Hermes retains personal memory, raw
+The Hermes integration is read-only. Hermes retains personal memory, raw
 session state, and execution state. memex supplies repository engineering
 context through a bounded `ContextPacket`; it does not ingest Hermes
 `state.db`, transcripts, prompts, or tool results.
@@ -142,6 +173,7 @@ initial admin key, and the `down -v` footgun to avoid.
 | Output | A Neo4j graph populated continuously from your repo |
 | Storage | Neo4j via [Graphiti](https://github.com/getzep/graphiti). Bitemporal: every edge has `created_at` and optional `expired_at` |
 | Context | Bounded, ranked, provenance-aware `ContextPacket` |
+| Live context (v1) | Session-start working set, edit checks with scoped corrections, resume change notice, per-worktree views (Claude Code and Codex hooks) |
 | Integrations | Hermes MemoryProvider, MCP resources/tools, Claude Code, Cursor, Codex, Gemini CLI |
 | Failure mode | Fail-open; agent execution continues without memex |
 | Granularity | Scales from 50 to 5000+ modules via hierarchical Leiden clusters |
@@ -435,7 +467,8 @@ Run `uv run pytest -m "not integration"` for the offline suite and `uv run ruff
 check .` before opening a PR. Version bumps must update `pyproject.toml`,
 `npm/package.json`, `server.json`, and the team Docker image tag together.
 
-The v0.9 release record is in [`CHANGELOG.md`](CHANGELOG.md), with the
-architecture and evaluation evidence under [`docs/architecture/v0.9/`](docs/architecture/v0.9/).
+Release history is in [`CHANGELOG.md`](CHANGELOG.md). The v1 design and
+evaluation records are under [`docs/v1/`](docs/v1/), and the v0.9 architecture
+under [`docs/architecture/v0.9/`](docs/architecture/v0.9/).
 
 > *Vannevar Bush, 1945:* "Consider a future device for individual use, which is a sort of mechanized private file and library. It needs a name, and to coin one at random, **memex** will do."

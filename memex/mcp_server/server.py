@@ -427,6 +427,14 @@ async def handle_call_tool(name: str, arguments: dict) -> list[TextContent | Ima
     """
     from memex.graph.otel import tool_span
 
+    global _backend_error
+    if _startup_check is not None and not _startup_check.done():
+        await _startup_check
+    elif _backend_error:
+        _backend_error = await _check_neo4j()
+    if _backend_error:
+        return [TextContent(type="text", text=_backend_error)]
+
     repo = str(arguments.get("repo")) if arguments.get("repo") else None
     project = str(arguments.get("project")) if arguments.get("project") else None
     agent = detect_agent()
@@ -584,6 +592,36 @@ async def handle_call_tool(name: str, arguments: dict) -> list[TextContent | Ima
             logger.error("Internal error calling tool %s", name, exc_info=True)
             return [TextContent(type="text", text=f"Internal Server Error: {str(e)}")]
 
+NEO4J_CHECK_SECONDS = float(os.getenv("MEMEX_NEO4J_CHECK_SECONDS", "5"))
+_backend_error: str | None = None  # set while Neo4j is unreachable
+
+
+async def _check_neo4j() -> str | None:
+    """None if Neo4j answers within NEO4J_CHECK_SECONDS, else what to do about it.
+
+    Bounded because the driver retries a dead server for 30 s per query.
+    """
+    try:
+        client = await asyncio.wait_for(get_graph_client(), NEO4J_CHECK_SECONDS)
+        await asyncio.wait_for(client.driver.execute_query("RETURN 1"), NEO4J_CHECK_SECONDS)
+        return None
+    except Exception as e:
+        detail = str(e).splitlines()[0] if str(e) else type(e).__name__
+        return (f"memex cannot reach Neo4j at {get_config().neo4j_uri} ({detail}). "
+                "Start Neo4j (for example `docker start memex-neo4j`) or point NEO4J_URI "
+                "at a running server, then retry.")
+
+
+_startup_check: asyncio.Task | None = None
+
+
+async def _record_startup_check() -> None:
+    global _backend_error
+    _backend_error = await _check_neo4j()
+    if _backend_error:
+        logger.error("%s Serving anyway; tools report this until Neo4j answers.", _backend_error)
+
+
 async def create_server(repo_root: str) -> Server:
     """
     Constructs the MCP Server instance, validates config, checks Neo4j,
@@ -600,17 +638,17 @@ async def create_server(repo_root: str) -> Server:
         raise ConfigError(str(e))
 
     # 2. Check Neo4j connectivity (skipped in introspection-only mode so MCP
-    # directory sandboxes can enumerate tools without a live backend).
+    # directory sandboxes can enumerate tools without a live backend). An
+    # unreachable Neo4j does not stop the server: MCP clients give up on a
+    # handshake after ~30 s and show only a timeout, so the server starts,
+    # and each tool call reports the reason until Neo4j answers.
+    # The check runs in the background so the handshake is never delayed by it.
+    global _startup_check
     if os.getenv("MEMEX_INTROSPECTION_ONLY") == "1":
         logger.info("MEMEX_INTROSPECTION_ONLY=1 — skipping Neo4j connectivity check")
     else:
-        try:
-            client = await get_graph_client()
-            await client.driver.execute_query("RETURN 1")
-        except Exception as e:
-            logger.error("Failed to connect to Neo4j during startup: %s", e, exc_info=True)
-            raise MemexStartupError(f"Neo4j connectivity check failed: {e}")
-    
+        _startup_check = asyncio.create_task(_record_startup_check())
+
     server = Server("memex", version=__version__)
     server.list_tools()(handle_list_tools)
     server.call_tool()(handle_call_tool)
