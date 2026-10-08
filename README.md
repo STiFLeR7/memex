@@ -106,6 +106,18 @@ flowchart LR
 
 Restart your Claude Code session.
 
+The first start after installing or upgrading downloads memex's Python
+dependencies (about 40 seconds), which can exceed Claude Code's MCP connect
+timeout once. Warm it up first, then restart:
+
+```bash
+npx -y stifler-memex-mcp --help     # one-time download; later starts take a few seconds
+```
+
+If Claude Code still shows a connection timeout, open `/mcp` and reconnect
+`memex`. If a tool says memex cannot reach Neo4j, start Neo4j (for example
+`docker start memex-neo4j`); the tools recover without a restart.
+
 ### Manual
 
 ```bash
