@@ -1,0 +1,34 @@
+name: Bug report
+description: Report something that is not working as expected
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened?
+      description: Observed vs. expected behavior.
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version / commit
+    validations:
+      required: true
+  - type: input
+    id: env
+    attributes:
+      label: Environment
+      description: OS and Python version.
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: Redact any secrets or API keys.
+      render: shell
