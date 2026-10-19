@@ -1,6 +1,6 @@
 # Phase 7 plan: after S05
 
-Status: **draft, 19 October 2026.** Nothing here changes S05. Its result ([28](28_PHASE6_RESULTS.md)) stands as published: efficacy, precision and latency failed. Under its stopping rules S05 is not extended, rerun or re-gated. Every gate below is judged again only by a new preregistered evaluation, S06, run once.
+Status: **adopted 19 October 2026; W25 in progress.** Nothing here changes S05. Its result ([28](28_PHASE6_RESULTS.md)) stands as published: efficacy, precision and latency failed. Under its stopping rules S05 is not extended, rerun or re-gated. Every gate below is judged again only by a new preregistered evaluation, S06, run once.
 
 ## Diagnosis
 
@@ -37,7 +37,10 @@ Warm unchanged checks, pooled S05 values (`output/v1-evidence/phase6/confirmator
 
 About 80 ms at p50 and 120–140 ms at p95 is a **floor** paid with no check work: interpreter start, the client, the socket round trip, and the service's work outside the check. E's p95 then adds its check and the tail from 3 concurrent trials. To pass under 200 ms p95, both the floor and E's check must fall. One known inflation applies only to measured runs: for the evaluation's timed modules the client imports `ctypes` to read its own creation time, which costs time inside the measured window. Production hooks do not do this.
 
-## Decisions for the maintainer
+## Decisions (maintainer, 19 October 2026)
+
+**Decided:** D1 = (b) plus the bounded (a) spike (W22). D2 = W25 first.
+
 
 - **D1, the efficacy hypothesis for S06.**
   - (a) Keep "E beats C and D" and first search for a history class where C and D fail before the edit, as development-only exploration.
