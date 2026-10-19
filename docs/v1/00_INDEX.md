@@ -59,6 +59,8 @@ Memex v1 maintains an agent's engineering working context against changing evide
 | P3: one native action loop | Complete, verified and twice hardened on one host | [Discriminating native trace, 63 phase checks and 686 compatibility checks](18_PHASE3_VERIFICATION.md) |
 | P4: concurrent agents and second host | Complete, verified on the corrected code | [Every native gate passed in both orderings on the corrected code; 88 phase checks and 748 compatibility checks](20_PHASE4_VERIFICATION.md) |
 | P5: efficacy, migration and OSS release | Executed; **gates failed or pending, not releasable** | [Efficacy failed vs hash-bound notes (E 3/56, D 0/56); latency and tail deadline failed; precision not established; maintainers pending](24_PHASE5_RELEASE_READINESS.md) |
+| P6: S05 evaluation | Executed; efficacy, precision and latency **failed**; v1.0.0 released by the maintainer with features only | [S05 results](28_PHASE6_RESULTS.md) |
+| P7: after S05 | **Planning**: claims in real repositories, precision, latency, then S06 | [Phase 7 plan](29_PHASE7_PLAN.md) |
 
 ## How to begin
 
