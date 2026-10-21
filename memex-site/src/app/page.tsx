@@ -239,7 +239,7 @@ export default function Page() {
       <a href="https://registry.modelcontextprotocol.io/">MCP Registry · io.github.STiFLeR7/memex</a>
       <a href="mailto:contact@stifler.in">Contact</a>
     </nav>
-    <div>© 2026 memex · MIT · Hill Patel</div>
+    <div className="legal"><span>© 2026 memex · MIT · Hill Patel</span><a className="credit" href="https://x.com/SoT__Design" target="_blank" rel="noopener">Designed by SystemOfThoughts</a></div>
   </div>
 </footer>
     </>

@@ -210,6 +210,8 @@
   footer .wrap { display: flex; flex-wrap: wrap; gap: 28px; align-items: center; justify-content: space-between; }
   footer nav { display: flex; gap: 22px; flex-wrap: wrap; }
   footer a { text-decoration: none; transition: color .25s; } footer a:hover { color: var(--teal-d); }
+  footer .legal { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 12px; } footer .legal span { white-space: nowrap; }
+  footer .credit { font-family: var(--f-mono); font-size: 12.5px; padding: 4px 11px; border: 1px solid var(--line); border-radius: 999px; white-space: nowrap; }
 
   .float { animation: drift 14s var(--ease) infinite alternate; }
   @keyframes drift { from { translate: 0 0; } to { translate: 26px -18px; } }
