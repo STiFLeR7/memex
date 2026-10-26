@@ -1,94 +1,61 @@
 # memex-site
 
-The memex website. Next.js 16 (App Router) + TypeScript, no CSS framework.
+The memex v1 product site, https://memex.stifler.in. One page, Next.js 16
+(App Router) as a static export, served by a Cloudflare assets-only Worker.
+No CSS framework, no client components, no runtime dependencies beyond Next.
 
 ## Run
 
 ```bash
 npm install
 npm run dev          # http://localhost:3000
-npm run build        # static export of /
-npm start
+npm run build        # static export to out/
 npm run lint
-npm run check        # decay-regime assertions (node:test, no test framework)
+npm run check        # versions and evidence numbers trace to the memex repo (node:test)
+npm run site-check   # browser QA against out/ (run after build; uses Google Chrome)
+npm run og           # re-render public/og.jpg from scripts/og.html
+npm run deploy       # wrangler deploy: Worker `memex` → memex.stifler.in
 ```
 
-## Why no Tailwind
+## Structure
 
-The visual design is a hand-authored token system — `--void`, `--ice`, a type
-scale, timing curves, the glow and border primitives. It lives in
-`src/app/globals.css` in 13 numbered blocks and is the approved artifact.
-Porting it to utility classes would be a large diff with no functional gain and
-would make the design harder to keep faithful to the reference.
-
-`src/app/globals.css` is a direct port of `../memex-web/index.html`, which is
-retained as the signed-off visual reference.
-
-## Architecture
-
-Most of the page is React Server Components. Interactivity is isolated to four
-client islands, so the shipped JS stays small:
-
-| Component | Why it is a client component |
+| File | What it is |
 |---|---|
-| `Nav` | menu toggle, scroll state |
-| `HeroMatrix` | canvas |
-| `ControlPlane` | canvas + stage selection + scroll linkage |
-| `Lifecycle` | canvas fields + bar fill on reveal |
-| `Artifacts` | tool selection |
-| `RevealEngine` | one IntersectionObserver for the whole page |
+| `src/app/page.tsx` | All the markup, as one server component. The pipeline stages live here too, as data attributes, so the page reads with JS off |
+| `src/app/layout.tsx` | Fonts (Stack Sans Headline, DM Mono, self-hosted by `next/font`), metadata, JSON-LD, and the pre-paint theme script |
+| `src/app/globals.css` | The design tokens and every style. Light by default, `[data-theme="dark"]` for the dark theme |
+| `public/site.js` | All behaviour, one vanilla script: theme toggle, reveals, hero lattice and demo, the told/now model, the pipeline canvas, copy buttons, the film |
+| `public/llms.txt` | Plain-text summary for language models, with sources and limits |
+| `src/app/robots.ts`, `sitemap.ts`, `icon.svg` | Generated at build |
+| `scripts/content.check.mjs` | `npm run check` |
+| `scripts/site-check.mjs` | `npm run site-check`: console errors, failed requests, overflow at 1440 and 390, headings, anchors, reduced motion, JS off, theme toggle, static files |
+| `scripts/og.html`, `og.mjs` | Source and renderer of `public/og.jpg` |
 
-Everything else — `Hero`, `Thesis`, `Capabilities`, `Final`, `Footer`,
-`Statement` — renders on the server.
+## Design
 
-### RevealEngine
+The visual system is the memex brand board,
+`../brag-output/brand/index.html` (paper `#F7F9F8` with faint vertical
+hairlines, ink `#111417`, teal and lime glass, Stack Sans Headline at 200 to
+300 for display, DM Mono for code). Teal marks memex acting (a correction, a
+held edit, a link); lime marks the code as it is now; the white overlap of the
+mark is what still holds. The August 2026 Swiss prototype in
+`../docs/web/archive/` is design history, not a reference.
 
-One observer for the page. Sections stay server components and carry `.rv` /
-`.stmt` classes; the island wires them up. The init pass is load-bearing: the
-observer's `-12%` bottom margin would otherwise strand anything already on
-screen (the hero CTAs sit at y≈921 in a 1000px viewport and never fired in the
-static build). Honours `prefers-reduced-motion` by revealing everything
-immediately.
+## Rules
 
-### Statement
-
-Headline words are split at render, not at runtime, so there is no layout
-thrash and the markup ships correct.
-
-Readability without JS is handled separately, by `@media (scripting: enabled)`
-in `globals.css`: the reveal animation's hidden states only apply where
-scripting can undo them. An earlier version of this file claimed
-server-rendered markup alone made the page readable with JS off — it did not.
-`.rv` started at `opacity:0` with a React effect as the only activation path,
-so the page rendered blank.
-
-Whitespace between words **must** be a sibling text node, never a child of
-`.wr` — that span is `overflow:hidden` + `inline-block`, so a space inside it
-is clipped and the words run together. This was a real regression during the
-port.
-
-## Content and claims
-
-`src/lib/content.ts` holds every claim, each with the repository path that
-substantiates it. `src/lib/confidence.ts` is a port of
-`memex/graph/confidence.py::current_confidence` — the four readouts in the
-Temporal section are computed from it, not written in by hand, so they move if
-the constants do.
-
-Three regimes, not two. The memex README says two; the code implements three.
-The code wins. `npm run check` pins this.
-
-Do not add a number to this site that does not trace to a file.
+- **No Tailwind.** The design is a hand-authored token system in `globals.css`.
+- **Every number traces to a file** in the memex repository. `npm run check`
+  pins the version (from `pyproject.toml`) and the evidence figures (from
+  `docs/v1/`). Do not add a number that does not trace.
+- **Readable with JS off.** Anything a script animates or collapses is hidden
+  only under `.rv-ready` (set by `site.js`) or `.js` (set before first paint in
+  `layout.tsx`). The `site-check` JS-off pass enforces it.
+- **Reduced motion** shows every final state; `site.js` checks it before each animation.
+- Code wins over this README where they disagree.
 
 ## Known
 
-`next build` warns `Failed to find font override values for font 'Stack Sans
-Headline'` — Next has no metric data for that face, so it cannot synthesise a
-matched fallback. The font loads and renders correctly; the fallback is
-Instrument Sans, which is self-hosted in the same request, so the swap is
-visually minor.
-
-The 5 high-severity `npm audit` findings are all in the ESLint dev chain
-(`braces` → `micromatch` → `fast-glob` → `@next/eslint-plugin-next`). Dev-only,
-not shipped to the browser. `npm audit fix --force` downgrades
-`eslint-config-next` and breaks linting.
+`npm audit` reports undici findings inside `wrangler` → `miniflare` (dev and
+deploy tooling, never shipped to the browser). The only offered fix is a
+breaking downgrade of wrangler, so they stay until wrangler ships a patched
+undici.

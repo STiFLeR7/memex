@@ -103,12 +103,6 @@
     if (await copy(text, copyAll)) { copyAll.textContent = 'Copied'; setTimeout(() => copyAll.textContent = 'Copy', 1400); }
   });
 
-  /* Tiles: the glow follows the cursor. */
-  $$('.tile').forEach(t => t.addEventListener('pointermove', e => {
-    const r = t.getBoundingClientRect();
-    t.style.setProperty('--mx', (e.clientX - r.left) + 'px'); t.style.setProperty('--my', (e.clientY - r.top) + 'px');
-  }));
-
   /* Evidence numbers count to their value when they come into view. */
   const cio = new IntersectionObserver(es => es.forEach(e => {
     if (!e.isIntersecting) return; cio.unobserve(e.target);
@@ -259,23 +253,13 @@
   /* Pipeline: a control plane with pulses travelling between stages. It
      cycles on its own until the reader picks a stage. */
   (() => {
-    const STAGES = [
-      { n: '01', t: 'Capture', p: 'memex/runtime/views.py', c: 'Two matching listings and reads of every permitted source, with HEAD, or no view at all. Drift during capture is rejected, not averaged.', a: 'EMITS → stable source capture' },
-      { n: '02', t: 'Index', p: 'memex/runtime/coordinator.py', c: 'Each capture becomes an immutable repository view. The graph commit precedes the local acknowledgement, and an already published view is never rewritten.', a: 'EMITS → RepositoryView, structure' },
-      { n: '03', t: 'Verify', p: 'memex/runtime/verification.py', c: 'Every claim is checked against the evidence it cites, at this view: hashes, symbols, tests, approvals and supersession. Deterministic, with no model in the loop.', a: 'DERIVES → supported · needs_revalidation · unsupported' },
-      { n: '04', t: 'Deliver', p: 'memex/integrations/host_adapter.py', c: "A bounded packet goes into the session, marked so it can be found again. It counts as delivered only when the client's own transcript shows it arrived whole.", a: 'HOLDS → what each session was told' },
-      { n: '05', t: 'Check', p: 'memex/runtime/actions.py', c: 'Before a declared edit, its targets and the evidence behind delivered claims are rechecked against the current view, through a long-lived hook service.', a: 'DECIDES → proceed · replan · unknown' },
-      { n: '06', t: 'Correct', p: 'memex/integrations/host_adapter.py', c: 'An affected edit is held, and the correction names what changed and what to re-read. If memex cannot check, the edit proceeds and the agent is told so.', a: 'EMITS → correction, change notice' },
-    ];
     const legend = $('#legend'), cap = $('#caption'), cv = $('#planeCv'), ctx = cv.getContext('2d'), CYCLE = 5000;
     legend.style.setProperty('--cycle', CYCLE + 'ms');
     let active = 0, manual = false, w = 0, h = 0, nodes = [], pulses = [], raf = 0, last = 0, timer = 0, visible = false;
-    STAGES.forEach((s, i) => {
-      const li = document.createElement('li'), b = document.createElement('button');
-      b.type = 'button'; b.innerHTML = `<span class="n">${s.n}</span><span class="t">${s.t}</span>`;
-      b.addEventListener('click', () => select(i, true)); li.append(b); legend.append(li);
-    });
+    // The stages ship in the markup (page.tsx) so the section reads with no script.
     const buttons = $$('button', legend);
+    const STAGES = buttons.map(b => ({ t: $('.t', b).textContent, p: b.dataset.p, c: b.dataset.c, a: b.dataset.a }));
+    buttons.forEach((b, i) => b.addEventListener('click', () => select(i, true)));
     const schedule = () => { clearTimeout(timer); if (!manual && !reduced && visible) timer = setTimeout(() => select((active + 1) % STAGES.length), CYCLE); };
     const select = (i, byHand = false) => {
       if (byHand) manual = true;

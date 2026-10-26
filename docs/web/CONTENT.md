@@ -1,11 +1,60 @@
 # MEMEX WEBSITE CONTENT SYSTEM
 
-Status: v0.9.0 released, editorial review 2026-08-26  
+Status: v1.0.2 released; v1 site synced 2026-10-25 (sections 00, 06, 16 and 19); other sections from the v0.9.0 editorial review of 2026-08-26  
 Authority: executable source and tests first; documentation is labelled when it is not independently verified.  
-Current package version: `0.9.0` (`pyproject.toml`, `npm/package.json`, and `server.json`).
+Current package version: `1.0.2` (`pyproject.toml`, `npm/package.json`, and `server.json`).
 
-This is the canonical editorial source for a future multi-page website. It is
-content strategy, not HTML or visual design.
+This is the canonical editorial source for the memex website. It is content
+strategy, not HTML or visual design. The live site (`memex-site/`, one page)
+follows section 00; sections 01 to 18 also describe the v0.9 graph layer
+(knowledge graph, 14 MCP tools, confidence decay), which v1 still ships but the
+v1 page does not feature. The visual system is the brand board in
+`brag-output/brand/`, not this file.
+
+## 00 — v1 Homepage (as shipped)
+
+One page at https://memex.stifler.in. Copy below is the shipped copy; every
+figure has its source beside it.
+
+- **Positioning:** `Trusted engineering context for AI coding agents.` One
+  line: `Keeps your agent's engineering context current as the code changes.`
+- **Hero:** `Your agent read the code. Then the code changed.` Lede: memex knows
+  what each session was told, notices when the evidence behind it moves, and
+  corrects the agent before the affected edit lands. Actions: `Install memex`,
+  `Watch the film`; copy pills `pip install memex-mcp`, `npx stifler-memex-mcp`.
+  Demo: a line in `directory.py` flips and a resumed Claude Code session gets
+  the correction text (form from the Phase 5 pilot transcripts).
+- **Film:** `One change, two agents, sixty seconds.` (`public/memex-v1.mp4`, 60 s.)
+- **How it works:** `Context with a memory of what it promised.` Three steps:
+  Delivered (working set at session start, confirmed from the client's own
+  transcript), Watched (evidence, not timestamps: `needs_revalidation`,
+  `unsupported`, replaced), Corrected (before the edit). The mark is the model:
+  teal = what the session was told, lime = what the code says now, white
+  overlap = what still holds.
+- **Pipeline:** `Six stages from a changed byte to a held edit.` Capture
+  (`memex/runtime/views.py`), Index (`runtime/coordinator.py`), Verify
+  (`runtime/verification.py`), Deliver (`integrations/host_adapter.py`), Check
+  (`runtime/actions.py`), Correct (`integrations/host_adapter.py`).
+- **Hosts:** `Claude Code and Codex, side by side.` Claude Code holds `Edit`,
+  `Write`, `MultiEdit`, `NotebookEdit`; Codex holds `apply_patch`, with
+  session-start delivery in app-server (IDE and desktop) sessions. Guarded
+  writes are opt-in; shell edits are reported, never certified
+  (`docs/v1/06_HOST_INTEGRATIONS.md`, `25_ONBOARDING.md`).
+- **Limits:** `What memex will not pretend.` Fails open; never grants
+  permission; shell writes, editors and other tools bypass the hooks; `codex
+  exec` runs no hooks; legacy v0.9 knowledge is `legacy_unverified`.
+- **Evidence:** `Preregistered, and published in full.` Mechanism suite 16 of
+  16 fixtures (`docs/v1/24_PHASE5_RELEASE_READINESS.md`); Claude Code and Codex
+  live together; confirmatory run 480 trials, five arms × 48 held-out histories
+  × 2 hosts (`27_PHASE6_PROTOCOL.md`). Five gates passed; efficacy, precision
+  and latency did not (`28_PHASE6_RESULTS.md`). The page states the failures
+  beside the figures and makes no speed or accuracy claim.
+- **Install:** `A few commands per repository.` `pip install memex-mcp`, `memex
+  v1 install claude|codex`, `memex v1 doctor`, `memex v1 mode shadow|live`,
+  `memex v1 rollback` (`memex/cli_v1.py`). Needs Python 3.11+, Git and a
+  reachable Neo4j 5.
+- **Closing:** `Give your agents a memory of what they were told.` Links to the
+  setup guide and GitHub, not a sales CTA.
 
 ## 01 — Editorial Foundation
 
@@ -165,7 +214,7 @@ the overview level, keeping the detailed pipeline page separate.
 6. **Repository / Evolution** — commands, source links, version status, and
    changelog; do not imply roadmap features are shipped.
 
-## 06 — Homepage
+## 06 — Homepage (v0.9 draft, superseded by section 00)
 
 **Purpose:** answer “What is memex, and why would a coding agent need it?”  
 **Audience:** software engineers, AI engineers, coding-agent builders, and
@@ -390,9 +439,10 @@ Good code excerpts include the tool names, the confidence formula,
 
 ## 16 — SEO / Metadata
 
-- Title: `memex — trusted engineering context for agentic software engineering`
-- Description: `memex watches repository changes, builds a temporal knowledge graph of engineering context, and serves bounded context through Hermes and MCP.`
-- Social preview: `See how repository events become provenance-aware context for coding agents.`
+- Title (shipped, `memex-site/src/app/layout.tsx`): `memex v1 · Trusted engineering context for AI coding agents`
+- Description (shipped): `memex keeps your coding agent's engineering context current as the code changes, and corrects it before an affected edit lands. Claude Code and Codex, over MCP.`
+- Social preview (shipped `og.jpg`): `Trusted engineering context for AI coding agents.` / `Keeps your agent's engineering context current as the code changes.`
+- v0.9 drafts, not shipped: title `memex — trusted engineering context for agentic software engineering`; description `memex watches repository changes, builds a temporal knowledge graph of engineering context, and serves bounded context through Hermes and MCP.`
 - Search terms to use naturally: `MCP coding agent context`, `temporal knowledge graph repository`, `engineering decisions graph`, `repository context memory`, `Neo4j Graphiti MCP`.
 
 ## 17 — Content Anti-Patterns
@@ -425,7 +475,9 @@ optional cluster dependencies as unconditional core behavior.
 
 ## 19 — Known Gaps / Unverified Claims
 
-- Current version is `0.9.0`; release status is not product proof.
+- Current version is `1.0.2`; release status is not product proof.
+- The v1 confirmatory evaluation (S05) did not pass: efficacy, precision and
+  latency failed (`docs/v1/28_PHASE6_RESULTS.md`). Never imply it passed.
 - Current tests include backend-dependent and optional-dependency paths; do not
   turn test counts into product proof.
 - Cluster behavior depends on optional clustering dependencies; label it

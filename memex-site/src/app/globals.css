@@ -7,6 +7,8 @@
   html { scroll-behavior: smooth; }
   body { background: var(--bg); color: var(--ink); font-family: var(--f-display), system-ui, sans-serif; font-weight: 300;
     -webkit-font-smoothing: antialiased; line-height: 1.5; overflow-x: hidden; }
+  /* brand: paper with faint vertical hairlines (brag-output/brand/index.html) */
+  :root:not([data-theme="dark"]) body { background-image: repeating-linear-gradient(90deg, rgba(17,20,23,0.028) 0 1px, transparent 1px 34px); }
   ::selection { background: rgba(0,179,181,0.22); }
   a { color: inherit; }
   .wrap { max-width: var(--max); margin: 0 auto; padding: 0 28px; }
@@ -65,12 +67,10 @@
     box-shadow: 0 60px 140px rgba(142,220,90,0.30), inset 0 0 120px rgba(255,255,255,0.40); }
   .hero .g-teal { width: 760px; height: 520px; left: -280px; bottom: -310px; }
   .hero .g-lime { width: 700px; height: 480px; right: -280px; top: -210px; }
-  .glass > .float { position: absolute; inset: 0; border-radius: inherit; }
   .hero .wrap { position: relative; z-index: 2; display: grid; grid-template-columns: 1.05fr 1fr; gap: 56px; align-items: center; }
   h1 { font-weight: 220; font-size: clamp(44px, 6.2vw, 84px); letter-spacing: -0.035em; line-height: 1.02; }
   h1 em, h2 em { font-style: normal; color: var(--teal-d); }
   .lede { font-size: clamp(18px, 1.6vw, 22px); color: var(--ink2); margin-top: 26px; max-width: 560px; }
-  .ctas { display: flex; flex-wrap: wrap; gap: 14px; margin-top: 38px; }
   .pill { position: relative; display: inline-flex; align-items: center; gap: 18px; height: 58px; padding: 0 10px 0 22px; border-radius: 999px; cursor: pointer;
     background: rgba(255,255,255,0.78); border: 1px solid rgba(17,20,23,0.10); font: inherit; color: inherit;
     box-shadow: 0 18px 40px rgba(17,20,23,0.08), inset 0 2px 0 #fff, inset 0 -6px 18px rgba(0,179,181,0.06);
@@ -150,21 +150,12 @@
   .caption p { font-size: 17px; color: var(--ink2); margin-top: 8px; max-width: 720px; }
   .caption .art { font-family: var(--f-mono), monospace; font-size: 12.5px; letter-spacing: .04em; color: var(--ink3); margin-top: 12px; }
   .caption.swap > * { opacity: 0; transform: translateY(6px); }
-
-  /* tiles: a glow that follows the cursor */
-  .grid3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 22px; margin-top: 56px; }
-  .tile { position: relative; background: rgba(255,255,255,0.82); border: 1px solid var(--line); border-radius: 26px; padding: 30px 30px 34px; overflow: hidden;
-    box-shadow: 0 20px 50px rgba(17,20,23,0.05), inset 0 1px 0 #fff; transition: transform .5s var(--out), box-shadow .5s var(--out); isolation: isolate; }
-  .tile::before { content: ""; position: absolute; inset: 0; z-index: -1; opacity: 0; transition: opacity .5s;
-    background: radial-gradient(380px circle at var(--mx, 50%) var(--my, 50%), rgba(0,179,181,.12), rgba(142,220,90,.08) 40%, transparent 70%); }
-  .tile:hover { transform: translateY(-4px); box-shadow: 0 30px 60px rgba(17,20,23,0.08), inset 0 1px 0 #fff; }
-  .tile:hover::before { opacity: 1; }
-  .tile .n { font-family: var(--f-mono), monospace; font-size: 14px; color: var(--teal-d); }
-  .tile h3 { font-weight: 400; font-size: 25px; letter-spacing: -0.015em; margin: 10px 0 10px; }
-  .tile p { color: var(--ink2); font-size: 16.5px; }
-  .tile .num { font-weight: 220; font-size: 64px; letter-spacing: -0.04em; line-height: 1; color: transparent; -webkit-text-stroke: 1px rgba(17,20,23,.22);
-    transition: color .5s, -webkit-text-stroke-color .5s; }
-  .tile:hover .num { -webkit-text-stroke-color: transparent; color: var(--teal-d); }
+  .stages { list-style: none; display: grid; gap: 18px; padding: 0 30px 28px; }
+  .stages p { font-size: 17px; color: var(--ink2); margin-top: 6px; max-width: 720px; }
+  .stages .path { font-family: var(--f-mono), monospace; font-size: 13px; color: var(--teal-d); }
+  .stages .art { font-family: var(--f-mono), monospace; font-size: 12.5px; letter-spacing: .04em; color: var(--ink3); margin-top: 8px; }
+  /* JS off: no canvas to draw (the .js class is set in layout.tsx before paint) */
+  :root:not(.js) #planeCv { display: none; }
 
   table { width: 100%; border-collapse: separate; border-spacing: 0; margin-top: 48px; background: rgba(255,255,255,0.85);
     border: 1px solid var(--line); border-radius: 16px; overflow: hidden; font-size: 16px; }
@@ -187,15 +178,11 @@
   ul.list.lime li::before { background: linear-gradient(135deg, var(--lime2), var(--lime)); }
 
   .night { background: var(--night); color: #F2F5F4; border-top: 0; overflow: hidden; }
-  .night .sub, .night .tile p { color: #A8B1B6; }
-  .night .tile { background: #151A1D; border-color: #242B30; box-shadow: none; }
-  .night .tile::before { background: radial-gradient(380px circle at var(--mx, 50%) var(--my, 50%), rgba(0,179,181,.22), rgba(142,220,90,.10) 40%, transparent 70%); }
-  .night .tile .n { color: var(--teal2); }
+  .night .sub { color: #A8B1B6; }
   .night .glass { opacity: .85; }
   .night .g-teal { width: 640px; height: 440px; left: -240px; bottom: -260px; }
   .night .g-lime { width: 560px; height: 400px; right: -240px; top: -220px; }
   .night h2 em { color: var(--teal2); }
-  .stat { font-weight: 220; font-size: 60px; letter-spacing: -0.03em; color: #fff; line-height: 1; font-variant-numeric: tabular-nums; }
   .night a.more { color: var(--teal2); text-underline-offset: 3px; }
 
   .install .card { background: var(--night); border-color: #1C2226; backdrop-filter: none; }
@@ -213,7 +200,6 @@
   footer .legal { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 12px; } footer .legal span { white-space: nowrap; }
   footer .credit { font-family: var(--f-mono); font-size: 12.5px; padding: 4px 11px; border: 1px solid var(--line); border-radius: 999px; white-space: nowrap; }
 
-  .float { animation: drift 14s var(--ease) infinite alternate; }
   @keyframes drift { from { translate: 0 0; } to { translate: 26px -18px; } }
 
 
@@ -272,8 +258,8 @@
   .steps .k i { width: 9px; height: 9px; border-radius: 3px; background: var(--c); }
   .steps h3 { font-weight: 400; font-size: 24px; letter-spacing: -0.015em; margin: 8px 0 6px; color: var(--ink2); transition: color .3s; }
   .steps button.on h3 { color: var(--ink); }
-  .steps p { color: var(--ink2); font-size: 16px; max-width: 62ch; display: grid; grid-template-rows: 0fr; opacity: 0;
-    transition: grid-template-rows .55s var(--out), opacity .45s var(--out); }
+  .steps p { color: var(--ink2); font-size: 16px; max-width: 62ch; display: grid; }
+  .js .steps p { grid-template-rows: 0fr; opacity: 0; transition: grid-template-rows .55s var(--out), opacity .45s var(--out); }
   .steps p > span { overflow: hidden; }
   .steps button.on p { grid-template-rows: 1fr; opacity: 1; }
   .key { list-style: none; display: flex; flex-wrap: wrap; gap: 10px 26px; margin-top: 36px; font-size: 15px; color: var(--ink2); }
@@ -311,7 +297,6 @@
     .hero .wrap, .split, .plane { grid-template-columns: 1fr; }
     .legend { flex-direction: row; overflow-x: auto; }
     .legend button { grid-template-columns: auto; white-space: nowrap; width: auto; }
-    .grid3 { grid-template-columns: 1fr; }
     .stack .card + .card { margin-left: 0; }
     th:nth-child(3), td:nth-child(3) { display: none; }
     .pill { gap: 12px; padding-left: 16px; } .pill .cmd { font-size: 14px; }

@@ -3,11 +3,16 @@ import Script from 'next/script';
 import { Stack_Sans_Headline, DM_Mono } from 'next/font/google';
 import './globals.css';
 
-/* Self-hosted at build time by next/font: no external request. */
+/* Self-hosted at build time by next/font: no external request.
+   Next has no metric data for Stack Sans Headline, so it cannot synthesise a
+   size-adjusted fallback and warned on every build. The fallback is declared
+   instead: system-ui, as globals.css already uses. */
 const display = Stack_Sans_Headline({
   subsets: ['latin'],
   variable: '--f-display',
   display: 'swap',
+  adjustFontFallback: false,
+  fallback: ['system-ui', 'sans-serif'],
 });
 
 const mono = DM_Mono({
@@ -17,9 +22,11 @@ const mono = DM_Mono({
   display: 'swap',
 });
 
-/* Runs before first paint so a returning dark-theme visitor never sees a light flash. */
+/* Runs before first paint so a returning dark-theme visitor never sees a light
+   flash. The js class marks that script runs, so JS-only states (collapsed
+   steps, the pipeline canvas) never hide content from a reader without it. */
 const THEME_INIT =
-  'try{document.documentElement.dataset.theme=localStorage.getItem("memex-theme")||(matchMedia("(prefers-color-scheme: dark)").matches?"dark":"light")}catch(e){document.documentElement.dataset.theme="light"}';
+  'document.documentElement.classList.add("js");try{document.documentElement.dataset.theme=localStorage.getItem("memex-theme")||(matchMedia("(prefers-color-scheme: dark)").matches?"dark":"light")}catch(e){document.documentElement.dataset.theme="light"}';
 
 const SITE = 'https://memex.stifler.in';
 const TITLE = 'memex v1 · Trusted engineering context for AI coding agents';
@@ -90,7 +97,7 @@ export const metadata: Metadata = {
         width: 1200,
         height: 630,
         type: 'image/jpeg',
-        alt: 'memex v1.0.0: trusted engineering context for AI coding agents.',
+        alt: 'memex v1.0.2: trusted engineering context for AI coding agents.',
       },
     ],
   },

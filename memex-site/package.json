@@ -7,12 +7,14 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "check": "node --test src/lib/*.check.ts",
+    "check": "node --test scripts/content.check.mjs",
     "deploy": "wrangler deploy",
-    "preview": "wrangler versions upload"
+    "preview": "wrangler versions upload",
+    "og": "node scripts/og.mjs",
+    "site-check": "node scripts/site-check.mjs"
   },
   "dependencies": {
-    "next": "16.3.8",
+    "next": "16.4.3",
     "react": "19.2.8",
     "react-dom": "19.2.8"
   },
@@ -21,7 +23,8 @@
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "eslint": "^9",
-    "eslint-config-next": "16.3.8",
+    "eslint-config-next": "16.4.3",
+    "playwright": "^1.64.1",
     "typescript": "^5",
     "wrangler": "^4.147.0"
   }

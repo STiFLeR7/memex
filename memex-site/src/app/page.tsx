@@ -1,5 +1,16 @@
 import type { CSSProperties } from 'react';
 
+/* Pipeline stages. Rendered here so the section reads with JS off;
+   public/site.js reads them back from the data attributes. */
+const STAGES = [
+  { n: '01', t: 'Capture', p: 'memex/runtime/views.py', c: 'Two matching listings and reads of every permitted source, with HEAD, or no view at all. Drift during capture is rejected, not averaged.', a: 'EMITS → stable source capture' },
+  { n: '02', t: 'Index', p: 'memex/runtime/coordinator.py', c: 'Each capture becomes an immutable repository view. The graph commit precedes the local acknowledgement, and an already published view is never rewritten.', a: 'EMITS → RepositoryView, structure' },
+  { n: '03', t: 'Verify', p: 'memex/runtime/verification.py', c: 'Every claim is checked against the evidence it cites, at this view: hashes, symbols, tests, approvals and supersession. Deterministic, with no model in the loop.', a: 'DERIVES → supported · needs_revalidation · unsupported' },
+  { n: '04', t: 'Deliver', p: 'memex/integrations/host_adapter.py', c: "A bounded packet goes into the session, marked so it can be found again. It counts as delivered only when the client's own transcript shows it arrived whole.", a: 'HOLDS → what each session was told' },
+  { n: '05', t: 'Check', p: 'memex/runtime/actions.py', c: 'Before a declared edit, its targets and the evidence behind delivered claims are rechecked against the current view, through a long-lived hook service.', a: 'DECIDES → proceed · replan · unknown' },
+  { n: '06', t: 'Correct', p: 'memex/integrations/host_adapter.py', c: 'An affected edit is held, and the correction names what changed and what to re-read. If memex cannot check, the edit proceeds and the agent is told so.', a: 'EMITS → correction, change notice' },
+];
+
 /* Static markup: public/site.js drives the theme toggle, canvases, reveals and demos. */
 export default function Page() {
   return (
@@ -24,7 +35,7 @@ export default function Page() {
 <nav className="top" aria-label="Primary">
   <div className="wrap">
     <a className="brand" href="#top"><svg width="34" height="34" aria-hidden="true"><use href="#mark"/></svg>memex</a>
-    <span className="ver"><i aria-hidden="true"></i>v1.0.0</span>
+    <span className="ver"><i aria-hidden="true"></i>v1.0.2</span>
     <ul>
       <li><a href="#how">How it works</a></li>
       <li><a href="#plane">Pipeline</a></li>
@@ -53,7 +64,7 @@ export default function Page() {
       <p className="lede rv d2">memex keeps your agent’s engineering context current as the code changes. It knows what each session
         was told, notices when the evidence behind it moves, and corrects the agent before the affected edit lands.</p>
       <div className="actions rv d3">
-        <a className="btn lg" href="#install">Get started <span className="a" aria-hidden="true">→</span></a>
+        <a className="btn lg" href="#install">Install memex <span className="a" aria-hidden="true">→</span></a>
         <a className="btn lg ghost" href="#film">Watch the film <span className="a" aria-hidden="true">▶</span></a>
       </div>
       <div className="quick rv d4">
@@ -129,10 +140,17 @@ export default function Page() {
     
     <h2 className="stmt" data-words>Six stages from a changed byte <em>to a held edit.</em></h2>
     <div className="plane rv d1">
-      <ul className="legend" id="legend" aria-label="Pipeline stages"></ul>
+      <ul className="legend" id="legend" aria-label="Pipeline stages">
+        {STAGES.map(s => <li key={s.n}><button type="button" aria-pressed={s.n === '01'} data-p={s.p} data-c={s.c} data-a={s.a}><span className="n">{s.n}</span><span className="t">{s.t}</span></button></li>)}
+      </ul>
       <div className="stage">
         <canvas id="planeCv" aria-hidden="true"></canvas>
-        <div className="caption" id="caption" aria-live="polite"><div className="path"></div><p></p><div className="art"></div></div>
+        <div className="caption" id="caption" aria-live="polite"><div className="path">{STAGES[0].p}</div><p>{STAGES[0].c}</p><div className="art">{STAGES[0].a}</div></div>
+        <noscript>
+          <ol className="stages">
+            {STAGES.slice(1).map(s => <li key={s.n}><div className="path">{s.n} · {s.t} · {s.p}</div><p>{s.c}</p><div className="art">{s.a}</div></li>)}
+          </ol>
+        </noscript>
       </div>
     </div>
   </div>
@@ -186,7 +204,7 @@ export default function Page() {
     <dl className="ledger">
       <div className="row rv d1"><dt>Mechanism suite</dt><dd><b><span data-count="16">16</span> of 16 fixtures</b>Stale evidence, supersession, worktree isolation and authority, with no isolation or authority violation.</dd></div>
       <div className="row rv d2"><dt>Native clients</dt><dd><b>Claude Code and Codex</b>Live together, with delivery confirmed from each client’s own session record.</dd></div>
-      <div className="row rv d3"><dt>Confirmatory run</dt><dd><b><span data-count="480">480</span> trials</b>Five comparison arms across 48 held-out histories on both hosts, analysed once against frozen thresholds.</dd></div>
+      <div className="row rv d3"><dt>Confirmatory run</dt><dd><b><span data-count="480">480</span> trials</b>Five comparison arms across 48 held-out histories on both hosts, analysed once against frozen thresholds. Five gates passed; efficacy, precision and latency did not.</dd></div>
     </dl>
   </div>
 </section>
@@ -231,7 +249,7 @@ export default function Page() {
 
 <footer>
   <div className="wrap">
-    <a className="brand" href="#top" style={{ 'fontSize': '18px' } as CSSProperties}><svg width="28" height="28" aria-hidden="true"><use href="#mark"/></svg>memex <span className="ver" style={{ 'marginLeft': '4px' } as CSSProperties}><i aria-hidden="true"></i>v1.0.0</span></a>
+    <a className="brand" href="#top" style={{ 'fontSize': '18px' } as CSSProperties}><svg width="28" height="28" aria-hidden="true"><use href="#mark"/></svg>memex <span className="ver" style={{ 'marginLeft': '4px' } as CSSProperties}><i aria-hidden="true"></i>v1.0.2</span></a>
     <nav aria-label="Footer">
       <a href="https://github.com/STiFLeR7/memex">GitHub</a>
       <a href="https://pypi.org/project/memex-mcp/">PyPI</a>
