@@ -33,7 +33,7 @@
   /* Film: the poster stands in until the reader asks for the video. */
   (() => {
     const frame = $('#frame'), v = $('#filmV'), play = $('#play');
-    play.addEventListener('click', () => { frame.classList.add('playing'); v.controls = true; v.play().catch(() => {}); v.focus(); });
+    if (play) play.addEventListener('click', () => { frame.classList.add('playing'); v.controls = true; v.play().catch(() => {}); v.focus(); });
   })();
   const whenVisible = (el, start, stop) => new IntersectionObserver(([e]) => e.isIntersecting ? start() : stop(), { threshold: 0.01 }).observe(el);
 
@@ -70,7 +70,7 @@
   }
 
   /* Nav glass, reading progress, active section, glass parallax. */
-  const nav = $('nav.top'), bar = $('.progress'), links = $$('nav.top ul a'), pars = $$('[data-par]');
+  const nav = $('nav.top'), bar = $('.progress'), links = $$('nav.top ul a[href^="#"]'), pars = $$('[data-par]');
   pars.forEach(g => g.style.transform = `rotate(${g.dataset.rot}deg)`);
   let ticking = false;
   const onScroll = () => {
@@ -97,8 +97,8 @@
     el.classList.add('copied'); setTimeout(() => el.classList.remove('copied'), 1400); return true;
   };
   $$('[data-copy]').forEach(b => b.addEventListener('click', () => copy(b.dataset.copy, b)));
-  const copyAll = $('#copyAll'), term = $('#term'), termText = term.innerText;
-  copyAll.addEventListener('click', async () => {
+  const copyAll = $('#copyAll'), term = $('#term'), termText = term?.innerText;
+  copyAll?.addEventListener('click', async () => {
     const text = termText.split('\n').map(l => l.replace(/\s+#.*$/, '').trimEnd()).filter(l => l && !l.startsWith('#')).join('\n');
     if (await copy(text, copyAll)) { copyAll.textContent = 'Copied'; setTimeout(() => copyAll.textContent = 'Copy', 1400); }
   });
@@ -116,7 +116,7 @@
   $$('[data-count]').forEach(c => cio.observe(c));
 
   /* Terminal types its commands the first time it is seen. */
-  if (!reduced) {
+  if (!reduced && term) {
     const html = term.innerHTML;
     const tio = new IntersectionObserver(([e]) => {
       if (!e.isIntersecting) return; tio.disconnect();
@@ -136,6 +136,9 @@
     }, { threshold: 0.5 });
     tio.observe(term);
   }
+
+  /* Everything below belongs to the home page only. */
+  if (!$('#lattice')) return;
 
   /* Hero lattice: rounded cells shift from told (teal) to now (lime) as a
      change front sweeps across; the cursor brings nearby cells forward. */
@@ -253,12 +256,12 @@
   /* Pipeline: a control plane with pulses travelling between stages. It
      cycles on its own until the reader picks a stage. */
   (() => {
-    const legend = $('#legend'), cap = $('#caption'), cv = $('#planeCv'), ctx = cv.getContext('2d'), CYCLE = 5000;
+    const legend = $('#legend'), items = $$('#stages > li'), cv = $('#planeCv'), ctx = cv.getContext('2d'), CYCLE = 5000;
     legend.style.setProperty('--cycle', CYCLE + 'ms');
     let active = 0, manual = false, w = 0, h = 0, nodes = [], pulses = [], raf = 0, last = 0, timer = 0, visible = false;
-    // The stages ship in the markup (page.tsx) so the section reads with no script.
+    // The stages ship as visible text (page.tsx); the script only marks the active one.
     const buttons = $$('button', legend);
-    const STAGES = buttons.map(b => ({ t: $('.t', b).textContent, p: b.dataset.p, c: b.dataset.c, a: b.dataset.a }));
+    const STAGES = buttons.map(b => ({ t: $('.t', b).textContent }));
     buttons.forEach((b, i) => b.addEventListener('click', () => select(i, true)));
     const schedule = () => { clearTimeout(timer); if (!manual && !reduced && visible) timer = setTimeout(() => select((active + 1) % STAGES.length), CYCLE); };
     const select = (i, byHand = false) => {
@@ -269,9 +272,7 @@
         b.setAttribute('aria-pressed', k === i);
         if (k === i) { b.classList.remove('on'); void b.offsetWidth; b.classList.add('on'); }
       });
-      const s = STAGES[i];
-      const fill = () => { $('.path', cap).textContent = s.p; $('p', cap).textContent = s.c; $('.art', cap).textContent = s.a; cap.classList.remove('swap'); };
-      if (reduced) fill(); else { cap.classList.add('swap'); setTimeout(fill, 220); }
+      items.forEach((li, k) => li.classList.toggle('on', k === i));
       if (i > 0) pulses.push({ i: i - 1, p: 0 });
       schedule(); if (reduced) draw();
     };

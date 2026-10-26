@@ -1,12 +1,13 @@
 # memex
 
-> memex keeps an AI coding agent's engineering context current as the code changes. It knows what each Claude Code or Codex session was told, notices when the evidence behind that context moves, and corrects the agent before the affected edit lands. Open source, MIT, delivered over hooks and MCP.
+> memex (memex-mcp) is an open-source MCP server and hook service that keeps an AI coding agent's engineering context current as the code changes. It knows what each Claude Code or Codex session was told, notices when the evidence behind that context moves, and corrects the agent before the affected edit lands. Open source, MIT, delivered over hooks and MCP.
 
-- Current release: v1.0.2 (`memex-mcp` on PyPI, `stifler-memex-mcp` on npm, `io.github.STiFLeR7/memex` in the MCP Registry).
+- Current release: v1.0.2, released 2026-10-08 (`memex-mcp` on PyPI, `stifler-memex-mcp` on npm, `io.github.STiFLeR7/memex` in the MCP Registry).
 - Install: `pip install memex-mcp` (or `npx stifler-memex-mcp`), then in a repository `memex v1 install claude` (or `codex`), `memex v1 doctor`, optionally `memex v1 mode shadow` for a first week, then `memex v1 mode live`. `memex v1 rollback` turns it off at once.
 - Needs Python 3.11+, Git and a reachable Neo4j 5. Hooks go only into the repository's own project settings; memex never asks for client credentials.
 - How it works, in six stages: capture (stable source reads), index (immutable repository views), verify (each claim against the evidence it cites; deterministic, no model in the loop), deliver (a bounded packet, counted only when the client's own transcript shows it arrived), check (before a declared edit), correct (hold the edit and name what changed and what to re-read).
 - Claude Code: held edits on `Edit`, `Write`, `MultiEdit`, `NotebookEdit`. Codex: held edits on `apply_patch`; session-start delivery in app-server (IDE and desktop) sessions. Both: change notice on resume, concurrent sessions and worktrees.
+- Not supported: Cursor and other MCP clients can use the memex MCP server for explicit lookups, but get no held edits or corrections; those need the Claude Code or Codex hooks.
 - Evidence: mechanism suite 16 of 16 fixtures passed, with no isolation or authority violation. Preregistered confirmatory run: 480 trials (five arms, 48 held-out histories, both hosts), analysed once against frozen thresholds. Five gates passed; efficacy, precision and latency did not. No speed or accuracy claim is made.
 
 ## What memex will not pretend
@@ -17,9 +18,16 @@
 - `codex exec` runs no hooks, so it gets no context and no checks.
 - Legacy v0.9 knowledge is imported as `legacy_unverified` and never shown as current.
 
+## Pages
+
+- [Home and FAQ](https://memex.stifler.in/): what memex is, the six stages, hosts, limits, questions answered
+- [How it works](https://memex.stifler.in/how-it-works): delivered, watched, corrected; the six stages; concurrent agents and worktrees
+- [Setup](https://memex.stifler.in/setup): requirements, install steps, Claude Code and Codex recipes, doctor, rollback, platforms
+- [Evaluation](https://memex.stifler.in/evaluation): S05 gates, arms, why efficacy, precision and latency failed
+- [Changelog](https://memex.stifler.in/changelog): v1 releases
+
 ## Source
 
-- [Website](https://memex.stifler.in/)
 - [Repository and README](https://github.com/STiFLeR7/memex)
 - [Setup guide](https://github.com/STiFLeR7/memex/blob/master/docs/v1/25_ONBOARDING.md)
 - [Evaluation reports](https://github.com/STiFLeR7/memex/tree/master/docs/v1) (S05 results: docs/v1/28_PHASE6_RESULTS.md)

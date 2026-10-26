@@ -144,16 +144,54 @@
   .stage { position: relative; border-radius: 18px; overflow: hidden; background: rgba(255,255,255,.82);
     box-shadow: 0 24px 60px -16px rgba(17,20,23,.14), 0 2px 6px rgba(17,20,23,.04); display: grid; grid-template-rows: auto auto; }
   #planeCv { width: 100%; height: 300px; display: block; }
-  .caption { padding: 22px 30px 28px; border-top: 1px solid var(--line); min-height: 160px; }
-  .caption > * { transition: opacity .25s var(--ease), transform .35s var(--out); }
-  .caption .path { font-family: var(--f-mono), monospace; font-size: 13px; color: var(--teal-d); }
-  .caption p { font-size: 17px; color: var(--ink2); margin-top: 8px; max-width: 720px; }
-  .caption .art { font-family: var(--f-mono), monospace; font-size: 12.5px; letter-spacing: .04em; color: var(--ink3); margin-top: 12px; }
-  .caption.swap > * { opacity: 0; transform: translateY(6px); }
-  .stages { list-style: none; display: grid; gap: 18px; padding: 0 30px 28px; }
-  .stages p { font-size: 17px; color: var(--ink2); margin-top: 6px; max-width: 720px; }
-  .stages .path { font-family: var(--f-mono), monospace; font-size: 13px; color: var(--teal-d); }
-  .stages .art { font-family: var(--f-mono), monospace; font-size: 12.5px; letter-spacing: .04em; color: var(--ink3); margin-top: 8px; }
+  /* every stage is visible text; the script only marks the active one */
+  .stages { list-style: none; display: grid; grid-template-columns: 1fr 1fr; gap: 6px; padding: 14px; border-top: 1px solid var(--line); }
+  .stages li { padding: 16px 18px 18px; border-radius: 12px; transition: background .35s, box-shadow .35s; }
+  .stages li.on { background: rgba(0,179,181,0.07); box-shadow: inset 3px 0 0 var(--teal); }
+  .stages h3 { font-weight: 400; font-size: 19px; letter-spacing: -0.01em; color: var(--ink); }
+  .stages h3 .n { font-family: var(--f-mono), monospace; font-size: 13px; color: var(--teal-d); margin-right: 6px; }
+  .stages p { font-size: 15.5px; color: var(--ink2); margin-top: 6px; }
+  .stages .path { font-family: var(--f-mono), monospace; font-size: 12.5px; color: var(--teal-d); margin-top: 10px; }
+  .stages .art { font-family: var(--f-mono), monospace; font-size: 12px; letter-spacing: .04em; color: var(--ink2); margin-top: 4px; }
+  .more-link { margin-top: 26px; font-size: 16px; } .more-link a { color: var(--teal-d); text-underline-offset: 3px; }
+
+  /* hero eyebrow: the plain-language line above the poetic H1 */
+  .eyebrow { font-family: var(--f-mono), monospace; font-size: 13px; letter-spacing: .06em; text-transform: uppercase; color: var(--teal-d); margin-bottom: 22px; }
+
+  /* FAQ */
+  .faq { display: grid; grid-template-columns: 1fr 1fr; gap: 0 56px; margin-top: 48px; }
+  .qa { padding: 26px 0; border-top: 1px solid var(--line); }
+  .qa h3 { font-weight: 400; font-size: 21px; letter-spacing: -0.01em; line-height: 1.3; }
+  .qa p { font-size: 16.5px; color: var(--ink2); margin-top: 10px; }
+  .qa a, .doc a:not(.btn):not(.brand) { color: var(--teal-d); text-underline-offset: 3px; }
+
+  /* inner pages: setup, how it works, evaluation, changelog */
+  .doc { padding-top: 136px; padding-bottom: 110px; max-width: 920px; }
+  .crumbs { list-style: none; display: flex; gap: 10px; font-family: var(--f-mono), monospace; font-size: 13px; color: var(--ink2); }
+  .crumbs li + li::before { content: "/"; margin-right: 10px; }
+  .crumbs a { text-decoration: none; color: var(--ink2) !important; }
+  .doc h1 { font-size: clamp(40px, 5vw, 66px); margin-top: 18px; }
+  .doc .lede { max-width: none; }
+  .doc .meta { font-family: var(--f-mono), monospace; font-size: 13px; color: var(--ink2); margin-top: 18px; }
+  .doc h2 { font-size: clamp(28px, 3vw, 38px); margin-top: 76px; }
+  .doc h3 { font-weight: 400; font-size: 22px; letter-spacing: -0.01em; margin-top: 36px; }
+  .doc p, .doc li { font-size: 17.5px; color: var(--ink2); }
+  .doc code { overflow-wrap: anywhere; }
+  .doc > p, .doc section > p { margin-top: 14px; max-width: 74ch; }
+  .doc ol.plain, .doc ul.plain { margin: 16px 0 0 22px; display: grid; gap: 10px; max-width: 74ch; }
+  .doc ol.plain > li::marker { color: var(--teal-d); font-family: var(--f-mono), monospace; }
+  .doc .card { margin-top: 18px; background: var(--night); backdrop-filter: none; }
+  .doc .card pre { color: #E6EBEA; font-size: 14.5px; } .doc .card .s { color: #6E787E; } .doc .card .f { color: var(--teal2); }
+  .doc table { margin-top: 24px; font-size: 15.5px; } .doc th, .doc td { padding: 14px 18px; }
+  .doc figure { margin-top: 28px; } .doc figure img { width: 100%; height: auto; display: block; border-radius: 18px;
+    box-shadow: 0 30px 70px -24px rgba(17,20,23,0.28); } .doc figcaption { font-size: 14px; color: var(--ink2); margin-top: 10px; }
+  .doc .stages { border: 1px solid var(--line); border-radius: 18px; margin-top: 24px; background: rgba(255,255,255,.82); }
+  .doc .next { margin-top: 64px; display: flex; flex-wrap: wrap; gap: 12px; }
+
+  /* footer maintainer block */
+  footer .maint { flex: 1 1 100%; display: grid; gap: 4px; font-size: 14.5px; }
+  footer .maint a { color: var(--ink); text-decoration: underline; text-decoration-color: var(--line); text-underline-offset: 3px; }
+
   /* JS off: no canvas to draw (the .js class is set in layout.tsx before paint) */
   :root:not(.js) #planeCv { display: none; }
 
@@ -304,6 +342,8 @@
     nav.top .theme { margin-left: auto; margin-right: -6px; }
     .model { grid-template-columns: 1fr; gap: 28px; }
     .ledger .row { grid-template-columns: 1fr; gap: 6px; }
+    .stages, .faq { grid-template-columns: 1fr; }
+    .doc { padding-top: 104px; }
     .closer { padding: 110px 0 120px; }
     .actions .btn.lg { flex: 1 1 auto; justify-content: space-between; }
     .hero .g-lime { width: 380px; height: 260px; right: -250px; top: -150px; }
@@ -363,3 +403,6 @@
   [data-theme="dark"] .install .card { background: #050708; }
   [data-theme="dark"] .frame { box-shadow: inset 0 0 0 1px rgba(255,255,255,0.08), 0 40px 90px -24px rgba(0,0,0,0.7); }
   [data-theme="dark"] footer a:hover { color: #7FDDE0; }
+  [data-theme="dark"] .stages li.on { background: rgba(0,179,181,0.12); }
+  [data-theme="dark"] .doc .stages { background: rgba(16,20,23,.72); }
+  [data-theme="dark"] .doc .card { background: #050708; }

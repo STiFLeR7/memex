@@ -1,6 +1,7 @@
 # memex-site
 
-The memex v1 product site, https://memex.stifler.in. One page, Next.js 16
+The memex v1 product site, https://memex.stifler.in. A home page plus four
+inner pages (/how-it-works, /setup, /evaluation, /changelog), Next.js 16
 (App Router) as a static export, served by a Cloudflare assets-only Worker.
 No CSS framework, no client components, no runtime dependencies beyond Next.
 
@@ -21,10 +22,14 @@ npm run deploy       # wrangler deploy: Worker `memex` → memex.stifler.in
 
 | File | What it is |
 |---|---|
-| `src/app/page.tsx` | All the markup, as one server component. The pipeline stages live here too, as data attributes, so the page reads with JS off |
-| `src/app/layout.tsx` | Fonts (Stack Sans Headline, DM Mono, self-hosted by `next/font`), metadata, JSON-LD, and the pre-paint theme script |
+| `src/app/page.tsx` | The home page markup, as one server component, including the FAQ. All six pipeline stages are visible text; `site.js` only highlights the active one |
+| `src/app/shell.tsx` | Shared pieces: site constants (`VERSION`, `RELEASED`, `UPDATED`: bump `UPDATED` when copy changes), the stage list, mark, footer with maintainers, the inner-page frame, per-page metadata and WebPage JSON-LD |
+| `src/app/{how-it-works,setup,evaluation,changelog}/page.tsx` | Inner pages, each sourced from a file in `../docs/v1/` or `../CHANGELOG.md` (named at the top of each) |
+| `src/app/favicon.ico`, `apple-icon.png` | Rendered once from `icon.svg` with Playwright |
+| `public/_headers` | Workers static-assets headers: HSTS, nosniff, Referrer-Policy, Permissions-Policy, frame denial, immutable caching for `/_next/static/*` |
+| `src/app/layout.tsx` | Fonts (Stack Sans Headline, DM Mono, self-hosted by `next/font`), home metadata, site-wide JSON-LD (WebSite, SoftwareApplication, Person), and the pre-paint theme script |
 | `src/app/globals.css` | The design tokens and every style. Light by default, `[data-theme="dark"]` for the dark theme |
-| `public/site.js` | All behaviour, one vanilla script: theme toggle, reveals, hero lattice and demo, the told/now model, the pipeline canvas, copy buttons, the film |
+| `public/site.js` | All behaviour, one vanilla script: theme toggle, reveals, hero lattice and demo, the told/now model, the pipeline canvas, copy buttons, the film. Home-only parts stop early on inner pages. Links are plain `<a>` (lint rule off) so every page is a full load and this script runs |
 | `public/llms.txt` | Plain-text summary for language models, with sources and limits |
 | `src/app/robots.ts`, `sitemap.ts`, `icon.svg` | Generated at build |
 | `scripts/content.check.mjs` | `npm run check` |
@@ -51,6 +56,7 @@ mark is what still holds. The August 2026 Swiss prototype in
   only under `.rv-ready` (set by `site.js`) or `.js` (set before first paint in
   `layout.tsx`). The `site-check` JS-off pass enforces it.
 - **Reduced motion** shows every final state; `site.js` checks it before each animation.
+- **No FAQPage or HowTo schema.** The FAQ is visible HTML only.
 - Code wins over this README where they disagree.
 
 ## Known

@@ -1,14 +1,36 @@
-import type { CSSProperties } from 'react';
+import type { CSSProperties, ReactNode } from 'react';
+import { Footer, JsonLd, MarkDefs, SITE, STAGES, ThemeButton, pageLd } from './shell';
 
-/* Pipeline stages. Rendered here so the section reads with JS off;
-   public/site.js reads them back from the data attributes. */
-const STAGES = [
-  { n: '01', t: 'Capture', p: 'memex/runtime/views.py', c: 'Two matching listings and reads of every permitted source, with HEAD, or no view at all. Drift during capture is rejected, not averaged.', a: 'EMITS → stable source capture' },
-  { n: '02', t: 'Index', p: 'memex/runtime/coordinator.py', c: 'Each capture becomes an immutable repository view. The graph commit precedes the local acknowledgement, and an already published view is never rewritten.', a: 'EMITS → RepositoryView, structure' },
-  { n: '03', t: 'Verify', p: 'memex/runtime/verification.py', c: 'Every claim is checked against the evidence it cites, at this view: hashes, symbols, tests, approvals and supersession. Deterministic, with no model in the loop.', a: 'DERIVES → supported · needs_revalidation · unsupported' },
-  { n: '04', t: 'Deliver', p: 'memex/integrations/host_adapter.py', c: "A bounded packet goes into the session, marked so it can be found again. It counts as delivered only when the client's own transcript shows it arrived whole.", a: 'HOLDS → what each session was told' },
-  { n: '05', t: 'Check', p: 'memex/runtime/actions.py', c: 'Before a declared edit, its targets and the evidence behind delivered claims are rechecked against the current view, through a long-lived hook service.', a: 'DECIDES → proceed · replan · unknown' },
-  { n: '06', t: 'Correct', p: 'memex/integrations/host_adapter.py', c: 'An affected edit is held, and the correction names what changed and what to re-read. If memex cannot check, the edit proceeds and the agent is told so.', a: 'EMITS → correction, change notice' },
+const NAME = 'memex v1 · Trusted engineering context for AI coding agents';
+const DESC = "memex keeps your coding agent's engineering context current as the code changes, and corrects it before an affected edit lands. Claude Code and Codex, over MCP.";
+
+/* The film, for video search. uploadDate is the v1.0.2 release that ships it. */
+const FILM = {
+  '@type': 'VideoObject',
+  '@id': `${SITE}/#film`,
+  name: 'memex v1 in 60 seconds',
+  description: 'One change, two agents: a teammate pushes, memex notices the evidence moved, holds the dependent edit and tells each Claude Code and Codex session what to re-read.',
+  thumbnailUrl: `${SITE}/memex-v1-video.jpg`,
+  uploadDate: '2026-10-08',
+  duration: 'PT1M',
+  contentUrl: `${SITE}/memex-v1.mp4`,
+  isPartOf: { '@id': `${SITE}/#webpage` },
+  about: { '@id': `${SITE}/#memex` },
+};
+
+/* Visible FAQ. Every answer traces to the memex repo: README.md (Cursor MCP
+   config), CHANGELOG.md [1.0.2] (Neo4j down), docs/v1/25_ONBOARDING.md,
+   01_VISION_AND_SCOPE.md (not personal memory), 28_PHASE6_RESULTS.md (S05).
+   No FAQPage schema: Google retired FAQ rich results (2026-05-07). */
+const FAQ: { q: string; a: ReactNode }[] = [
+  { q: 'What is memex?', a: <>memex (<code>memex-mcp</code> on PyPI, <code>stifler-memex-mcp</code> on npm) is an open-source MCP server and hook service for AI coding agents. It binds each claim about your repository to the source bytes behind it, records what each Claude Code or Codex session was told, and when that evidence changes, holds the affected edit and tells the agent what to re-read. MIT licensed, by Hill Patel.</> },
+  { q: 'Which coding agents does memex work with? Does it work with Cursor?', a: <>Held edits, corrections and change notices work in Claude Code and Codex, through hooks installed in the repository’s own project settings. In Codex they need app-server (IDE or desktop) sessions, because <code>codex exec</code> runs no hooks. Other MCP clients, Cursor included, can connect to the memex MCP server for explicit lookups, but they get no held edits or corrections.</> },
+  { q: 'Does memex need Neo4j?', a: <>Yes. memex keeps its repository views in a Neo4j 5 server you already run, and does not replace or change your datastore. Docker is not required. If Neo4j is not running, the MCP server still answers the client’s handshake; tool calls say Neo4j is unreachable and how to fix it, and work again as soon as it answers, without a restart.</> },
+  { q: 'What happens if memex is down or cannot check an edit?', a: <>memex fails open. If a hook times out or errors, or memex cannot check, the edit proceeds and the agent is told freshness is unknown. memex never grants permission; it can only hold an edit and ask the agent to reconsider. <code>memex v1 rollback</code> turns it off at once and keeps the journal and evidence, so <code>memex v1 mode live</code> can resume later.</> },
+  { q: 'How is memex different from Mem0 or RAG memory?', a: <>Memory and retrieval tools such as Mem0 recall what looks relevant now. memex is not a personal-memory service and does not ingest transcripts. It tracks the evidence behind each claim it delivered and which session received it, so when a change makes that claim stale, the session that relied on it is corrected before its next affected edit. Retrieval says what is true now; memex also says what stopped being true, and who was told.</> },
+  { q: 'Is memex free?', a: <>Yes. memex is open source under the MIT licence and published free on PyPI (<code>memex-mcp</code>), npm (<code>stifler-memex-mcp</code>) and the MCP Registry (<code>io.github.STiFLeR7/memex</code>). It runs on your machine against your own Neo4j, and uses your host client logged in as usual: memex never asks for or stores its credentials.</> },
+  { q: 'Does memex make coding agents more accurate or faster?', a: <>That is not shown. In the preregistered S05 run of 480 trials, five gates passed and three failed: efficacy, because the baselines that already gave agents correct context had no stale failures left to reduce; precision, because comment-only changes caused 8 incorrect corrections; and latency, with a warm check p95 of 275 ms against a 200 ms threshold. <a href="/evaluation">Read the full results</a>.</> },
+  { q: 'How do I install memex?', a: <><code>pip install memex-mcp</code> (or <code>npx stifler-memex-mcp</code>), then in your repository run <code>memex v1 install claude</code> (or <code>codex</code>), <code>memex v1 doctor</code>, optionally <code>memex v1 mode shadow</code> for a first week, and <code>memex v1 mode live</code>. You need Python 3.11+, Git and a reachable Neo4j 5. <a href="/setup">The setup guide</a> has every step.</> },
 ];
 
 /* Static markup: public/site.js drives the theme toggle, canvases, reveals and demos. */
@@ -17,20 +39,8 @@ export default function Page() {
     <>
 <a className="skip" href="#main">Skip to content</a>
 
-<svg width="0" height="0" style={{ 'position': 'absolute' } as CSSProperties} aria-hidden="true">
-  <defs>
-    <linearGradient id="mt" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stopColor="#7FDDE0"/><stop offset="0.7" stopColor="#00B3B5"/><stop offset="1" stopColor="#00A5A8"/></linearGradient>
-    <linearGradient id="ml" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stopColor="#E6F8C8"/><stop offset="0.75" stopColor="#8EDC5A"/><stop offset="1" stopColor="#7FD24C"/></linearGradient>
-    <linearGradient id="mo" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stopColor="#FFFFFF"/><stop offset="1" stopColor="#D8F5EE"/></linearGradient>
-    <clipPath id="mc"><rect x="196" y="76" width="260" height="260" rx="78"/></clipPath>
-    <symbol id="mark" viewBox="0 0 512 512">
-      <rect x="56" y="176" width="260" height="260" rx="78" fill="url(#mt)"/>
-      <rect x="196" y="76" width="260" height="260" rx="78" fill="url(#ml)"/>
-      <rect x="56" y="176" width="260" height="260" rx="78" fill="url(#mo)" clipPath="url(#mc)"/>
-      <rect x="56" y="176" width="260" height="260" rx="78" fill="none" stroke="#fff" strokeWidth="6" strokeOpacity="0.9" clipPath="url(#mc)"/>
-    </symbol>
-  </defs>
-</svg>
+<MarkDefs />
+<JsonLd data={pageLd('/', NAME, DESC, [FILM])} />
 
 <nav className="top" aria-label="Primary">
   <div className="wrap">
@@ -39,14 +49,11 @@ export default function Page() {
     <ul>
       <li><a href="#how">How it works</a></li>
       <li><a href="#plane">Pipeline</a></li>
-      <li><a href="#hosts">Hosts</a></li>
-      <li><a href="#evidence">Evidence</a></li>
-      <li><a href="#install">Install</a></li>
+      <li><a href="#faq">FAQ</a></li>
+      <li><a href="/setup">Setup</a></li>
+      <li><a href="/evaluation">Evaluation</a></li>
     </ul>
-    <button className="theme" id="theme" type="button" aria-label="Switch to dark theme" aria-pressed="false">
-      <svg className="sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" aria-hidden="true"><circle cx="12" cy="12" r="4.2"/><path d="M12 2.5v2M12 19.5v2M2.5 12h2M19.5 12h2M5.3 5.3l1.4 1.4M17.3 17.3l1.4 1.4M5.3 18.7l1.4-1.4M17.3 6.7l1.4-1.4"/></svg>
-      <svg className="moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" aria-hidden="true"><path d="M20.2 14.6A8.2 8.2 0 0 1 9.4 3.8a8.2 8.2 0 1 0 10.8 10.8Z"/></svg>
-    </button>
+    <ThemeButton />
     <a className="btn" href="https://github.com/STiFLeR7/memex">GitHub <span className="a" aria-hidden="true">↗</span></a>
   </div>
   <div className="progress" aria-hidden="true"></div>
@@ -60,9 +67,11 @@ export default function Page() {
   <div className="glass g-lime" data-par="0.05" data-rot="10" aria-hidden="true"></div>
   <div className="wrap">
     <div>
+      <p className="eyebrow">Context for AI coding agents · Claude Code, Codex, MCP</p>
       <h1 className="stmt" data-words>Your agent read the code. <em>Then the code changed.</em></h1>
-      <p className="lede rv d2">memex keeps your agent’s engineering context current as the code changes. It knows what each session
-        was told, notices when the evidence behind it moves, and corrects the agent before the affected edit lands.</p>
+      <p className="lede rv d2">memex is an open-source MCP server and hook service (<code>memex-mcp</code>) that keeps your coding agent’s
+        engineering context current as the code changes. It knows what each Claude Code or Codex session was told, notices when
+        the evidence behind it moves, and corrects the agent before the affected edit lands.</p>
       <div className="actions rv d3">
         <a className="btn lg" href="#install">Install memex <span className="a" aria-hidden="true">→</span></a>
         <a className="btn lg ghost" href="#film">Watch the film <span className="a" aria-hidden="true">▶</span></a>
@@ -91,7 +100,7 @@ export default function Page() {
     <h2 className="stmt" data-words>One change, two agents, <em>sixty seconds.</em></h2>
     <p className="sub rv d1">A teammate pushes. memex notices the evidence moved, holds the edit that depended on it, and tells each session what to re-read.</p>
     <div className="frame rv d2" id="frame">
-      <video id="filmV" preload="none" playsInline poster="/memex-v1-video.jpg" aria-label="memex v1 in 60 seconds">
+      <video id="filmV" preload="none" playsInline poster="/memex-v1-video.webp" aria-label="memex v1 in 60 seconds">
         <source src="/memex-v1.mp4" type="video/mp4" />
       </video>
       <button className="play" id="play" type="button" aria-label="Play the 60-second film"><span className="lbl"><span className="tri" aria-hidden="true"></span>Play the film · 1:00</span></button>
@@ -137,22 +146,21 @@ export default function Page() {
 
 <section className="block" id="plane">
   <div className="wrap">
-    
     <h2 className="stmt" data-words>Six stages from a changed byte <em>to a held edit.</em></h2>
+    <p className="sub rv d1">Every check runs the same six deterministic stages: read the source, record a view, verify each claim against its
+      evidence, deliver to the session, recheck before an edit, and correct the agent when something it was told no longer holds.</p>
     <div className="plane rv d1">
       <ul className="legend" id="legend" aria-label="Pipeline stages">
-        {STAGES.map(s => <li key={s.n}><button type="button" aria-pressed={s.n === '01'} data-p={s.p} data-c={s.c} data-a={s.a}><span className="n">{s.n}</span><span className="t">{s.t}</span></button></li>)}
+        {STAGES.map(s => <li key={s.n}><button type="button" aria-pressed={s.n === '01'} aria-controls={`stage-${s.n}`}><span className="n">{s.n}</span><span className="t">{s.t}</span></button></li>)}
       </ul>
       <div className="stage">
         <canvas id="planeCv" aria-hidden="true"></canvas>
-        <div className="caption" id="caption" aria-live="polite"><div className="path">{STAGES[0].p}</div><p>{STAGES[0].c}</p><div className="art">{STAGES[0].a}</div></div>
-        <noscript>
-          <ol className="stages">
-            {STAGES.slice(1).map(s => <li key={s.n}><div className="path">{s.n} · {s.t} · {s.p}</div><p>{s.c}</p><div className="art">{s.a}</div></li>)}
-          </ol>
-        </noscript>
+        <ol className="stages" id="stages">
+          {STAGES.map((s, i) => <li key={s.n} id={`stage-${s.n}`} className={i === 0 ? 'on' : undefined}><h3><span className="n">{s.n}</span> {s.t}</h3><p>{s.c}</p><div className="path">{s.p}</div><div className="art">{s.a}</div></li>)}
+        </ol>
       </div>
     </div>
+    <p className="more-link rv d2"><a href="/how-it-works">How memex works, in full →</a></p>
   </div>
 </section>
 
@@ -199,13 +207,23 @@ export default function Page() {
     <div>
       <h2 className="stmt" data-words>Preregistered, and published <em>in full.</em></h2>
       <p className="sub rv d1">Every evaluation freezes its definitions and thresholds before the first trial, runs on real clients, and is published with its data.</p>
-      <a className="more rv d2" href="https://github.com/STiFLeR7/memex/tree/master/docs/v1">Read the reports ↗</a>
+      <a className="more rv d2" href="/evaluation">Read the results, gate by gate →</a>
     </div>
     <dl className="ledger">
       <div className="row rv d1"><dt>Mechanism suite</dt><dd><b><span data-count="16">16</span> of 16 fixtures</b>Stale evidence, supersession, worktree isolation and authority, with no isolation or authority violation.</dd></div>
       <div className="row rv d2"><dt>Native clients</dt><dd><b>Claude Code and Codex</b>Live together, with delivery confirmed from each client’s own session record.</dd></div>
       <div className="row rv d3"><dt>Confirmatory run</dt><dd><b><span data-count="480">480</span> trials</b>Five comparison arms across 48 held-out histories on both hosts, analysed once against frozen thresholds. Five gates passed; efficacy, precision and latency did not.</dd></div>
     </dl>
+  </div>
+</section>
+
+<section className="block" id="faq">
+  <div className="wrap">
+    <h2 className="stmt" data-words>Questions people <em>ask first.</em></h2>
+    <p className="sub rv d1">Short, direct answers about what memex is, what it needs, and what it has and has not been shown to do.</p>
+    <div className="faq">
+      {FAQ.map(f => <div className="qa rv d1" key={f.q}><h3>{f.q}</h3><p>{f.a}</p></div>)}
+    </div>
   </div>
 </section>
 
@@ -239,7 +257,7 @@ export default function Page() {
     <h2 className="stmt" data-words>Give your agents a memory of <em>what they were told.</em></h2>
     <p className="sub rv d1">Open source, MIT. Works with the Neo4j you already run, and never touches your client credentials.</p>
     <div className="actions rv d2">
-      <a className="btn lg" href="https://github.com/STiFLeR7/memex/blob/master/docs/v1/25_ONBOARDING.md">Read the setup guide <span className="a" aria-hidden="true">↗</span></a>
+      <a className="btn lg" href="/setup">Read the setup guide <span className="a" aria-hidden="true">→</span></a>
       <a className="btn lg ghost" href="https://github.com/STiFLeR7/memex">View on GitHub <span className="a" aria-hidden="true">↗</span></a>
     </div>
   </div>
@@ -247,19 +265,7 @@ export default function Page() {
 
 </main>
 
-<footer>
-  <div className="wrap">
-    <a className="brand" href="#top" style={{ 'fontSize': '18px' } as CSSProperties}><svg width="28" height="28" aria-hidden="true"><use href="#mark"/></svg>memex <span className="ver" style={{ 'marginLeft': '4px' } as CSSProperties}><i aria-hidden="true"></i>v1.0.2</span></a>
-    <nav aria-label="Footer">
-      <a href="https://github.com/STiFLeR7/memex">GitHub</a>
-      <a href="https://pypi.org/project/memex-mcp/">PyPI</a>
-      <a href="https://www.npmjs.com/package/stifler-memex-mcp">npm</a>
-      <a href="https://registry.modelcontextprotocol.io/">MCP Registry · io.github.STiFLeR7/memex</a>
-      <a href="mailto:contact@stifler.in">Contact</a>
-    </nav>
-    <div className="legal"><span>© 2026 memex · MIT · Hill Patel</span><a className="credit" href="https://x.com/SoT__Design" target="_blank" rel="noopener">Designed by SystemOfThoughts</a></div>
-  </div>
-</footer>
+<Footer />
     </>
   );
 }

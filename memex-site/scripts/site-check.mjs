@@ -11,11 +11,12 @@ import { fileURLToPath } from 'node:url';
 import { chromium } from 'playwright';
 
 const OUT = fileURLToPath(new URL('../out/', import.meta.url));
-const TYPES = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.svg': 'image/svg+xml', '.jpg': 'image/jpeg',
+const TYPES = { '.webp': 'image/webp', '.png': 'image/png', '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.svg': 'image/svg+xml', '.jpg': 'image/jpeg',
   '.mp4': 'video/mp4', '.woff2': 'font/woff2', '.txt': 'text/plain', '.xml': 'application/xml', '.ico': 'image/x-icon' };
 const server = createServer(async (req, res) => {
   let path = decodeURIComponent(new URL(req.url, 'http://x').pathname);
   if (path.endsWith('/')) path += 'index.html';
+  if (!extname(path)) path += '.html'; // /setup → setup.html, as Workers assets serve it
   try {
     const body = await readFile(join(OUT, normalize(path)));
     res.writeHead(200, { 'content-type': TYPES[extname(path)] || 'application/octet-stream' }).end(body);
@@ -27,14 +28,14 @@ const fails = [];
 const check = (ok, msg) => { if (!ok) fails.push(msg); };
 const browser = await chromium.launch({ channel: 'chrome' });
 
-async function open(name, opts = {}) {
+async function open(name, opts = {}, url = BASE) {
   const ctx = await browser.newContext(opts);
   const page = await ctx.newPage();
   page.on('console', m => m.type() === 'error' && fails.push(`${name}: console error: ${m.text()}`));
   page.on('pageerror', e => fails.push(`${name}: page error: ${e.message}`));
   page.on('requestfailed', r => !r.url().endsWith('.mp4') && !(opts.javaScriptEnabled === false && r.url().endsWith('.js')) && fails.push(`${name}: request failed: ${r.url()}`));
   page.on('response', r => r.status() >= 400 && fails.push(`${name}: HTTP ${r.status()} ${r.url()}`));
-  await page.goto(BASE, { waitUntil: 'networkidle' });
+  await page.goto(url, { waitUntil: 'networkidle' });
   return { ctx, page };
 }
 
@@ -67,11 +68,11 @@ for (const [w, h] of [[1440, 900], [390, 844]]) {
   const r = await page.evaluate(() => ({
     hidden: [...document.querySelectorAll('.rv, .stmt')].filter(el => !el.classList.contains('in') || getComputedStyle(el).opacity !== '1').length,
     demo: ['s1', 's2', 's3'].every(c => document.getElementById('demo').classList.contains(c)),
-    caption: document.querySelector('#caption p').textContent.trim().length,
+    caption: document.querySelectorAll('#stages > li.on').length,
   }));
   check(!r.hidden, `reduced: ${r.hidden} reveal targets not in their final state`);
   check(r.demo, 'reduced: hero demo is not on its finished state');
-  check(r.caption > 0, 'reduced: pipeline caption is empty');
+  check(r.caption === 1, `reduced: ${r.caption} pipeline stages marked active, expected 1`);
   await ctx.close();
 }
 
@@ -80,13 +81,32 @@ for (const [w, h] of [[1440, 900], [390, 844]]) {
   const { ctx, page } = await open('no-js', { viewport: { width: 1440, height: 900 }, javaScriptEnabled: false });
   const r = await page.evaluate(() => ({
     invisible: [...document.querySelectorAll('h1, h2, .rv, main p')].filter(el => getComputedStyle(el).opacity !== '1').map(el => el.outerHTML.slice(0, 90)),
-    stages: document.querySelectorAll('#legend button').length,
+    stages: [...document.querySelectorAll('#stages > li')].filter(li => li.offsetHeight && li.querySelector('p').textContent.trim()).length,
     text: document.querySelector('main').innerText.length,
   }));
   check(!r.invisible.length, `no-js: invisible content: ${r.invisible.join(' | ')}`);
   check(r.stages === 6, `no-js: pipeline shows ${r.stages} of 6 stages`);
   check(r.text > 3000, `no-js: main has only ${r.text} characters of text`);
   await ctx.close();
+}
+
+// Inner pages: load clean (no console errors), one h1, no skipped headings, visible body text.
+for (const path of ['setup', 'how-it-works', 'evaluation', 'changelog']) {
+  for (const js of [true, false]) {
+    const name = `/${path}${js ? '' : ' no-js'}`;
+    const { ctx, page } = await open(name, { viewport: { width: 390, height: 844 }, javaScriptEnabled: js }, BASE + path);
+    const r = await page.evaluate(() => {
+      const hs = [...document.querySelectorAll('h1,h2,h3,h4')].map(x => +x.tagName[1]);
+      return { h1: hs.filter(l => l === 1).length, skip: hs.some((l, i) => i && l - hs[i - 1] > 1), text: document.querySelector('main').innerText.length,
+        scroll: document.documentElement.scrollWidth - document.documentElement.clientWidth, canon: document.querySelector('link[rel=canonical]')?.href };
+    });
+    check(r.h1 === 1, `${name}: expected exactly one h1`);
+    check(!r.skip, `${name}: heading level skips`);
+    check(r.text > 1500, `${name}: main has only ${r.text} characters`);
+    check(r.scroll <= 0, `${name}: page scrolls horizontally by ${r.scroll}px`);
+    check(r.canon === `https://memex.stifler.in/${path}`, `${name}: canonical is ${r.canon}`);
+    await ctx.close();
+  }
 }
 
 // Theme toggle: flips, persists, and survives a reload.
@@ -103,10 +123,13 @@ for (const [w, h] of [[1440, 900], [390, 844]]) {
 }
 
 // Static files the site promises.
-for (const f of ['og.jpg', 'robots.txt', 'sitemap.xml', 'llms.txt', 'icon.svg', 'memex-v1-video.jpg']) {
+for (const f of ['og.jpg', 'robots.txt', 'sitemap.xml', 'llms.txt', 'icon.svg', 'favicon.ico', 'apple-icon.png', 'memex-v1-video.jpg', 'memex-v1-video.webp', 'memex-film-live-context.webp']) {
   const r = await fetch(BASE + f); check(r.ok, `GET /${f} → ${r.status}`);
 }
 check((await fetch(BASE + 'no-such-page')).status === 404, 'unknown path is not a 404');
+// Worker config, not a served file: must ship in out/ with HSTS and immutable caching.
+const headers = await readFile(join(OUT, '_headers'), 'utf8').catch(() => '');
+check(/Strict-Transport-Security/.test(headers) && /\/_next\/static\/\*\s+Cache-Control: public, max-age=31536000, immutable/.test(headers), 'out/_headers missing HSTS or immutable caching');
 
 await browser.close(); server.close();
 if (fails.length) { console.error(`site-check: ${fails.length} failure(s)\n- ` + fails.join('\n- ')); process.exit(1); }
