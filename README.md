@@ -2,12 +2,9 @@
 
 <!-- mcp-name: io.github.STiFLeR7/memex -->
 
-> Keeps your AI coding agents' engineering context current as the code changes.
-> memex builds a bitemporal knowledge graph of your repository (modules,
-> symbols, decisions, problems, evidence, and code evolution). In v1 it also
-> hooks into Claude Code and Codex: each session starts with the right context,
-> each edit is checked against the current code, and the agent is told exactly
-> what changed.
+> Open-source MCP server and hook service that keeps Claude Code and Codex
+> engineering context current as the code changes, and holds edits whose
+> evidence changed.
 
 **[memex.stifler.in](https://memex.stifler.in)**
 
@@ -16,10 +13,16 @@ structured engineering knowledge and deliver it to agents with freshness and
 provenance preserved, without making memex a source of personal memory or raw
 session state.
 
+memex builds a bitemporal knowledge graph of your repository (modules,
+symbols, decisions, problems, evidence, and code evolution). In v1 it also
+hooks into Claude Code and Codex: each session starts with the right context,
+each edit is checked against the current code, and the agent is told exactly
+what changed.
+
 [![Website](https://img.shields.io/badge/website-memex.stifler.in-2D6AFF)](https://memex.stifler.in)
-[![PyPI](https://img.shields.io/pypi/v/memex-mcp?v=1.0.2)](https://pypi.org/project/memex-mcp/)
+[![PyPI](https://img.shields.io/pypi/v/memex-mcp?v=1.0.3)](https://pypi.org/project/memex-mcp/)
 [![PyPI downloads](https://img.shields.io/pypi/dm/memex-mcp)](https://pypistats.org/packages/memex-mcp)
-[![npm](https://img.shields.io/npm/v/stifler-memex-mcp?v=1.0.2)](https://www.npmjs.com/package/stifler-memex-mcp)
+[![npm](https://img.shields.io/npm/v/stifler-memex-mcp?v=1.0.3)](https://www.npmjs.com/package/stifler-memex-mcp)
 [![npm downloads](https://img.shields.io/npm/dm/stifler-memex-mcp)](https://www.npmjs.com/package/stifler-memex-mcp)
 [![Claude Code marketplace](https://img.shields.io/badge/Claude%20Code-marketplace-7c3aed)](https://github.com/STiFLeR7/claude-plugins)
 [![memex MCP server](https://glama.ai/mcp/servers/STiFLeR7/memex/badges/score.svg)](https://glama.ai/mcp/servers/STiFLeR7/memex)

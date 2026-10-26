@@ -2,6 +2,14 @@
 
 All notable changes to memex are documented here.
 
+## [1.0.3] — 2026-10-26
+
+### Documentation
+
+- PyPI, npm and GitHub descriptions now match v1: "Open-source MCP server and
+  hook service that keeps Claude Code and Codex engineering context current as
+  the code changes." Homepage is https://memex.stifler.in. No code changes.
+
 ## [1.0.2] — 2026-10-08
 
 ### Fixed

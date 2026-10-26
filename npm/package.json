@@ -1,8 +1,8 @@
 {
   "name": "stifler-memex-mcp",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "mcpName": "io.github.STiFLeR7/memex",
-  "description": "Trusted engineering context for agentic software engineering via Hermes MemoryProvider and MCP.",
+  "description": "Open-source MCP server and hook service that keeps Claude Code and Codex engineering context current as the code changes.",
   "bin": {
     "stifler-memex-mcp": "./bin/memex-mcp.js",
     "memex-mcp": "./bin/memex-mcp.js",
@@ -46,7 +46,7 @@
   "bugs": {
     "url": "https://github.com/STiFLeR7/memex/issues"
   },
-  "homepage": "https://github.com/STiFLeR7/memex#readme",
+  "homepage": "https://memex.stifler.in",
   "engines": {
     "node": ">=18"
   },
