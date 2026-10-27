@@ -3,15 +3,20 @@ import { DocShell, JsonLd, pageLd, pageMeta } from '../shell';
 /* Source: CHANGELOG.md in the memex repository (v1 releases only). */
 const PATH = '/changelog';
 const TITLE = 'memex changelog: v1 releases';
-const DESC = 'What changed in each memex v1 release: v1.0.2 (2026-10-08), v1.0.1 and v1.0.0 (2026-10-06): Claude Code and Codex hooks, held edits, the hook service.';
+const DESC = 'What changed in each memex v1 release: v1.0.3 (2026-10-26), v1.0.2 (2026-10-08), v1.0.1 and v1.0.0 (2026-10-06): Claude Code and Codex hooks, held edits, the hook service.';
 
 export const metadata = pageMeta(PATH, `${TITLE} · memex`, DESC);
 
 export default function Changelog() {
   return (
-    <DocShell path={PATH} title="Changelog" lede={<>Every memex v1 release, newest first. The current release is v1.0.2, published 2026-10-08 on PyPI
+    <DocShell path={PATH} title="Changelog" lede={<>Every memex v1 release, newest first. The current release is v1.0.3, published 2026-10-26 on PyPI
       (<code>memex-mcp</code>), npm (<code>stifler-memex-mcp</code>) and the MCP Registry.</>}>
       <JsonLd data={pageLd(PATH, TITLE, DESC)} />
+
+      <h2 id="v1-0-3">v1.0.3 · 2026-10-26</h2>
+      <h3>Documentation</h3>
+      <p>PyPI, npm and GitHub descriptions now match v1: “Open-source MCP server and hook service that keeps Claude Code and Codex engineering
+        context current as the code changes.” Homepage is https://memex.stifler.in. No code changes.</p>
 
       <h2 id="v1-0-2">v1.0.2 · 2026-10-08</h2>
       <h3>Fixed</h3>

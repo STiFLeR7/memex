@@ -4,7 +4,7 @@ import { Footer, JsonLd, MarkDefs, SITE, STAGES, ThemeButton, pageLd } from './s
 const NAME = 'memex v1 · Trusted engineering context for AI coding agents';
 const DESC = "memex keeps your coding agent's engineering context current as the code changes, and corrects it before an affected edit lands. Claude Code and Codex, over MCP.";
 
-/* The film, for video search. uploadDate is the v1.0.2 release that ships it. */
+/* The film, for video search. uploadDate is the 2026-10-08 release that ships it. */
 const FILM = {
   '@type': 'VideoObject',
   '@id': `${SITE}/#film`,
@@ -19,7 +19,7 @@ const FILM = {
 };
 
 /* Visible FAQ. Every answer traces to the memex repo: README.md (Cursor MCP
-   config), CHANGELOG.md [1.0.2] (Neo4j down), docs/v1/25_ONBOARDING.md,
+   config), CHANGELOG.md 2026-10-08 entry (Neo4j down), docs/v1/25_ONBOARDING.md,
    01_VISION_AND_SCOPE.md (not personal memory), 28_PHASE6_RESULTS.md (S05).
    No FAQPage schema: Google retired FAQ rich results (2026-05-07). */
 const FAQ: { q: string; a: ReactNode }[] = [
@@ -45,7 +45,7 @@ export default function Page() {
 <nav className="top" aria-label="Primary">
   <div className="wrap">
     <a className="brand" href="#top"><svg width="34" height="34" aria-hidden="true"><use href="#mark"/></svg>memex</a>
-    <span className="ver"><i aria-hidden="true"></i>v1.0.2</span>
+    <span className="ver"><i aria-hidden="true"></i>v1.0.3</span>
     <ul>
       <li><a href="#how">How it works</a></li>
       <li><a href="#plane">Pipeline</a></li>

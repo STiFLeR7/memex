@@ -2,7 +2,7 @@
 
 > memex (memex-mcp) is an open-source MCP server and hook service that keeps an AI coding agent's engineering context current as the code changes. It knows what each Claude Code or Codex session was told, notices when the evidence behind that context moves, and corrects the agent before the affected edit lands. Open source, MIT, delivered over hooks and MCP.
 
-- Current release: v1.0.2, released 2026-10-08 (`memex-mcp` on PyPI, `stifler-memex-mcp` on npm, `io.github.STiFLeR7/memex` in the MCP Registry).
+- Current release: v1.0.3, released 2026-10-26 (`memex-mcp` on PyPI, `stifler-memex-mcp` on npm, `io.github.STiFLeR7/memex` in the MCP Registry).
 - Install: `pip install memex-mcp` (or `npx stifler-memex-mcp`), then in a repository `memex v1 install claude` (or `codex`), `memex v1 doctor`, optionally `memex v1 mode shadow` for a first week, then `memex v1 mode live`. `memex v1 rollback` turns it off at once.
 - Needs Python 3.11+, Git and a reachable Neo4j 5. Hooks go only into the repository's own project settings; memex never asks for client credentials.
 - How it works, in six stages: capture (stable source reads), index (immutable repository views), verify (each claim against the evidence it cites; deterministic, no model in the loop), deliver (a bounded packet, counted only when the client's own transcript shows it arrived), check (before a declared edit), correct (hold the edit and name what changed and what to re-read).

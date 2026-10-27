@@ -5,9 +5,9 @@ import type { CSSProperties, ReactNode } from 'react';
    footer, the doc-page frame and per-page metadata / JSON-LD. */
 
 export const SITE = 'https://memex.stifler.in';
-export const VERSION = '1.0.2';
-export const RELEASED = '2026-10-08'; // CHANGELOG.md, [1.0.2]
-export const UPDATED = '2026-10-26'; // bump when the copy changes (sitemap lastmod, dateModified)
+export const VERSION = '1.0.3';
+export const RELEASED = '2026-10-26'; // CHANGELOG.md, [1.0.3]
+export const UPDATED = '2026-10-27'; // bump when the copy changes (sitemap lastmod, dateModified)
 export const AUTHOR_ID = `${SITE}/#author`;
 
 /* Pipeline stages. Rendered as visible text on the home page and on
@@ -113,7 +113,7 @@ export function Footer() {
   return (
     <footer>
       <div className="wrap">
-        <a className="brand" href="/" style={{ 'fontSize': '18px' } as CSSProperties}><svg width="28" height="28" aria-hidden="true"><use href="#mark"/></svg>memex <span className="ver" style={{ 'marginLeft': '4px' } as CSSProperties}><i aria-hidden="true"></i>v1.0.2</span></a>
+        <a className="brand" href="/" style={{ 'fontSize': '18px' } as CSSProperties}><svg width="28" height="28" aria-hidden="true"><use href="#mark"/></svg>memex <span className="ver" style={{ 'marginLeft': '4px' } as CSSProperties}><i aria-hidden="true"></i>v1.0.3</span></a>
         <nav aria-label="Footer">
           {PAGES.map(p => <a key={p.href} href={p.href}>{p.label}</a>)}
           <a href="https://github.com/STiFLeR7/memex">GitHub</a>
@@ -142,7 +142,7 @@ export function DocShell({ path, title, lede, children }: { path: string; title:
       <nav className="top scrolled" aria-label="Primary">
         <div className="wrap">
           <a className="brand" href="/"><svg width="34" height="34" aria-hidden="true"><use href="#mark"/></svg>memex</a>
-          <span className="ver"><i aria-hidden="true"></i>v1.0.2</span>
+          <span className="ver"><i aria-hidden="true"></i>v1.0.3</span>
           <ul>
             {PAGES.map(p => <li key={p.href}><a href={p.href} aria-current={p.href === path ? 'page' : undefined}>{p.label}</a></li>)}
           </ul>
@@ -156,7 +156,7 @@ export function DocShell({ path, title, lede, children }: { path: string; title:
           <nav aria-label="Breadcrumb"><ol className="crumbs"><li><a href="/">memex</a></li><li aria-current="page">{title}</li></ol></nav>
           <h1>{title}</h1>
           <p className="lede">{lede}</p>
-          <p className="meta">memex v1.0.2 · released {RELEASED} · updated <time dateTime={UPDATED}>{UPDATED}</time></p>
+          <p className="meta">memex v1.0.3 · released {RELEASED} · updated <time dateTime={UPDATED}>{UPDATED}</time></p>
           {children}
         </article>
       </main>
