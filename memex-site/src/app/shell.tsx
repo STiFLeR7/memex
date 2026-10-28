@@ -127,7 +127,7 @@ export function Footer() {
             <a href="https://x.com/hillpatel07">@hillpatel07</a>) with <a href="https://github.com/Nirvaan05">Nirvaan Lagishetty</a> (lead contributor and maintainer).</p>
           <p>Released {RELEASED} · page updated <time dateTime={UPDATED}>{UPDATED}</time></p>
         </div>
-        <div className="legal"><span>© 2026 memex · MIT · Hill Patel</span><a className="credit" href="https://x.com/SoT__Design" target="_blank" rel="noopener">Designed by SystemOfThoughts</a></div>
+        <div className="legal"><span>© 2026 memex · MIT · Hill Patel</span><a className="credit" href="https://sotdesign.in/" target="_blank" rel="noopener">Designed by SystemOfThoughts</a></div>
       </div>
     </footer>
   );
